@@ -527,6 +527,17 @@
             color: var(--duo-text-light); font-size: 1.2em; cursor: pointer;
             display: grid; place-items: center;
         }
+        .auth-oauth-btn {
+            width: 100%; display: flex; align-items: center; justify-content: center;
+            gap: 10px; margin-bottom: 16px;
+        }
+        .auth-divider {
+            display: flex; align-items: center; gap: 12px;
+            margin-bottom: 16px; color: var(--duo-text-light); font-size: 0.82em; font-weight: 600;
+        }
+        .auth-divider::before, .auth-divider::after {
+            content: ''; flex: 1; height: 1px; background: var(--duo-border);
+        }
         .user-badge {
             display: flex; align-items: center; justify-content: center; gap: 10px;
             margin-top: 10px; font-size: 0.85em; color: var(--duo-text-light);
@@ -1368,7 +1379,15 @@
             max-height: 80vh;
             overflow-y: auto;
             border: 2px solid var(--duo-border);
+            position: relative;
         }
+        .modal-close {
+            position: absolute; top: 14px; right: 14px;
+            width: 32px; height: 32px; border-radius: 50%;
+            background: transparent; border: none; color: var(--duo-text-light);
+            cursor: pointer; display: grid; place-items: center;
+        }
+        .modal-close:hover { background: var(--duo-bg); color: var(--duo-text); }
         .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 20px; color: var(--duo-green-dark); }
 
         .error-message {
@@ -1423,6 +1442,7 @@
                 <span id="userEmail"></span>
                 <button id="signOutBtn" class="button button-secondary">Sign out</button>
             </div>
+            <button id="signInPromptBtn" class="button button-secondary" style="margin-top: 10px; padding: 8px 20px;" hidden>Sign in</button>
             <div id="usageBadge" class="usage-badge" title=""></div>
         </header>
 
@@ -1597,14 +1617,26 @@
         </div>
     </div>
 
-    <!-- Auth Modal: sign in / sign up. No API key ever touches the browser. -->
-    <div id="authModal" class="modal active">
+    <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.
+         Starts closed — login happens at the point of need, not as a gate. -->
+    <div id="authModal" class="modal">
         <div class="modal-content">
+            <button type="button" class="modal-close" id="authCloseBtn" aria-label="Close"></button>
             <div class="modal-title" id="authTitle">Welcome back</div>
             <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
                 <button class="source-tab active" id="authTabIn" role="tab" aria-selected="true">Sign in</button>
                 <button class="source-tab" id="authTabUp" role="tab" aria-selected="false">Sign up</button>
             </div>
+            <button type="button" class="button button-secondary auth-oauth-btn" id="authGoogleBtn">
+                <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+                    <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84c-.21 1.13-.84 2.09-1.8 2.73v2.27h2.91c1.7-1.57 2.69-3.88 2.69-6.64z"/>
+                    <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.91-2.27c-.81.54-1.84.86-3.05.86-2.34 0-4.33-1.58-5.04-3.71H.96v2.33C2.44 15.98 5.48 18 9 18z"/>
+                    <path fill="#FBBC05" d="M3.96 10.71c-.18-.54-.29-1.11-.29-1.71s.11-1.17.29-1.71V4.96H.96A8.996 8.996 0 000 9c0 1.45.35 2.83.96 4.04l3-2.33z"/>
+                    <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l3 2.33c.71-2.13 2.7-3.71 5.04-3.71z"/>
+                </svg>
+                <span>Continue with Google</span>
+            </button>
+            <div class="auth-divider"><span>or continue with email</span></div>
             <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
             <div class="auth-password-row" style="margin-bottom: 6px;">
                 <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
@@ -2273,6 +2305,13 @@ ${languageRule()}`;
         }
 
         async function processLearningMaterial(text, title = 'Learning Course') {
+            // The point of need: building a course is the first thing that
+            // actually requires an account. Resume automatically after sign-up.
+            if (!currentUser) {
+                pendingAction = { type: 'buildCourse', text, title };
+                showAuthModal('signup');
+                return;
+            }
             showMessage("Generating a personalised learning path...");
             try {
                 const course = await generateLessonPath(text);
@@ -3060,6 +3099,11 @@ ${languageRule()}`;
         }
 
         async function showLibrary() {
+            if (!currentUser) {
+                pendingAction = { type: 'showLibrary' };
+                showAuthModal('signin');
+                return;
+            }
             await loadLibrary();
             renderLibrary();
             document.getElementById('libraryScreen').hidden = false;
@@ -4090,6 +4134,7 @@ ${languageRule()}`;
         document.getElementById('navCourses').addEventListener('click', showLibrary);
 
         document.getElementById('navReview').addEventListener('click', () => {
+            if (!currentUser) { showAuthModal('signin'); return; }
             if (!activeCourseId) { showError('Open a course first.'); return; }
             if (!getDueLessons().length) { showError('Nothing is due for review right now.'); return; }
             setActiveNav('review');
@@ -4097,11 +4142,13 @@ ${languageRule()}`;
         });
 
         document.getElementById('navAccount').addEventListener('click', async () => {
-            if (!currentUser) return;
+            if (!currentUser) { showAuthModal('signin'); return; }
             if (confirm(`Signed in as ${currentUser.email}. Sign out?`)) {
                 await supabase.auth.signOut();
             }
         });
+
+        document.getElementById('signInPromptBtn').addEventListener('click', () => showAuthModal('signin'));
 
         document.getElementById('tabFile').addEventListener('click', () => selectSource('file'));
         document.getElementById('tabPaste').addEventListener('click', () => selectSource('paste'));
@@ -4134,6 +4181,13 @@ ${languageRule()}`;
             if (e.target.id === 'previewOverlay') closePreview();
         });
 
+        document.getElementById('authModal').addEventListener('click', (e) => {
+            if (e.target.id === 'authModal') {
+                pendingAction = null;
+                hideAuthModal();
+            }
+        });
+
         document.getElementById('backBtn').addEventListener('click', exitLesson);
 
         document.addEventListener('keydown', (e) => {
@@ -4142,6 +4196,9 @@ ${languageRule()}`;
                 closePreview();
             } else if (document.body.classList.contains('lesson-open')) {
                 exitLesson();
+            } else if (document.getElementById('authModal').classList.contains('active')) {
+                pendingAction = null;
+                hideAuthModal();
             }
         });
 
@@ -4195,11 +4252,34 @@ ${languageRule()}`;
             alert("Your free trial has ended. Paid subscriptions are coming soon — check back shortly!");
         }
 
+        // Set by any gated action (building a course, opening the library, etc.)
+        // when it hits the auth wall — resumed automatically right after sign-in,
+        // so the person never has to redo what they were already doing.
+        // A plain serializable descriptor, not a closure — so it can also
+        // survive the full-page redirect an OAuth sign-in does (stashed in
+        // sessionStorage right before redirecting, restored on return).
+        let pendingAction = null;
+
+        async function runPendingAction(action) {
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title);
+            if (action.type === 'showLibrary') return showLibrary();
+        }
+
         async function onSignedIn(user) {
             currentUser = user;
             document.getElementById('userEmail').textContent = user.email;
             document.getElementById('userBadge').hidden = false;
+            document.getElementById('signInPromptBtn').hidden = true;
             hideAuthModal();
+
+            if (pendingAction) {
+                const action = pendingAction;
+                pendingAction = null;
+                await refreshUsage();
+                await runPendingAction(action);
+                return;
+            }
+
             try {
                 await refreshUsage();
                 await loadLibrary();
@@ -4220,19 +4300,53 @@ ${languageRule()}`;
             }
         }
 
-        function onSignedOut() {
+        // The default state for anyone not signed in — browsing is free, the
+        // auth modal only ever appears when something they do actually needs
+        // an account (building a course, opening the library, reviewing).
+        function showAnonymousHome() {
             currentUser = null;
             courseData = null;
             progress = {};
             activeCourseId = null;
             activeSourceText = '';
             library = [];
+            pendingAction = null;
             document.getElementById('userBadge').hidden = true;
-            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('signInPromptBtn').hidden = false;
             document.getElementById('libraryScreen').hidden = true;
             document.getElementById('learningPath').classList.remove('active');
-            showAuthModal('signin');
+            document.getElementById('sourcePicker').hidden = false;
+            hideAuthModal();
+            setActiveNav('home');
         }
+
+        function onSignedOut() {
+            showAnonymousHome();
+        }
+
+        document.getElementById('authCloseBtn').addEventListener('click', () => {
+            pendingAction = null;   // they backed out — don't resume whatever triggered this
+            hideAuthModal();
+        });
+
+        // OAuth is a full-page redirect (to Google and back), which wipes any
+        // in-memory JS state — stash the pending action in sessionStorage first
+        // so onSignedIn() can still pick it up once we land back here.
+        document.getElementById('authGoogleBtn').addEventListener('click', async () => {
+            if (pendingAction) {
+                try { sessionStorage.setItem('pending_action', JSON.stringify(pendingAction)); } catch (_) {}
+            }
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: window.location.origin + window.location.pathname },
+            });
+            if (error) {
+                const err = document.getElementById('authError');
+                err.className = 'error-message';
+                err.textContent = error.message;
+                err.hidden = false;
+            }
+        });
 
         document.getElementById('authTabIn').addEventListener('click', () => setAuthMode('signin'));
         document.getElementById('authTabUp').addEventListener('click', () => setAuthMode('signup'));
@@ -4332,7 +4446,7 @@ ${languageRule()}`;
             hudIconStreak: 'flame', hudIconGems: 'gem', hudIconXp: 'star',
             libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
-            tutorToggleIcon: 'chat', authInfoIcon: 'info',
+            tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
         };
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);
@@ -4342,9 +4456,16 @@ ${languageRule()}`;
         (async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
+                try {
+                    const raw = sessionStorage.getItem('pending_action');
+                    if (raw) {
+                        pendingAction = JSON.parse(raw);
+                        sessionStorage.removeItem('pending_action');
+                    }
+                } catch (_) {}
                 await onSignedIn(session.user);
             } else {
-                showAuthModal('signin');
+                showAnonymousHome();
             }
         })();
     </script>

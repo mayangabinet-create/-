@@ -482,14 +482,16 @@
             border-radius: 14px;
         }
         .source-tab {
-            flex: 1; padding: 11px; border: none; border-radius: 10px;
+            flex: 1; padding: 11px; border: 2px solid transparent; border-radius: 10px;
             background: transparent; color: var(--duo-text-light);
             font-family: 'Baloo 2', sans-serif; font-size: 0.94em; font-weight: 700;
             cursor: pointer; transition: all 0.15s ease;
+            -webkit-appearance: none; appearance: none;
         }
         .source-tab:hover { color: var(--duo-text); }
         .source-tab.active {
             background: var(--duo-card); color: var(--duo-blue-dark);
+            border-color: var(--duo-blue);
             box-shadow: 0 2px 0 rgba(0,0,0,0.08);
         }
         .paste-area {
@@ -497,7 +499,7 @@
             background: var(--duo-card); border: 2px solid var(--duo-border);
             border-radius: 16px; color: var(--duo-text);
             font-family: 'Nunito', sans-serif;
-            font-size: 0.95em; resize: vertical; line-height: 1.6;
+            font-size: 16px; resize: vertical; line-height: 1.6;
         }
         .paste-area:focus { outline: none; border-color: var(--duo-blue); }
 
@@ -506,9 +508,22 @@
             width: 100%; padding: 12px 14px; margin-bottom: 12px;
             background: var(--duo-card); border: 2px solid var(--duo-border);
             border-radius: 12px; color: var(--duo-text);
-            font-family: 'Nunito', sans-serif; font-size: 0.98em;
+            font-family: 'Nunito', sans-serif;
+            /* Below 16px, iOS Safari zooms the whole page in on focus — jarring,
+               and can eat the next tap. Keep every input at 16px or more. */
+            font-size: 16px;
+            -webkit-appearance: none; appearance: none;
         }
         .auth-input:focus { outline: none; border-color: var(--duo-blue); }
+
+        .auth-password-row { position: relative; }
+        .auth-password-row .auth-input { padding-right: 46px; margin-bottom: 0; }
+        .auth-password-toggle {
+            position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+            width: 34px; height: 34px; border: none; background: none;
+            color: var(--duo-text-light); font-size: 1.2em; cursor: pointer;
+            display: grid; place-items: center;
+        }
         .user-badge {
             display: flex; align-items: center; justify-content: center; gap: 10px;
             margin-top: 10px; font-size: 0.85em; color: var(--duo-text-light);
@@ -1138,7 +1153,7 @@
         .memory-input {
             width: 100%; min-height: 120px; margin: 16px 0; padding: 16px;
             background: var(--duo-card); border: 2px solid var(--duo-border); border-radius: 14px;
-            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-size: 0.98em; resize: vertical;
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-size: 16px; resize: vertical;
         }
         .memory-input:focus { outline: none; border-color: var(--duo-blue); }
 
@@ -1293,7 +1308,7 @@
             padding: 10px 15px;
             color: var(--duo-text);
             font-family: 'Nunito', sans-serif;
-            font-size: 0.95em;
+            font-size: 16px;
         }
         .tutor-input input:focus { outline: none; border-color: var(--duo-purple); }
         .tutor-input button { padding: 10px 20px; }
@@ -1384,7 +1399,7 @@
 <body>
     <div class="container">
         <header>
-            <h1><span id="t_title">🦉 AI Learning Path</span></h1>
+            <h1><span id="t_title">AI Learning Path</span></h1>
             <p class="subtitle" id="t_subtitle">Turn any PDF into an interactive learning journey</p>
 
             <div class="duo-hud" id="duoHud">
@@ -1586,7 +1601,10 @@
                 <button class="source-tab" id="authTabUp" role="tab" aria-selected="false">Sign up</button>
             </div>
             <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
-            <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
+            <div class="auth-password-row" style="margin-bottom: 12px;">
+                <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
+                <button type="button" class="auth-password-toggle" id="authPasswordToggle" aria-label="Show password">👁</button>
+            </div>
             <div class="error-message" id="authError" hidden></div>
             <button class="button" id="authSubmitBtn" style="width: 100%;">Sign in</button>
             <div class="info-message" style="margin-top: 15px; font-size: 0.9em;">
@@ -4124,6 +4142,12 @@ ${languageRule()}`;
             const err = document.getElementById('authError');
             err.hidden = true;
             err.className = 'error-message';
+
+            const pwInput = document.getElementById('authPassword');
+            const pwToggle = document.getElementById('authPasswordToggle');
+            pwInput.type = 'password';
+            pwToggle.textContent = '👁';
+            pwToggle.setAttribute('aria-label', 'Show password');
         }
 
         // Placeholder until Stripe is wired in — the entitlement check server-side
@@ -4203,6 +4227,15 @@ ${languageRule()}`;
         document.getElementById('authSubmitBtn').addEventListener('click', submitAuth);
         document.getElementById('authPassword').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') submitAuth();
+        });
+
+        document.getElementById('authPasswordToggle').addEventListener('click', () => {
+            const input = document.getElementById('authPassword');
+            const btn = document.getElementById('authPasswordToggle');
+            const showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            btn.textContent = showing ? '👁' : '🙈';
+            btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
         });
 
         document.getElementById('signOutBtn').addEventListener('click', async () => {

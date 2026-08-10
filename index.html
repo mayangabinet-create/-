@@ -4200,14 +4200,22 @@ ${languageRule()}`;
             document.getElementById('userEmail').textContent = user.email;
             document.getElementById('userBadge').hidden = false;
             hideAuthModal();
-            await refreshUsage();
-            await loadLibrary();
-            const lastId = localStorage.getItem(ACTIVE_STORAGE);
-            if (lastId && library.some(c => c.id === lastId)) {
-                await openCourse(lastId);
-            } else if (library.length) {
-                await showLibrary();
-            } else {
+            try {
+                await refreshUsage();
+                await loadLibrary();
+                const lastId = localStorage.getItem(ACTIVE_STORAGE);
+                if (lastId && library.some(c => c.id === lastId)) {
+                    await openCourse(lastId);
+                } else if (library.length) {
+                    await showLibrary();
+                } else {
+                    document.getElementById('sourcePicker').hidden = false;
+                }
+            } catch (e) {
+                // Signed in successfully, but loading their data failed. Never
+                // leave them staring at a blank screen with no explanation.
+                console.error('Post-signin load failed:', e);
+                showError('Signed in, but something went wrong loading your courses. Try refreshing the page.');
                 document.getElementById('sourcePicker').hidden = false;
             }
         }
@@ -4234,6 +4242,7 @@ ${languageRule()}`;
             const password = document.getElementById('authPassword').value;
             const isUp = document.getElementById('authTabUp').classList.contains('active');
             const err = document.getElementById('authError');
+            err.className = 'error-message';
             err.hidden = true;
 
             if (!email || !password) {
@@ -4244,23 +4253,37 @@ ${languageRule()}`;
 
             const btn = document.getElementById('authSubmitBtn');
             btn.disabled = true;
-            const { data, error } = isUp
-                ? await supabase.auth.signUp({ email, password })
-                : await supabase.auth.signInWithPassword({ email, password });
-            btn.disabled = false;
+            try {
+                const { data, error } = isUp
+                    ? await supabase.auth.signUp({ email, password })
+                    : await supabase.auth.signInWithPassword({ email, password });
 
-            if (error) {
-                err.textContent = error.message;
+                if (error) {
+                    err.textContent = error.message;
+                    err.hidden = false;
+                    return;
+                }
+                if (isUp && !data.session) {
+                    err.className = 'info-message';
+                    err.textContent = 'Check your email to confirm your account, then sign in.';
+                    err.hidden = false;
+                    return;
+                }
+                if (!data.session) {
+                    err.textContent = 'Something went wrong signing you in. Please try again.';
+                    err.hidden = false;
+                    return;
+                }
+                await onSignedIn(data.session.user);
+            } catch (e) {
+                // A thrown (not returned) error — e.g. a network hiccup — must
+                // never leave the button silently stuck with no feedback.
+                console.error('Auth failed:', e);
+                err.textContent = 'Connection problem. Check your internet and try again.';
                 err.hidden = false;
-                return;
+            } finally {
+                btn.disabled = false;
             }
-            if (isUp && !data.session) {
-                err.className = 'info-message';
-                err.textContent = 'Check your email to confirm your account, then sign in.';
-                err.hidden = false;
-                return;
-            }
-            await onSignedIn(data.session.user);
         }
 
         document.getElementById('authSubmitBtn').addEventListener('click', submitAuth);

@@ -1662,6 +1662,21 @@
         // real secret (the Anthropic key) never leaves the ai-proxy Edge Function.
         const SUPABASE_URL = 'https://kgkdkkqoebnpahvetwzk.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_qE7c9BFhruGYYi_QgP4i4w_1T86fift';
+
+        // If the supabase-js CDN script failed to load (blocked, offline, ad-blocker),
+        // window.supabase is undefined. Everything below this line — icons, every
+        // button's event listener — depends on this script finishing, so an
+        // unguarded call here would throw and silently take the whole app down
+        // instead of just the parts that need a network call.
+        if (!window.supabase) {
+            document.body.innerHTML = `
+                <div style="max-width:420px;margin:15vh auto;text-align:center;padding:24px;font-family:'Nunito',sans-serif;color:#3C3C3C;">
+                    <h2 style="font-family:'Baloo 2',sans-serif;margin-bottom:12px;">Couldn't load the app</h2>
+                    <p style="color:#777;margin-bottom:20px;">A required script didn't load. Check your internet connection, or try disabling an ad-blocker/VPN for this site, then try again.</p>
+                    <button onclick="location.reload()" style="padding:12px 28px;border-radius:12px;border:none;background:#1CB0F6;color:#fff;font-weight:800;font-size:1em;cursor:pointer;">Try again</button>
+                </div>`;
+            throw new Error('supabase-js failed to load from CDN');
+        }
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
@@ -1702,8 +1717,12 @@
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
         };
 
-        // PDF.js setup
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        // PDF.js setup — guarded because PDF upload is optional (pasting text still
+        // works without it); a blocked/slow CDN load should only disable that one
+        // feature, not throw here and take the rest of this script down with it.
+        if (window.pdfjsLib) {
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        }
 
         // ============= API & AI Functions =============
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
@@ -1785,6 +1804,7 @@
         }
 
         async function extractConceptsFromPDF(file) {
+            if (!window.pdfjsLib) throw new Error('PDF_READER_UNAVAILABLE');
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             let text = '';
@@ -2293,7 +2313,9 @@ ${languageRule()}`;
             } catch (err) {
                 console.error('PDF read error:', err);
                 hideMessage();
-                showError("Couldn't read that file. Make sure it's a valid PDF.");
+                showError(err.message === 'PDF_READER_UNAVAILABLE'
+                    ? "The PDF reader didn't load. Check your connection and try again, or paste the text instead."
+                    : "Couldn't read that file. Make sure it's a valid PDF.");
                 return;
             }
             if (!text || text.trim().length < 100) {

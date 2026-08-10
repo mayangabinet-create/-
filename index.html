@@ -137,10 +137,13 @@
             font-size: 0.9em;
             color: var(--duo-text);
         }
-        .hud-icon { font-size: 1.05em; }
+        .hud-icon { font-size: 1.05em; display: inline-flex; }
         .hud-streak { border-color: #FFE49C; }
+        .hud-streak .hud-icon { color: var(--duo-orange); }
         .hud-gems { border-color: #E4C6FF; }
+        .hud-gems .hud-icon { color: var(--duo-purple); }
         .hud-xp { border-color: #FFE49C; }
+        .hud-xp .hud-icon { color: var(--duo-yellow-dark); }
 
         .main-content {
             flex: 1 1 auto;
@@ -850,6 +853,7 @@
             display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px;
         }
         .meta-chip {
+            display: inline-flex; align-items: center; gap: 5px;
             font-size: 0.8em; font-weight: 700; color: var(--duo-text-light);
             background: var(--duo-bg);
             border: 2px solid var(--duo-border);
@@ -871,6 +875,7 @@
         .feedback-bar.feedback-ok { background: #D7FFB8; border-top-color: var(--duo-green); }
         .feedback-bar.feedback-bad { background: #FFDFE0; border-top-color: var(--duo-red); }
         .feedback-bar .feedback-head {
+            display: flex; align-items: center; gap: 8px;
             font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 1.2em; margin-bottom: 6px;
         }
         .feedback-bar.feedback-ok .feedback-head { color: var(--duo-green-dark); }
@@ -1404,13 +1409,13 @@
 
             <div class="duo-hud" id="duoHud">
                 <div class="hud-stat hud-streak" title="Day streak">
-                    <span class="hud-icon">🔥</span><span id="hudStreak">0</span>
+                    <span class="hud-icon" id="hudIconStreak"></span><span id="hudStreak">0</span>
                 </div>
                 <div class="hud-stat hud-gems" title="Gems">
-                    <span class="hud-icon">💎</span><span id="hudGems">0</span>
+                    <span class="hud-icon" id="hudIconGems"></span><span id="hudGems">0</span>
                 </div>
                 <div class="hud-stat hud-xp" title="Total XP">
-                    <span class="hud-icon">⭐</span><span id="hudXp">0</span>
+                    <span class="hud-icon" id="hudIconXp"></span><span id="hudXp">0</span>
                 </div>
             </div>
 
@@ -1430,7 +1435,7 @@
                 </div>
                 <div class="library-grid" id="libraryGrid"></div>
                 <div class="library-empty" id="libraryEmpty" hidden>
-                    <div class="library-empty-icon">📚</div>
+                    <div class="library-empty-icon" id="libraryEmptyIcon"></div>
                     <p>No courses yet. Upload a document to build your first one.</p>
                 </div>
                 <button class="button" id="newCourseBtn" style="width:100%; margin-top:20px;">New course</button>
@@ -1444,7 +1449,7 @@
                 </div>
 
                 <div id="uploadSection" class="upload-section">
-                    <div class="upload-icon">📄</div>
+                    <div class="upload-icon" id="uploadIcon"></div>
                     <div class="upload-text">Drop a PDF here, or click to browse</div>
                     <div class="upload-hint">PDF or TXT</div>
                     <input type="file" id="fileInput" accept=".pdf,.txt">
@@ -1487,7 +1492,7 @@
                 <!-- Spaced-repetition nudge: only shown when something is due -->
                 <div class="review-banner" id="reviewBanner" hidden>
                     <div class="review-banner-text">
-                        <span class="review-banner-icon" aria-hidden="true">🔁</span>
+                        <span class="review-banner-icon" id="reviewBannerIcon" aria-hidden="true"></span>
                         <span id="reviewBannerText"></span>
                     </div>
                     <button class="button" id="startReviewBtn">Review now</button>
@@ -1509,17 +1514,17 @@
         <!-- Persistent bottom tab bar, in the Duolingo app's own pattern -->
         <nav class="bottom-nav" id="bottomNav">
             <button class="bottom-nav-item active" id="navHome" aria-label="Home">
-                <span class="bottom-nav-icon">🏠</span><span class="bottom-nav-label">Home</span>
+                <span class="bottom-nav-icon" id="navIconHome"></span><span class="bottom-nav-label">Home</span>
             </button>
             <button class="bottom-nav-item" id="navCourses" aria-label="My courses">
-                <span class="bottom-nav-icon">📚</span><span class="bottom-nav-label">Courses</span>
+                <span class="bottom-nav-icon" id="navIconCourses"></span><span class="bottom-nav-label">Courses</span>
             </button>
             <button class="bottom-nav-item" id="navReview" aria-label="Review">
-                <span class="bottom-nav-icon">🔁</span><span class="bottom-nav-label">Review</span>
+                <span class="bottom-nav-icon" id="navIconReview"></span><span class="bottom-nav-label">Review</span>
                 <span class="bottom-nav-dot" id="navReviewDot" hidden></span>
             </button>
             <button class="bottom-nav-item" id="navAccount" aria-label="Account">
-                <span class="bottom-nav-icon">👤</span><span class="bottom-nav-label">Account</span>
+                <span class="bottom-nav-icon" id="navIconAccount"></span><span class="bottom-nav-label">Account</span>
             </button>
         </nav>
     </div>
@@ -1579,7 +1584,7 @@
         <!-- Ask AI: available throughout the lesson -->
         <div class="tutor-dock" id="tutorDock">
             <button class="tutor-toggle" id="tutorToggle">
-                <span>🤖 Ask the tutor</span>
+                <span id="tutorToggleIcon"></span><span>Ask the tutor</span>
             </button>
             <div class="tutor-panel" id="tutorPanel" hidden>
                 <div class="tutor-actions" id="tutorActions"></div>
@@ -1595,20 +1600,24 @@
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser. -->
     <div id="authModal" class="modal active">
         <div class="modal-content">
-            <div class="modal-title" id="authTitle">👋 Welcome back</div>
+            <div class="modal-title" id="authTitle">Welcome back</div>
             <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
                 <button class="source-tab active" id="authTabIn" role="tab" aria-selected="true">Sign in</button>
                 <button class="source-tab" id="authTabUp" role="tab" aria-selected="false">Sign up</button>
             </div>
             <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
-            <div class="auth-password-row" style="margin-bottom: 12px;">
+            <div class="auth-password-row" style="margin-bottom: 6px;">
                 <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
-                <button type="button" class="auth-password-toggle" id="authPasswordToggle" aria-label="Show password">👁</button>
+                <button type="button" class="auth-password-toggle" id="authPasswordToggle" aria-label="Show password"></button>
+            </div>
+            <div style="text-align: right; margin-bottom: 12px;">
+                <button type="button" id="authForgotBtn" style="background: none; border: none; color: var(--duo-blue-dark); font-family: 'Nunito', sans-serif; font-size: 0.85em; font-weight: 700; cursor: pointer; padding: 4px 0;">Forgot password?</button>
             </div>
             <div class="error-message" id="authError" hidden></div>
             <button class="button" id="authSubmitBtn" style="width: 100%;">Sign in</button>
-            <div class="info-message" style="margin-top: 15px; font-size: 0.9em;">
-                <span>ℹ️ Your account and progress are private and sync across your devices.</span>
+            <div class="info-message" style="margin-top: 15px; font-size: 0.9em; display: flex; align-items: center; gap: 8px;">
+                <span id="authInfoIcon" style="flex: none;"></span>
+                <span>Your account and progress are private and sync across your devices.</span>
             </div>
         </div>
     </div>
@@ -1633,6 +1642,33 @@
         let activeCourseId = null;
         let activeSourceText = '';
         let library = [];
+
+        // ============= Icons =============
+        // Plain line/fill SVGs, matching the close button's existing style
+        // (viewBox 0 0 24 24, currentColor) — no emoji anywhere in the UI.
+        function svgIcon(inner, { fill } = {}) {
+            return fill
+                ? `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">${inner}</svg>`
+                : `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+        }
+        const ICONS = {
+            flame: svgIcon('<path d="M12 2c1 3-3 4.5-3 8.5a3 3 0 006 0c0-1-.6-1.8-.6-1.8 2 1.2 3.6 3.4 3.6 6a6 6 0 01-12 0C6 10 9.5 7 12 2z"/>', { fill: true }),
+            gem: svgIcon('<path d="M3 8.5L7 3h10l4 5.5L12 21z"/><path d="M3 8.5h18M8.5 3L12 8.5 15.5 3M7 3l5 5.5M17 3l-5 5.5"/>'),
+            star: svgIcon('<path d="M12 2.5l3 6.4 6.9.7-5.2 4.8 1.5 6.8L12 17.7 5.8 21.2l1.5-6.8-5.2-4.8 6.9-.7z"/>', { fill: true }),
+            home: svgIcon('<path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 001 1H10v-6h4v6h3.5a1 1 0 001-1v-9"/>'),
+            book: svgIcon('<path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5z"/><path d="M4 19a2 2 0 012-2h13"/>'),
+            refresh: svgIcon('<path d="M20 12a8 8 0 01-14.6 4.6M4 12a8 8 0 0114.6-4.6"/><path d="M3.5 17v-4h4M20.5 7v4h-4"/>'),
+            account: svgIcon('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.5 4-7 8-7s8 2.5 8 7"/>'),
+            chat: svgIcon('<path d="M4 4.5h16v12H8.5L4 20.5z"/>'),
+            eye: svgIcon('<path d="M2 12s4-7.5 10-7.5 10 7.5 10 7.5-4 7.5-10 7.5S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+            eyeOff: svgIcon('<path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 004.2 4.2"/><path d="M6.5 6.6C4 8.4 2 12 2 12s4 7.5 10 7.5a9.7 9.7 0 004.1-.9M9.9 5.1A10.6 10.6 0 0112 4.5c6 0 10 7.5 10 7.5a17 17 0 01-3.2 4.1"/>'),
+            lock: svgIcon('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>'),
+            check: svgIcon('<path d="M4 12.5l5.5 5.5L20 7"/>'),
+            heart: svgIcon('<path d="M12 21s-7.4-4.6-9.9-9.2C.7 8.2 2 4 6 4c2.2 0 4 1.6 6 4 2-2.4 3.8-4 6-4 4 0 5.3 4.2 3.9 7.8C19.4 16.4 12 21 12 21z"/>', { fill: true }),
+            file: svgIcon('<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>'),
+            info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
+            x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
+        };
 
         // PDF.js setup
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -1731,7 +1767,7 @@
         }
 
         async function generateLessonPath(text) {
-            showMessage("\ud83e\udd16 Analyzing your material...");
+            showMessage("Analyzing your material...");
 
             const extractPrompt = `Analyse the study material below and extract its key concepts.
 
@@ -2218,7 +2254,7 @@ ${languageRule()}`;
         }
 
         async function handleFileUpload(file) {
-            showMessage("\ud83d\udcd6 Reading PDF...");
+            showMessage("Reading PDF...");
             let text;
             try {
                 text = await extractConceptsFromPDF(file);
@@ -2328,9 +2364,9 @@ ${languageRule()}`;
                 // padlock, a finished regular lesson shows a check, everything else
                 // (the current node, and any checkpoint) shows a star.
                 let icon;
-                if (node.classList.contains('locked')) icon = '🔒';
-                else if (node.classList.contains('completed') && !isCheckpoint) icon = '✓';
-                else icon = '★';
+                if (node.classList.contains('locked')) icon = ICONS.lock;
+                else if (node.classList.contains('completed') && !isCheckpoint) icon = ICONS.check;
+                else icon = ICONS.star;
 
                 node.innerHTML = `
                     <div class="lesson-circle">
@@ -2443,7 +2479,7 @@ ${languageRule()}`;
 
             document.getElementById('sourcePicker').hidden = true;
             document.getElementById('lessonXpBadge').textContent = `${items.length} questions`;
-            document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">🔁 Spaced repetition</span>`;
+            document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">${ICONS.refresh} Spaced repetition</span>`;
             applyContentDirection();
             buildStepSegments(steps.length);
             renderHearts();
@@ -2524,7 +2560,7 @@ ${languageRule()}`;
             if (!el || !lessonState) return;
             const left = lessonState.heartsLeft ?? 5;
             el.innerHTML = Array.from({ length: 5 }, (_, i) =>
-                `<span class="heart${i < left ? '' : ' lost'}">${i < left ? '❤' : '🖤'}</span>`).join('');
+                `<span class="heart${i < left ? '' : ' lost'}">${ICONS.heart}</span>`).join('');
         }
 
         // ============= Usage & cost tracking =============
@@ -3068,10 +3104,10 @@ ${languageRule()}`;
             const diff = concept.difficulty || 1;
             const chips = [
                 `<span class="meta-chip">Difficulty ${'●'.repeat(diff)}${'○'.repeat(Math.max(0, 5 - diff))}</span>`,
-                done ? `<span class="meta-chip">✓ Completed</span>` : '',
-                isDueForReview(index) ? `<span class="meta-chip">🔁 Due for review</span>` : '',
+                done ? `<span class="meta-chip">${ICONS.check} Completed</span>` : '',
+                isDueForReview(index) ? `<span class="meta-chip">${ICONS.refresh} Due for review</span>` : '',
                 // Be honest about when a lesson costs an API call
-                cached ? `<span class="meta-chip">⚡ Ready — no cost</span>` : `<span class="meta-chip">✨ Will generate now</span>`,
+                cached ? `<span class="meta-chip">Ready — no cost</span>` : `<span class="meta-chip">Will generate now</span>`,
             ].filter(Boolean).join('');
             document.getElementById('previewChips').innerHTML = chips;
 
@@ -3200,8 +3236,8 @@ ${languageRule()}`;
         function renderBoolean(q, p) {
             return `<div class="question-text">${esc(q.text)}</div>
                     <div class="bool-row" id="answerOpts">
-                        <div class="option bool-opt" data-answer="true">✓ True</div>
-                        <div class="option bool-opt" data-answer="false">✗ False</div>
+                        <div class="option bool-opt" data-answer="true">${ICONS.check} True</div>
+                        <div class="option bool-opt" data-answer="false">${ICONS.x} False</div>
                     </div>`;
         }
 
@@ -3280,7 +3316,7 @@ ${languageRule()}`;
             if (!bar) return;
             bar.className = 'feedback-bar show ' + (correct ? 'feedback-ok' : 'feedback-bad');
             bar.innerHTML = `
-                <div class="feedback-head">${correct ? '✓ Nice!' : '✗ Not quite'}</div>
+                <div class="feedback-head">${correct ? ICONS.check + ' Nice!' : ICONS.x + ' Not quite'}</div>
                 <div class="feedback-body">${explanation ? esc(explanation) : ''}</div>
                 <button class="button step-next" id="stepNext">Continue</button>`;
             document.getElementById('stepNext').onclick = advanceStep;
@@ -3488,7 +3524,7 @@ ${languageRule()}`;
                 currentLessonIndex = index;
                 const concept = courseData.concepts[index];
 
-                showMessage("\ud83c\udf93 Preparing lesson...");
+                showMessage("Preparing lesson...");
 
                 let lesson = progress[index]?.lesson;
 
@@ -3563,7 +3599,7 @@ ${languageRule()}`;
                 const maxXp = 20 + gradeable * 10 + (gradeable > 0 ? 25 : 0);
                 document.getElementById('lessonXpBadge').textContent = `Up to ${maxXp} XP`;
                 document.getElementById('lessonMeta').innerHTML = `
-                    <span class="meta-chip">⏱ ${lesson.estimatedMinutes} min</span>
+                    <span class="meta-chip">${lesson.estimatedMinutes} min</span>
                     <span class="meta-chip">Difficulty ${'●'.repeat(concept.difficulty || 1)}${'○'.repeat(Math.max(0, 5 - (concept.difficulty || 1)))}</span>
                     <span class="meta-chip">${steps.length} steps</span>`;
 
@@ -3722,8 +3758,8 @@ ${languageRule()}`;
                 <div class="concept-text"><strong>The main idea</strong><br>${esc(s.mainIdea)}</div>
                 ${renderVisual(s.visual)}
                 ${facts ? `<div class="summary-facts"><strong>Key facts</strong><ul>${facts}</ul></div>` : ''}
-                ${s.commonMistake ? `<div class="misconception-box"><strong>${"\u26a0\ufe0f Common Misconception:"}</strong><br>${esc(s.commonMistake)}</div>` : ''}
-                ${s.realWorld ? `<div class="example-box"><div class="example-label">${"\ud83d\udca1 Real-World Example:"}</div>${esc(s.realWorld)}</div>` : ''}
+                ${s.commonMistake ? `<div class="misconception-box"><strong>Common Misconception:</strong><br>${esc(s.commonMistake)}</div>` : ''}
+                ${s.realWorld ? `<div class="example-box"><div class="example-label">Real-World Example:</div>${esc(s.realWorld)}</div>` : ''}
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
 
@@ -3749,7 +3785,7 @@ ${languageRule()}`;
             const accuracy = total ? Math.round((correct / total) * 100) : 100;
             return `
                 <div class="complete-screen">
-                    <div class="complete-badge">🔁</div>
+                    <div class="complete-badge">${ICONS.refresh}</div>
                     <h3 class="complete-title">Review complete</h3>
                     <div class="complete-stats">
                         <div class="cstat"><div class="cstat-val">${lessonsReviewed}</div><div class="cstat-lbl">Lessons reviewed</div></div>
@@ -3789,7 +3825,7 @@ ${languageRule()}`;
             const isLast = currentLessonIndex >= courseData.concepts.length - 1;
             return `
                 <div class="complete-screen">
-                    <div class="complete-badge">✓</div>
+                    <div class="complete-badge">${ICONS.check}</div>
                     <h3 class="complete-title">Lesson complete</h3>
                     <div class="complete-stats">
                         <div class="cstat"><div class="cstat-val">+${xp}</div><div class="cstat-lbl">XP</div></div>
@@ -4137,7 +4173,7 @@ ${languageRule()}`;
             document.getElementById('authTabUp').classList.toggle('active', isUp);
             document.getElementById('authTabIn').setAttribute('aria-selected', String(!isUp));
             document.getElementById('authTabUp').setAttribute('aria-selected', String(isUp));
-            document.getElementById('authTitle').textContent = isUp ? '🚀 Create your account' : '👋 Welcome back';
+            document.getElementById('authTitle').textContent = isUp ? 'Create your account' : 'Welcome back';
             document.getElementById('authSubmitBtn').textContent = isUp ? 'Sign up' : 'Sign in';
             const err = document.getElementById('authError');
             err.hidden = true;
@@ -4146,8 +4182,11 @@ ${languageRule()}`;
             const pwInput = document.getElementById('authPassword');
             const pwToggle = document.getElementById('authPasswordToggle');
             pwInput.type = 'password';
-            pwToggle.textContent = '👁';
+            pwToggle.innerHTML = ICONS.eye;
             pwToggle.setAttribute('aria-label', 'Show password');
+
+            // "Forgot password" only makes sense once an account exists.
+            document.getElementById('authForgotBtn').closest('div').hidden = isUp;
         }
 
         // Placeholder until Stripe is wired in — the entitlement check server-side
@@ -4234,8 +4273,25 @@ ${languageRule()}`;
             const btn = document.getElementById('authPasswordToggle');
             const showing = input.type === 'text';
             input.type = showing ? 'password' : 'text';
-            btn.textContent = showing ? '👁' : '🙈';
+            btn.innerHTML = showing ? ICONS.eye : ICONS.eyeOff;
             btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        });
+
+        document.getElementById('authForgotBtn').addEventListener('click', async () => {
+            const email = document.getElementById('authEmail').value.trim();
+            const err = document.getElementById('authError');
+            if (!email) {
+                err.className = 'error-message';
+                err.textContent = 'Enter your email above first, then tap this again.';
+                err.hidden = false;
+                return;
+            }
+            const { error } = await supabase.auth.resetPasswordForEmail(email);
+            err.className = 'info-message';
+            err.textContent = error
+                ? error.message
+                : `If an account exists for ${email}, a reset link is on its way.`;
+            err.hidden = false;
         });
 
         document.getElementById('signOutBtn').addEventListener('click', async () => {
@@ -4247,6 +4303,19 @@ ${languageRule()}`;
         });
 
         // Initialize
+        // Static icon slots that never change — filled once here rather than
+        // duplicating the SVG markup inline in the HTML.
+        const staticIcons = {
+            hudIconStreak: 'flame', hudIconGems: 'gem', hudIconXp: 'star',
+            libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
+            navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
+            tutorToggleIcon: 'chat', authInfoIcon: 'info',
+        };
+        Object.entries(staticIcons).forEach(([id, icon]) => {
+            const el = document.getElementById(id);
+            if (el) el.innerHTML = ICONS[icon];
+        });
+
         (async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {

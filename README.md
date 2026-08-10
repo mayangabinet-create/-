@@ -1,18 +1,19 @@
 # AI Learning Path
 
-A single self-contained `learning-app.html` file — no backend, no build step, no
-dependencies beyond PDF.js from a CDN. Open it in a browser and it runs.
-
-**Core loop:** upload a PDF (or paste text) → the app calls the Claude API to extract
-10-20 key concepts and order them by prerequisite → it builds a Duolingo-style learning
-path → each node opens a multi-step interactive lesson grounded in your own document.
+A single self-contained `index.html` file, in Duolingo's visual language — no build
+step, no framework. Sign in, upload a PDF (or paste text), and the app turns it into a
+Duolingo-style learning path: 10-20 concepts extracted and ordered by prerequisite,
+each opening a multi-step interactive lesson grounded in your own document.
 
 ## Quick start
 
-1. Open `learning-app.html` in a browser (double-click, or `file://` works fine).
-2. Paste an Anthropic API key ([platform.claude.com](https://platform.claude.com)) when prompted.
-   The key is stored only in your browser's `localStorage` and sent only to Anthropic.
-3. Upload a PDF or paste some study material, and the learning path is generated.
+- **Live:** open this repo's GitHub Pages URL (Settings → Pages, once enabled) and
+  sign up with an email + password.
+- **Locally:** open `index.html` directly in a browser (double-click, or `file://`
+  works fine) — it talks to the same hosted backend either way.
+
+There's no API key to paste in. Every account gets a 14-day free trial automatically;
+subscribing after that isn't wired up yet (see below).
 
 ## What a lesson contains
 
@@ -41,27 +42,36 @@ out; doing poorly resets it to a daily review.
 
 ## Architecture
 
-Everything lives in one HTML file:
+The frontend is one HTML file (`<style>`, `<body>`, `<script>` — vanilla JS, no
+framework or build step), backed by a real Supabase project ("Mayan ai app",
+`kgkdkkqoebnpahvetwzk`):
 
-- `<style>` — all CSS: the 3D learning path, lesson screen, question types, visuals, library.
-- `<body>` — API-key modal, course library, source picker (upload/paste), learning-path
-  screen, lesson screen (a separate full-screen overlay), preview dialog, loading overlay.
-- `<script>` — vanilla JS, no framework or build step.
-
-State lives in `localStorage`, keyed per course (`course_library`, `course:<id>`,
-`progress:<id>`, `source:<id>`), so the app supports up to 8 courses at once with
-independent progress, review schedules, and cost tracking (`ai_usage`).
+- **Auth** — Supabase Auth (email + password). No API key ever reaches the browser.
+- **Database** — `courses`, `progress`, `subscriptions`, `ai_usage`, all RLS-enabled
+  and scoped to `auth.uid()`, so one user can never see or touch another's rows. Courses
+  and progress used to live in `localStorage`; the in-memory shapes the lesson engine,
+  spaced repetition, and path rendering all read/write are unchanged — only the
+  persistence layer underneath them moved.
+- **`ai-proxy` Edge Function** — holds the real Anthropic key as a project secret,
+  checks the caller has an active subscription or trial, enforces a per-user daily call
+  cap (50 trialing / 200 active — a cost backstop, since one dev-held key now pays for
+  every user's calls), then forwards the request to a fixed server-side model. The
+  client can never pick a pricier model or bypass the cap.
+- New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
 ## Cost model
 
-Model: `claude-haiku-4-5` (constant `AI_MODEL`). One lesson ≈ $0.01. Lessons are cached
-after first generation, so replaying or exiting and coming back is free — only the first
-generation and reviews with a stale cache cost anything. A usage badge in the header
-shows cumulative spend, call count, and cache hits.
+Model: `claude-haiku-4-5`, fixed server-side. One lesson ≈ $0.01. Lessons are cached
+after first generation, so replaying or exiting and coming back is free. A usage badge
+in the header shows the signed-in user's cumulative spend and call count, read from
+`ai_usage`.
 
-## Notes on this being a browser-only prototype
+## What's not done yet
 
-The API key is stored and used client-side, which is fine for personal/local use but
-not for sharing the file with others. Turning this into a shareable product means moving
-the API key behind a small backend (Node/Vercel/Railway) that holds one key server-side
-and meters usage per user — not yet built.
+- **Payments.** `subscriptions.status` and the trial trigger exist and are enforced by
+  `ai-proxy`, but there's no Stripe integration yet — `showUpgradePrompt()` in the
+  frontend is a placeholder. Once a Stripe account and price exist, this needs a
+  checkout Edge Function and a webhook that updates `subscriptions` on
+  `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
+- **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
+  whichever branch should be live.

@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,10 +15,38 @@
             box-sizing: border-box;
         }
 
+        /* Author rules that set an explicit `display` (e.g. .button, .review-banner)
+           otherwise silently defeat the `hidden` attribute — author CSS always wins
+           over the UA default `[hidden]{display:none}`, tie or no tie. */
+        [hidden] { display: none !important; }
+
+        :root {
+            --duo-green: #58CC02;
+            --duo-green-dark: #58A700;
+            --duo-blue: #1CB0F6;
+            --duo-blue-dark: #1899D6;
+            --duo-red: #FF4B4B;
+            --duo-red-dark: #EA2B2B;
+            --duo-yellow: #FFC800;
+            --duo-yellow-dark: #E5A600;
+            --duo-purple: #CE82FF;
+            --duo-purple-dark: #A568C9;
+            --duo-orange: #FF9600;
+            --duo-orange-dark: #E08600;
+            --duo-bg: #F7F7F7;
+            --duo-card: #FFFFFF;
+            --duo-border: #E5E5E5;
+            --duo-border-dark: #CFCFCF;
+            --duo-text: #3C3C3C;
+            --duo-text-light: #777777;
+            --duo-locked-bg: #E5E5E5;
+            --duo-locked-icon: #AFAFAF;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #e2e8f0;
+            font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--duo-bg);
+            color: var(--duo-text);
             min-height: 100vh;
             overflow-x: hidden;
         }
@@ -28,22 +59,47 @@
 
         header {
             text-align: center;
-            margin: 40px 0;
+            margin: 32px 0;
             animation: fadeIn 0.6s ease;
         }
 
         h1 {
-            font-size: 2.5em;
-            background: linear-gradient(135deg, #60a5fa, #a78bfa);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 10px;
+            font-family: 'Baloo 2', 'Nunito', sans-serif;
+            font-size: 2.3em;
+            font-weight: 800;
+            color: var(--duo-green-dark);
+            margin-bottom: 6px;
         }
 
         .subtitle {
-            color: #94a3b8;
-            font-size: 1.1em;
+            color: var(--duo-text-light);
+            font-size: 1.05em;
+            font-weight: 600;
         }
+
+        /* ---- HUD: streak / gems / XP, the first thing Duolingo shows you ---- */
+        .duo-hud {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 18px;
+            flex-wrap: wrap;
+        }
+        .hud-stat {
+            display: inline-flex; align-items: center; gap: 7px;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-radius: 999px;
+            padding: 8px 16px;
+            font-family: 'Baloo 2', sans-serif;
+            font-weight: 700;
+            font-size: 1.05em;
+            color: var(--duo-text);
+        }
+        .hud-icon { font-size: 1.15em; }
+        .hud-streak { border-color: #FFE49C; }
+        .hud-gems { border-color: #E4C6FF; }
+        .hud-xp { border-color: #FFE49C; }
 
         .main-content {
             display: grid;
@@ -53,20 +109,19 @@
 
         /* Upload Section */
         .upload-section {
-            background: rgba(15, 23, 42, 0.8);
-            border: 2px dashed #475569;
-            border-radius: 16px;
+            background: var(--duo-card);
+            border: 3px dashed #B8E6FF;
+            border-radius: 20px;
             padding: 40px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.15s ease;
             animation: slideUp 0.6s ease 0.1s both;
         }
 
         .upload-section:hover {
-            border-color: #60a5fa;
-            background: rgba(30, 41, 59, 0.8);
-            transform: translateY(-2px);
+            border-color: var(--duo-blue);
+            background: #F0FAFF;
         }
 
         .upload-section.loading {
@@ -81,11 +136,12 @@
 
         .upload-text {
             font-size: 1.1em;
+            font-weight: 700;
             margin-bottom: 10px;
         }
 
         .upload-hint {
-            color: #64748b;
+            color: var(--duo-text-light);
             font-size: 0.9em;
         }
 
@@ -98,9 +154,9 @@
             display: inline-block;
             width: 20px;
             height: 20px;
-            border: 3px solid rgba(96, 165, 250, 0.3);
+            border: 3px solid rgba(28, 176, 246, 0.25);
             border-radius: 50%;
-            border-top-color: #60a5fa;
+            border-top-color: var(--duo-blue);
             animation: spin 1s linear infinite;
         }
 
@@ -119,63 +175,70 @@
         }
 
         .path-container {
-            background:
-                radial-gradient(ellipse 80% 50% at 50% 0%, rgba(96, 165, 250, 0.08), transparent 70%),
-                linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(10, 15, 30, 0.98));
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
             border-radius: 20px;
-            padding: 60px 20px 80px;
+            padding: 40px 20px 60px;
             overflow-y: auto;
             max-height: 620px;
             margin-bottom: 30px;
-            perspective: 1200px;
-            perspective-origin: 50% 30%;
-            scroll-behavior: smooth;
             position: relative;
         }
 
         .path-title {
             text-align: center;
-            margin-bottom: 50px;
+            margin-bottom: 40px;
+            font-family: 'Baloo 2', sans-serif;
             font-size: 1.3em;
-            font-weight: 600;
-            letter-spacing: 0.02em;
-            color: #93c5fd;
-            text-shadow: 0 0 24px rgba(96, 165, 250, 0.35);
+            font-weight: 700;
+            color: var(--duo-text);
         }
 
-        /* The tilted world the path lives in */
+        /* Unit banners — colorful section headers dropped along the path */
+        .unit-banner {
+            color: #fff;
+            border-radius: 16px;
+            padding: 16px 22px;
+            margin: 0 auto 34px;
+            max-width: 380px;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.15);
+        }
+        .unit-banner-label {
+            font-family: 'Baloo 2', sans-serif;
+            font-size: 0.78em;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+        .unit-banner-title {
+            font-family: 'Baloo 2', sans-serif;
+            font-size: 1.15em;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+
+        /* The winding path itself: a flat zig-zag, no 3D perspective */
         .lesson-path {
             position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 34px;
-            transform: rotateX(14deg);
-            transform-style: preserve-3d;
-            padding-bottom: 40px;
+            gap: 30px;
+            padding-bottom: 20px;
         }
 
-        /* Connecting road — has thickness, not a hairline */
+        /* Faint dotted guide line behind the nodes */
         .lesson-path::before {
             content: '';
             position: absolute;
             left: 50%;
             top: 0;
-            bottom: 40px;
-            width: 14px;
-            transform: translateX(-50%) translateZ(-30px);
-            border-radius: 8px;
-            background:
-                linear-gradient(90deg,
-                    rgba(30, 41, 59, 0.9) 0%,
-                    rgba(71, 85, 105, 0.85) 35%,
-                    rgba(100, 116, 139, 0.7) 50%,
-                    rgba(51, 65, 85, 0.85) 70%,
-                    rgba(15, 23, 42, 0.9) 100%);
-            box-shadow:
-                inset 0 2px 3px rgba(255, 255, 255, 0.12),
-                inset 0 -2px 4px rgba(0, 0, 0, 0.5),
-                0 12px 28px rgba(0, 0, 0, 0.55);
+            bottom: 20px;
+            width: 4px;
+            transform: translateX(-50%);
+            background: repeating-linear-gradient(
+                to bottom, var(--duo-border) 0, var(--duo-border) 8px, transparent 8px, transparent 16px);
             z-index: 0;
         }
 
@@ -183,29 +246,21 @@
             position: relative;
             z-index: 1;
             cursor: pointer;
-            transform-style: preserve-3d;
-            transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+            transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
             display: flex;
             flex-direction: column;
             align-items: center;
         }
 
-        /* Contact shadow on the "ground" beneath each node */
-        .lesson-node::after {
-            content: '';
-            position: absolute;
-            top: 52px;
-            left: 50%;
-            width: 56px;
-            height: 14px;
-            transform: translateX(-50%) translateZ(-28px);
-            background: radial-gradient(ellipse, rgba(0, 0, 0, 0.6), transparent 70%);
-            filter: blur(4px);
-            pointer-events: none;
-            transition: all 0.22s ease;
-        }
+        /* A gentle S-curve: alternate horizontal offsets, six-node cycle */
+        .lesson-node:nth-child(6n+2) { transform: translateX(64px); }
+        .lesson-node:nth-child(6n+3) { transform: translateX(88px); }
+        .lesson-node:nth-child(6n+4) { transform: translateX(64px); }
+        .lesson-node:nth-child(6n+5) { transform: translateX(-64px); }
+        .lesson-node:nth-child(6n+6) { transform: translateX(-88px); }
+        .lesson-node:nth-child(6n+7) { transform: translateX(-64px); }
 
-        /* The physical button */
+        /* The physical button: flat colour + a solid "3D" bottom edge, no gradients */
         .lesson-circle {
             width: 68px;
             height: 68px;
@@ -213,123 +268,74 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-weight: 700;
-            font-size: 1.1em;
+            font-family: 'Baloo 2', sans-serif;
+            font-weight: 800;
+            font-size: 1.3em;
             color: white;
             position: relative;
-            transform-style: preserve-3d;
-            transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+            border-bottom: 6px solid transparent;
+            transition: all 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
             will-change: transform;
         }
+        .lesson-node.checkpoint .lesson-circle { width: 72px; height: 72px; font-size: 1.5em; }
 
-        /* Specular highlight — the light source sits upper-left */
-        .lesson-circle::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: linear-gradient(150deg,
-                rgba(255, 255, 255, 0.42) 0%,
-                rgba(255, 255, 255, 0.12) 28%,
-                transparent 55%);
-            pointer-events: none;
-        }
-
-        /* Inner rim, sells the moulded-plastic look */
-        .lesson-circle::after {
-            content: '';
-            position: absolute;
-            inset: 5px;
-            border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            pointer-events: none;
-        }
-
-        .lesson-circle > span {
-            position: relative;
-            z-index: 2;
-            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
-        }
-
-        /* ---- Locked: recessed into the board ---- */
+        /* ---- Locked: flat grey, no press ---- */
         .lesson-node.locked .lesson-circle {
-            background: linear-gradient(165deg, #2b3648, #1a2231);
-            box-shadow:
-                inset 0 4px 8px rgba(0, 0, 0, 0.75),
-                inset 0 -2px 3px rgba(255, 255, 255, 0.05),
-                0 2px 4px rgba(0, 0, 0, 0.3);
-            color: #64748b;
-            transform: translateZ(-6px) scale(0.94);
+            background: var(--duo-locked-bg);
+            border-bottom-color: var(--duo-border-dark);
+            color: var(--duo-locked-icon);
         }
+        .lesson-node.locked { cursor: default; }
 
-        .lesson-node.locked .lesson-circle::before { opacity: 0.25; }
-        .lesson-node.locked::after { opacity: 0.35; }
-
-        /* ---- Current: raised, lit, breathing ---- */
+        /* ---- Current: gold, breathing ---- */
         .lesson-node.current .lesson-circle {
-            background: linear-gradient(165deg, #7cb8ff, #3b82f6 55%, #1d4ed8);
-            box-shadow:
-                0 10px 0 -1px #1e40af,
-                0 14px 22px rgba(0, 0, 0, 0.5),
-                0 0 34px rgba(96, 165, 250, 0.55),
-                inset 0 -3px 6px rgba(0, 0, 0, 0.28);
-            transform: translateZ(14px);
-            animation: nodePulse 2.6s ease-in-out infinite;
+            background: var(--duo-yellow);
+            border-bottom-color: var(--duo-yellow-dark);
+            animation: nodePulse 1.8s ease-in-out infinite;
         }
 
-        /* ---- Completed: polished green, seated ---- */
+        /* ---- Completed: green ---- */
         .lesson-node.completed .lesson-circle {
-            background: linear-gradient(165deg, #4ade80, #10b981 55%, #047857);
-            box-shadow:
-                0 7px 0 -1px #065f46,
-                0 10px 18px rgba(0, 0, 0, 0.45),
-                0 0 18px rgba(16, 185, 129, 0.3),
-                inset 0 -3px 6px rgba(0, 0, 0, 0.25);
-            transform: translateZ(8px);
+            background: var(--duo-green);
+            border-bottom-color: var(--duo-green-dark);
+        }
+        .lesson-node.checkpoint.completed .lesson-circle,
+        .lesson-node.checkpoint.current .lesson-circle {
+            background: var(--duo-orange);
+            border-bottom-color: var(--duo-orange-dark);
         }
 
-
-        /* ---- Interactions: lift on hover, press down on click ---- */
-        .lesson-node:hover { transform: translateY(-5px); }
-        .lesson-node:hover::after {
-            opacity: 0.8;
-            width: 64px;
-            filter: blur(6px);
-        }
-
-        .lesson-node:active .lesson-circle {
-            transform: translateZ(2px) translateY(6px) scale(0.97);
-            box-shadow:
-                0 2px 0 -1px rgba(0, 0, 0, 0.5),
-                0 3px 8px rgba(0, 0, 0, 0.4),
-                inset 0 3px 7px rgba(0, 0, 0, 0.35);
-            transition-duration: 0.06s;
-        }
-
-        .lesson-node:active::after {
-            opacity: 0.3;
-            width: 44px;
+        /* ---- Interactions: press down on click, like every Duolingo button ---- */
+        .lesson-node:not(.locked):hover .lesson-circle { transform: translateY(-2px); }
+        .lesson-node:not(.locked):active .lesson-circle {
+            border-bottom-width: 0;
+            transform: translateY(6px);
+            transition-duration: 0.05s;
         }
 
         .lesson-label {
             text-align: center;
-            margin-top: 22px;
+            margin-top: 12px;
             font-size: 0.82em;
-            font-weight: 500;
-            color: #cbd5e1;
+            font-weight: 700;
+            color: var(--duo-text-light);
             max-width: 110px;
             line-height: 1.35;
-            transform: translateZ(10px);
-            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
-            transition: color 0.2s ease;
         }
+        .lesson-node.locked .lesson-label { color: #B0B0B0; }
+        .lesson-node:not(.locked) .lesson-label { color: var(--duo-text); }
 
-        .lesson-node.locked .lesson-label { color: #64748b; }
-        .lesson-node:hover .lesson-label { color: #f1f5f9; }
+        .due-dot {
+            position: absolute; top: -2px; right: -2px;
+            width: 16px; height: 16px; border-radius: 50%;
+            background: var(--duo-red);
+            border: 3px solid var(--duo-card);
+            box-shadow: 0 0 0 1px var(--duo-red);
+        }
 
         /* ---- Unlock burst ---- */
         .lesson-node.unlocking .lesson-circle {
-            animation: unlockPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+            animation: unlockPop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
 
         .unlock-ring {
@@ -340,53 +346,37 @@
             height: 68px;
             margin: -34px 0 0 -34px;
             border-radius: 50%;
-            border: 2px solid rgba(147, 197, 253, 0.9);
+            border: 3px solid var(--duo-yellow);
             pointer-events: none;
-            animation: ringExpand 0.7s ease-out forwards;
+            animation: ringExpand 0.6s ease-out forwards;
         }
 
         .spark {
             position: absolute;
             top: 34px;
             left: 50%;
-            width: 5px;
-            height: 5px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
-            background: #bfdbfe;
-            box-shadow: 0 0 8px rgba(191, 219, 254, 0.9);
+            background: var(--duo-yellow);
             pointer-events: none;
-            animation: sparkFly 0.75s ease-out forwards;
+            animation: sparkFly 0.7s ease-out forwards;
         }
 
         @keyframes nodePulse {
-            0%, 100% {
-                box-shadow:
-                    0 10px 0 -1px #1e40af,
-                    0 14px 22px rgba(0, 0, 0, 0.5),
-                    0 0 30px rgba(96, 165, 250, 0.5),
-                    inset 0 -3px 6px rgba(0, 0, 0, 0.28);
-                transform: translateZ(14px) scale(1);
-            }
-            50% {
-                box-shadow:
-                    0 10px 0 -1px #1e40af,
-                    0 14px 22px rgba(0, 0, 0, 0.5),
-                    0 0 48px rgba(96, 165, 250, 0.8),
-                    inset 0 -3px 6px rgba(0, 0, 0, 0.28);
-                transform: translateZ(18px) scale(1.035);
-            }
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.06); }
         }
 
         @keyframes unlockPop {
-            0%   { transform: translateZ(-6px) scale(0.94); }
-            45%  { transform: translateZ(24px) scale(1.18); }
-            70%  { transform: translateZ(14px) scale(0.97); }
-            100% { transform: translateZ(14px) scale(1); }
+            0%   { transform: scale(0.9); }
+            50%  { transform: scale(1.2); }
+            100% { transform: scale(1); }
         }
 
         @keyframes ringExpand {
-            0%   { transform: scale(0.7); opacity: 0.9; border-width: 3px; }
-            100% { transform: scale(2.4); opacity: 0; border-width: 1px; }
+            0%   { transform: scale(0.7); opacity: 0.9; }
+            100% { transform: scale(2.2); opacity: 0; }
         }
 
         @keyframes sparkFly {
@@ -396,7 +386,6 @@
 
         /* Accessibility: honour reduced-motion */
         @media (prefers-reduced-motion: reduce) {
-            .lesson-path { transform: none; }
             .lesson-node.current .lesson-circle { animation: none; }
             .lesson-node.unlocking .lesson-circle { animation: none; }
             .unlock-ring, .spark { display: none; }
@@ -405,65 +394,59 @@
         }
 
         @media (max-width: 768px) {
-            .lesson-path { transform: rotateX(9deg); gap: 28px; }
-            .path-container { perspective: 900px; padding: 40px 12px 60px; }
+            .lesson-node:nth-child(6n+2), .lesson-node:nth-child(6n+4) { transform: translateX(36px); }
+            .lesson-node:nth-child(6n+3) { transform: translateX(50px); }
+            .lesson-node:nth-child(6n+5), .lesson-node:nth-child(6n+7) { transform: translateX(-36px); }
+            .lesson-node:nth-child(6n+6) { transform: translateX(-50px); }
+            .path-container { padding: 30px 8px 40px; }
         }
-
-
-
-
 
         .usage-badge {
             margin-top: 14px;
-            font-size: 0.75em;
+            font-size: 0.72em;
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            color: #64748b;
+            color: var(--duo-text-light);
             letter-spacing: 0.02em;
             cursor: help;
         }
 
-
-
-
         .source-picker { animation: slideUp 0.6s ease 0.1s both; }
         .source-tabs {
             display: flex; gap: 6px; margin-bottom: 18px;
-            background: rgba(15,23,42,0.6); padding: 5px;
-            border-radius: 12px; border: 1px solid #334155;
+            background: var(--duo-border); padding: 5px;
+            border-radius: 14px;
         }
         .source-tab {
-            flex: 1; padding: 11px; border: none; border-radius: 8px;
-            background: transparent; color: #94a3b8;
-            font-family: inherit; font-size: 0.94em; font-weight: 600;
-            cursor: pointer; transition: all 0.18s ease;
+            flex: 1; padding: 11px; border: none; border-radius: 10px;
+            background: transparent; color: var(--duo-text-light);
+            font-family: 'Baloo 2', sans-serif; font-size: 0.94em; font-weight: 700;
+            cursor: pointer; transition: all 0.15s ease;
         }
-        .source-tab:hover { color: #cbd5e1; }
+        .source-tab:hover { color: var(--duo-text); }
         .source-tab.active {
-            background: rgba(96,165,250,0.15); color: #93c5fd;
-            box-shadow: inset 0 0 0 1px rgba(96,165,250,0.3);
+            background: var(--duo-card); color: var(--duo-blue-dark);
+            box-shadow: 0 2px 0 rgba(0,0,0,0.08);
         }
         .paste-area {
             width: 100%; min-height: 220px; padding: 20px;
-            background: rgba(15,23,42,0.8); border: 2px solid #475569;
-            border-radius: 12px; color: #e2e8f0;
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            background: var(--duo-card); border: 2px solid var(--duo-border);
+            border-radius: 16px; color: var(--duo-text);
+            font-family: 'Nunito', sans-serif;
             font-size: 0.95em; resize: vertical; line-height: 1.6;
         }
-        .paste-area:focus { outline: none; border-color: #60a5fa; }
-
-
+        .paste-area:focus { outline: none; border-color: var(--duo-blue); }
 
         /* ---- Interactive question types ---- */
         .blank-gap {
             display: inline-block; min-width: 46px; text-align: center;
             padding: 2px 12px; margin: 0 4px; border-radius: 6px;
-            background: rgba(96,165,250,0.18); color: #93c5fd; font-weight: 700;
-            border-bottom: 2px solid #60a5fa;
+            background: #DDF4FF; color: var(--duo-blue-dark); font-weight: 700;
+            border-bottom: 2px solid var(--duo-blue);
         }
         .blank-sentence { line-height: 2; }
 
         .bool-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .bool-opt { text-align: center; font-weight: 600; font-size: 1.05em; }
+        .bool-opt { text-align: center; font-weight: 700; font-size: 1.05em; }
 
         /* order */
         .order-slots {
@@ -471,20 +454,20 @@
             display: flex; flex-direction: column; gap: 8px; min-height: 8px;
         }
         .order-placed {
-            padding: 12px 16px; border-radius: 10px;
-            background: rgba(51,65,85,0.6); border: 1px solid #475569;
-            color: #e2e8f0; font-size: 0.94em;
+            padding: 12px 16px; border-radius: 12px;
+            background: var(--duo-bg); border: 2px solid var(--duo-border);
+            color: var(--duo-text); font-size: 0.94em; font-weight: 600;
         }
-        .order-placed.slot-ok { border-color: #10b981; background: rgba(16,185,129,0.14); }
-        .order-placed.slot-bad { border-color: #ef4444; background: rgba(239,68,68,0.14); }
+        .order-placed.slot-ok { border-color: var(--duo-green); background: #E3FFC7; color: var(--duo-green-dark); }
+        .order-placed.slot-bad { border-color: var(--duo-red); background: #FFDFE0; color: var(--duo-red-dark); }
         .order-pool { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
         .order-chip {
-            padding: 11px 16px; border-radius: 10px;
-            background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.4);
-            color: #cbd5e1; font-family: inherit; font-size: 0.92em; cursor: pointer;
-            transition: all 0.15s ease;
+            padding: 11px 16px; border-radius: 12px;
+            background: var(--duo-card); border: 2px solid var(--duo-border); border-bottom: 4px solid var(--duo-border-dark);
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.92em; cursor: pointer;
+            transition: all 0.1s ease;
         }
-        .order-chip:hover:not(.used):not(:disabled) { background: rgba(96,165,250,0.22); transform: translateY(-1px); }
+        .order-chip:hover:not(.used):not(:disabled) { border-color: var(--duo-blue); color: var(--duo-blue-dark); }
         .order-chip.used { opacity: 0.3; pointer-events: none; }
         .order-chip:disabled { cursor: default; }
         .order-undo { margin-top: 12px; }
@@ -492,38 +475,38 @@
         /* categorize */
         .cat-pool { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; min-height: 8px; }
         .cat-chip {
-            padding: 10px 15px; border-radius: 10px;
-            background: rgba(167,139,250,0.14); border: 1px solid rgba(167,139,250,0.4);
-            color: #ddd6fe; font-family: inherit; font-size: 0.9em; cursor: pointer;
-            transition: all 0.15s ease;
+            padding: 10px 15px; border-radius: 12px;
+            background: var(--duo-card); border: 2px solid var(--duo-border); border-bottom: 4px solid var(--duo-border-dark);
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.9em; cursor: pointer;
+            transition: all 0.1s ease;
         }
-        .cat-chip:hover:not(.placed) { transform: translateY(-1px); }
-        .cat-chip.selected { background: rgba(167,139,250,0.35); box-shadow: 0 0 0 2px rgba(167,139,250,0.6); }
+        .cat-chip:hover:not(.placed) { border-color: var(--duo-purple); }
+        .cat-chip.selected { border-color: var(--duo-purple); background: #F3E4FF; }
         .cat-chip.placed { opacity: 0.3; pointer-events: none; }
         .cat-buckets { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
         .cat-bucket {
-            border: 1px dashed #475569; border-radius: 12px; padding: 12px;
-            background: rgba(15,23,42,0.4);
+            border: 2px dashed var(--duo-border); border-radius: 14px; padding: 12px;
+            background: var(--duo-bg);
         }
-        .cat-bucket-title { font-weight: 700; color: #93c5fd; font-size: 0.85em; margin-bottom: 10px; text-align: center; }
+        .cat-bucket-title { font-family: 'Baloo 2', sans-serif; font-weight: 700; color: var(--duo-blue-dark); font-size: 0.85em; margin-bottom: 10px; text-align: center; }
         .cat-drop { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; }
-        .cat-drop:hover { border-color: #60a5fa; }
+        .cat-drop:hover { border-color: var(--duo-blue); }
         .cat-placed {
-            padding: 6px 11px; border-radius: 8px; font-size: 0.84em;
-            background: rgba(51,65,85,0.8); color: #e2e8f0;
+            padding: 6px 11px; border-radius: 10px; font-size: 0.84em; font-weight: 700;
+            background: var(--duo-card); color: var(--duo-text); border: 2px solid var(--duo-border);
         }
 
         /* match */
         .match-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
         .match-col { display: flex; flex-direction: column; gap: 8px; }
         .match-item {
-            padding: 13px 14px; border-radius: 10px; text-align: left;
-            background: rgba(51,65,85,0.55); border: 2px solid #475569;
-            color: #cbd5e1; font-family: inherit; font-size: 0.9em; cursor: pointer;
-            transition: all 0.15s ease;
+            padding: 13px 14px; border-radius: 12px; text-align: left;
+            background: var(--duo-card); border: 2px solid var(--duo-border);
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.9em; cursor: pointer;
+            transition: all 0.1s ease;
         }
-        .match-item:hover:not(.matched) { border-color: #60a5fa; }
-        .match-item.selected { box-shadow: 0 0 0 2px rgba(96,165,250,0.6); background: rgba(96,165,250,0.15); }
+        .match-item:hover:not(.matched) { border-color: var(--duo-blue); }
+        .match-item.selected { border-color: var(--duo-blue); background: #EAF8FF; }
         .match-item.matched { cursor: default; opacity: 0.85; }
 
         @media (prefers-reduced-motion: reduce) {
@@ -535,9 +518,9 @@
             display: flex; align-items: baseline; justify-content: space-between;
             margin-bottom: 22px;
         }
-        .library-title { font-size: 1.5em; color: #f1f5f9; }
+        .library-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; color: var(--duo-text); }
         .library-count {
-            font-size: 0.8em; color: #64748b;
+            font-size: 0.8em; color: var(--duo-text-light);
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         }
         .library-grid {
@@ -545,37 +528,35 @@
         }
         .course-card {
             position: relative; cursor: pointer; padding: 22px 20px;
-            background: linear-gradient(165deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9));
-            border: 1px solid #334155; border-radius: 14px;
-            transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), border-color 0.18s ease;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border); border-bottom: 4px solid var(--duo-border-dark);
+            border-radius: 16px;
+            transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1), border-color 0.15s ease;
         }
-        .course-card:hover {
-            transform: translateY(-3px);
-            border-color: rgba(96,165,250,0.5);
-            box-shadow: 0 12px 26px rgba(0,0,0,0.4);
-        }
-        .course-card:active { transform: translateY(-1px) scale(0.99); }
+        .course-card:hover { border-color: var(--duo-blue); }
+        .course-card:active { transform: translateY(2px); border-bottom-width: 2px; }
         .course-delete {
             position: absolute; top: 10px; right: 10px;
             width: 26px; height: 26px; border-radius: 50%;
-            background: transparent; border: none; color: #475569;
+            background: transparent; border: none; color: var(--duo-border-dark);
             font-size: 1.2em; line-height: 1; cursor: pointer;
             transition: all 0.16s ease;
         }
-        .course-delete:hover { background: rgba(239,68,68,0.15); color: #fca5a5; }
+        .course-delete:hover { background: #FFDFE0; color: var(--duo-red); }
         .course-title {
-            font-weight: 600; color: #f1f5f9; font-size: 1.02em;
+            font-family: 'Baloo 2', sans-serif;
+            font-weight: 700; color: var(--duo-text); font-size: 1.02em;
             margin-bottom: 6px; padding-right: 24px; line-height: 1.35;
         }
-        .course-meta { font-size: 0.79em; color: #64748b; margin-bottom: 16px; }
-        .course-bar { height: 5px; background: rgba(51,65,85,0.7); border-radius: 3px; overflow: hidden; }
+        .course-meta { font-size: 0.79em; color: var(--duo-text-light); margin-bottom: 16px; font-weight: 600; }
+        .course-bar { height: 10px; background: var(--duo-border); border-radius: 6px; overflow: hidden; }
         .course-bar-fill {
-            height: 100%; border-radius: 3px;
-            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            height: 100%; border-radius: 6px;
+            background: var(--duo-green);
             transition: width 0.4s ease;
         }
-        .course-pct { font-size: 0.74em; color: #64748b; margin-top: 7px; }
-        .library-empty { text-align: center; padding: 50px 20px; color: #64748b; }
+        .course-pct { font-size: 0.74em; color: var(--duo-text-light); margin-top: 7px; font-weight: 700; }
+        .library-empty { text-align: center; padding: 50px 20px; color: var(--duo-text-light); }
         .library-empty-icon { font-size: 2.6em; margin-bottom: 12px; opacity: 0.6; }
         .nav-buttons { display: flex; gap: 10px; margin-top: 24px; }
         .nav-buttons .button { flex: 1; }
@@ -583,28 +564,22 @@
         /* ---- Spaced repetition ---- */
         .review-banner {
             display: flex; align-items: center; justify-content: space-between; gap: 16px;
-            background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.35);
-            border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;
+            background: #FFF6DC; border: 2px solid var(--duo-yellow);
+            border-radius: 16px; padding: 14px 18px; margin-bottom: 20px;
         }
-        .review-banner-text { display: flex; align-items: center; gap: 10px; color: #fde68a; font-weight: 600; font-size: 0.95em; }
+        .review-banner-text { display: flex; align-items: center; gap: 10px; color: #8A6D00; font-weight: 700; font-size: 0.95em; }
         .review-banner-icon { font-size: 1.3em; }
         .review-banner .button { padding: 9px 20px; font-size: 0.9em; white-space: nowrap; flex: none; }
         @media (max-width: 480px) {
             .review-banner { flex-direction: column; align-items: stretch; text-align: center; }
-        }
-        .due-dot {
-            position: absolute; top: -2px; right: -2px;
-            width: 14px; height: 14px; border-radius: 50%;
-            background: #fbbf24; border: 2px solid #0f172a;
-            box-shadow: 0 0 8px rgba(251,191,36,0.7);
         }
 
         /* ---- Lesson preview dialog ---- */
         .preview-overlay {
             position: fixed; inset: 0; z-index: 800;
             display: grid; place-items: center; padding: 20px;
-            background: rgba(5, 9, 20, 0.78);
-            backdrop-filter: blur(6px);
+            background: rgba(60, 60, 60, 0.55);
+            backdrop-filter: blur(3px);
             opacity: 0; visibility: hidden;
             transition: opacity 0.2s ease, visibility 0s linear 0.2s;
         }
@@ -614,10 +589,10 @@
         }
         .preview-card {
             width: 100%; max-width: 440px;
-            background: linear-gradient(165deg, #1a2536, #0f172a);
-            border: 1px solid rgba(96,165,250,0.25);
-            border-radius: 18px; padding: 32px 28px;
-            box-shadow: 0 24px 60px rgba(0,0,0,0.6), 0 0 50px rgba(96,165,250,0.1);
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-radius: 20px; padding: 32px 28px;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.18);
             transform: scale(0.94) translateY(12px);
             transition: transform 0.28s cubic-bezier(0.16,1,0.3,1);
         }
@@ -626,21 +601,21 @@
         .preview-num {
             width: 46px; height: 46px; border-radius: 50%;
             display: grid; place-items: center; margin-bottom: 18px;
-            font-weight: 700; color: #fff;
-            background: linear-gradient(165deg, #7cb8ff, #3b82f6 55%, #1d4ed8);
-            box-shadow: 0 6px 0 -1px #1e40af, 0 8px 16px rgba(0,0,0,0.4);
+            font-family: 'Baloo 2', sans-serif; font-weight: 800; color: #fff;
+            background: var(--duo-yellow);
+            border-bottom: 5px solid var(--duo-yellow-dark);
         }
-        .preview-title { font-size: 1.45em; color: #f1f5f9; margin-bottom: 12px; line-height: 1.3; }
-        .preview-desc { color: #94a3b8; line-height: 1.65; margin-bottom: 18px; }
+        .preview-title { font-family: 'Baloo 2', sans-serif; font-size: 1.45em; color: var(--duo-text); margin-bottom: 12px; line-height: 1.3; }
+        .preview-desc { color: var(--duo-text-light); line-height: 1.65; margin-bottom: 18px; }
         .preview-why {
-            background: rgba(96,165,250,0.08);
-            border-inline-start: 3px solid #60a5fa;
-            border-radius: 8px; padding: 14px 16px;
-            color: #cbd5e1; font-size: 0.94em; line-height: 1.6;
+            background: #EAF8FF;
+            border-inline-start: 4px solid var(--duo-blue);
+            border-radius: 10px; padding: 14px 16px;
+            color: var(--duo-text); font-size: 0.94em; line-height: 1.6;
         }
         .preview-why:empty { display: none; }
         .preview-why .why-label {
-            display: block; color: #60a5fa; font-size: 0.8em;
+            display: block; color: var(--duo-blue-dark); font-size: 0.8em;
             font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
             margin-bottom: 6px;
         }
@@ -657,8 +632,8 @@
         .loading-overlay {
             position: fixed; inset: 0; z-index: 900;
             display: grid; place-items: center;
-            background: rgba(5, 9, 20, 0.82);
-            backdrop-filter: blur(6px);
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(3px);
             opacity: 0; visibility: hidden;
             transition: opacity 0.2s ease, visibility 0s linear 0.2s;
         }
@@ -668,7 +643,7 @@
         }
         .loading-card {
             display: flex; flex-direction: column; align-items: center; gap: 18px;
-            color: #cbd5e1; font-size: 1.02em; text-align: center; padding: 0 24px;
+            color: var(--duo-text); font-weight: 700; font-size: 1.02em; text-align: center; padding: 0 24px;
         }
         .spinner-lg { width: 34px; height: 34px; border-width: 3px; }
 
@@ -679,9 +654,7 @@
             z-index: 500;
             display: flex;
             flex-direction: column;
-            background:
-                radial-gradient(ellipse 90% 40% at 50% 0%, rgba(96,165,250,0.10), transparent 65%),
-                linear-gradient(180deg, #0f172a, #0a0f1e);
+            background: var(--duo-card);
             opacity: 0;
             visibility: hidden;
             transform: scale(1.04) translateY(18px);
@@ -701,7 +674,7 @@
         /* Path recedes while the lesson is open */
         body.lesson-open .container {
             transform: scale(0.97);
-            filter: brightness(0.7);
+            filter: brightness(0.94);
             transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), filter 0.34s ease;
         }
         .container { transition: transform 0.3s ease, filter 0.3s ease; }
@@ -710,87 +683,139 @@
         .lesson-topbar {
             flex: none;
             display: grid;
-            grid-template-columns: 44px 1fr auto;
+            grid-template-columns: 40px 1fr auto;
             align-items: center;
             gap: 14px;
-            padding: 16px 18px 12px;
-            border-bottom: 1px solid rgba(71,85,105,0.35);
+            padding: 16px 18px 10px;
         }
         .back-btn {
-            width: 44px; height: 44px;
+            width: 36px; height: 36px;
             display: grid; place-items: center;
             border-radius: 50%;
-            background: rgba(51,65,85,0.5);
-            border: 1px solid rgba(148,163,184,0.2);
-            color: #cbd5e1;
+            background: transparent;
+            border: none;
+            color: var(--duo-text-light);
             cursor: pointer;
-            transition: all 0.18s ease;
+            transition: all 0.15s ease;
         }
-        .back-btn:hover { background: rgba(71,85,105,0.8); color: #f1f5f9; transform: scale(1.06); }
-        .back-btn:active { transform: scale(0.94); }
+        .back-btn:hover { background: var(--duo-border); color: var(--duo-text); }
+        .back-btn:active { transform: scale(0.9); }
 
+        .topbar-title-row {
+            flex: none;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px;
+            padding: 4px 18px 12px;
+        }
         .topbar-title {
-            font-size: 1.05em; font-weight: 600; color: #f1f5f9;
+            font-family: 'Baloo 2', sans-serif;
+            font-size: 1.1em; font-weight: 700; color: var(--duo-text);
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         .topbar-xp {
-            font-size: 0.8em; font-weight: 700; color: #fbbf24;
-            background: rgba(251,191,36,0.12);
-            border: 1px solid rgba(251,191,36,0.3);
+            font-size: 0.8em; font-weight: 800; color: #B8860B;
+            background: #FFF6DC;
+            border: 2px solid var(--duo-yellow);
             padding: 5px 12px; border-radius: 999px; white-space: nowrap;
+            font-family: 'Baloo 2', sans-serif;
         }
+        .topbar-hearts { display: flex; gap: 3px; }
+        .heart { color: var(--duo-red); font-size: 1.15em; line-height: 1; }
+        .heart.lost { color: var(--duo-border); }
 
-        .lesson-screen .lesson-step-bar {
-            flex: none; margin: 0; height: 4px; border-radius: 0;
-            background: rgba(51,65,85,0.6);
+        /* Segmented step progress: a row of pills, Duolingo's signature top bar */
+        .lesson-step-bar {
+            display: flex;
+            gap: 5px;
+            height: 12px;
         }
+        .step-segment {
+            flex: 1;
+            height: 100%;
+            border-radius: 6px;
+            background: var(--duo-border);
+            transition: background 0.25s ease;
+        }
+        .step-segment.filled { background: var(--duo-green); }
+        .step-segment.current { background: var(--duo-blue); }
 
         .lesson-scroll {
             flex: 1;
             overflow-y: auto;
             overscroll-behavior: contain;
             scroll-behavior: smooth;
-            padding: 28px 22px 0;
+            padding: 10px 22px 0;
         }
         /* Constrain the column, not each child — otherwise a shrink-wrapped
            child (like .lesson-body) drifts off-centre. */
         .lesson-scroll-inner { max-width: 720px; margin: 0 auto; width: 100%; }
-        .lesson-scroll-pad { height: 120px; }
+        .lesson-scroll-pad { height: 40px; }
 
         .lesson-meta {
             display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px;
         }
         .meta-chip {
-            font-size: 0.8em; color: #94a3b8;
-            background: rgba(30,41,59,0.7);
-            border: 1px solid rgba(71,85,105,0.5);
+            font-size: 0.8em; font-weight: 700; color: var(--duo-text-light);
+            background: var(--duo-bg);
+            border: 2px solid var(--duo-border);
             padding: 6px 13px; border-radius: 999px;
+        }
+
+        /* Duolingo's signature bottom banner: slides in with the verdict + Continue */
+        .feedback-bar {
+            flex: none;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.22s cubic-bezier(0.16,1,0.3,1);
+        }
+        .feedback-bar.show {
+            max-height: 260px;
+            padding: 16px 22px calc(16px + env(safe-area-inset-bottom, 0px));
+            border-top: 2px solid transparent;
+        }
+        .feedback-bar.feedback-ok { background: #D7FFB8; border-top-color: var(--duo-green); }
+        .feedback-bar.feedback-bad { background: #FFDFE0; border-top-color: var(--duo-red); }
+        .feedback-bar .feedback-head {
+            font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 1.2em; margin-bottom: 6px;
+        }
+        .feedback-bar.feedback-ok .feedback-head { color: var(--duo-green-dark); }
+        .feedback-bar.feedback-bad .feedback-head { color: var(--duo-red-dark); }
+        .feedback-bar .feedback-body { color: var(--duo-text); margin-bottom: 14px; line-height: 1.5; }
+        .feedback-bar .button { width: 100%; }
+        .feedback-bar.feedback-ok .button {
+            background: var(--duo-green); border-bottom-color: var(--duo-green-dark);
+        }
+        .feedback-bar.feedback-bad .button {
+            background: var(--duo-red); border-bottom-color: var(--duo-red-dark);
+        }
+        @media (max-width: 480px) {
+            .feedback-bar.show { max-height: 320px; }
         }
 
         /* Ask-AI dock, pinned above the fold */
         .tutor-dock {
             flex: none;
-            border-top: 1px solid rgba(71,85,105,0.35);
-            background: rgba(10,15,30,0.94);
-            backdrop-filter: blur(12px);
+            border-top: 2px solid var(--duo-border);
+            background: var(--duo-card);
             padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
         }
         .tutor-dock > * { max-width: 720px; margin-inline: auto; }
         .tutor-toggle {
             width: 100%; padding: 12px;
-            background: rgba(167,139,250,0.1);
-            border: 1px solid rgba(167,139,250,0.35);
-            color: #c4b5fd; border-radius: 10px;
-            font-family: inherit; font-size: 0.94em; font-weight: 600;
-            cursor: pointer; transition: all 0.18s ease;
+            background: #F3E4FF;
+            border: 2px solid var(--duo-purple);
+            color: var(--duo-purple-dark); border-radius: 14px;
+            font-family: 'Baloo 2', sans-serif; font-size: 0.94em; font-weight: 700;
+            cursor: pointer; transition: all 0.15s ease;
         }
-        .tutor-toggle:hover { background: rgba(167,139,250,0.18); }
+        .tutor-toggle:hover { background: #ECD5FF; }
         .tutor-panel { padding-top: 12px; }
         .tutor-panel .tutor-response { margin-top: 12px; max-height: 160px; overflow-y: auto; }
 
         @media (max-width: 768px) {
-            .lesson-scroll { padding: 22px 16px 0; }
-            .lesson-topbar { padding: 12px 14px 10px; }
+            .lesson-scroll { padding: 10px 16px 0; }
+            .lesson-topbar { padding: 12px 14px 8px; }
+            .topbar-title-row { padding: 4px 14px 10px; }
             .topbar-title { font-size: 0.96em; }
         }
 
@@ -801,28 +826,25 @@
             .lesson-scroll { scroll-behavior: auto; }
         }
 
-
-
         .tutor-actions {
             display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px;
         }
         .tutor-chip {
             padding: 7px 13px; border-radius: 999px;
-            background: rgba(51,65,85,0.55); border: 1px solid rgba(148,163,184,0.22);
-            color: #cbd5e1; font-family: inherit; font-size: 0.8em;
-            cursor: pointer; transition: all 0.16s ease; white-space: nowrap;
+            background: var(--duo-bg); border: 2px solid var(--duo-border);
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.8em;
+            cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
         }
         .tutor-chip:hover {
-            background: rgba(167,139,250,0.16); border-color: rgba(167,139,250,0.5); color: #ddd6fe;
+            background: #F3E4FF; border-color: var(--duo-purple); color: var(--duo-purple-dark);
         }
         .tutor-chip:active { transform: scale(0.96); }
         .tutor-asked {
-            font-size: 0.8em; color: #a78bfa; font-weight: 600;
+            font-size: 0.8em; color: var(--duo-purple-dark); font-weight: 700;
             margin-bottom: 8px; letter-spacing: 0.01em;
         }
-        .tutor-answer { color: #e2e8f0; line-height: 1.65; white-space: pre-wrap; }
-        .tutor-thinking { display: flex; align-items: center; gap: 10px; color: #94a3b8; }
-
+        .tutor-answer { color: var(--duo-text); line-height: 1.65; white-space: pre-wrap; }
+        .tutor-thinking { display: flex; align-items: center; gap: 10px; color: var(--duo-text-light); }
 
         /* Generated content follows the course language; the chrome does not. */
         [dir="rtl"] .concept-text,
@@ -835,7 +857,7 @@
         [dir="rtl"] .worked-reveal,
         [dir="rtl"] .worked-why,
         [dir="rtl"] .option,
-        [dir="rtl"] .feedback,
+        [dir="rtl"] .feedback-bar,
         [dir="rtl"] .summary-facts,
         [dir="rtl"] .tutor-answer,
         [dir="rtl"] .vis-table th,
@@ -853,9 +875,9 @@
         /* ---- Generated visuals ---- */
         .visual {
             margin: 24px 0; padding: 22px;
-            background: rgba(15,23,42,0.55);
-            border: 1px solid rgba(71,85,105,0.5);
-            border-radius: 14px;
+            background: var(--duo-bg);
+            border: 2px solid var(--duo-border);
+            border-radius: 16px;
         }
 
         /* flow */
@@ -866,89 +888,89 @@
         }
         .flow-dot {
             width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-            font-weight: 700; font-size: 0.85em; color: #fff; flex: none;
-            background: linear-gradient(165deg, #7cb8ff, #3b82f6);
-            box-shadow: 0 4px 0 -1px #1e40af, 0 6px 12px rgba(0,0,0,0.35);
+            font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 0.85em; color: #fff; flex: none;
+            background: var(--duo-blue);
+            border-bottom: 3px solid var(--duo-blue-dark);
         }
-        .flow-label { font-size: 0.88em; color: #cbd5e1; line-height: 1.4; }
-        .flow-arrow { align-self: center; color: #475569; font-size: 1.3em; padding: 0 2px; }
+        .flow-label { font-size: 0.88em; color: var(--duo-text); font-weight: 600; line-height: 1.4; }
+        .flow-arrow { align-self: center; color: var(--duo-border-dark); font-size: 1.3em; padding: 0 2px; }
 
         /* compare */
         .vis-compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; }
-        .cmp-title { font-weight: 700; margin-bottom: 12px; font-size: 0.95em; }
-        .cmp-a .cmp-title { color: #60a5fa; }
-        .cmp-b .cmp-title { color: #a78bfa; }
+        .cmp-title { font-family: 'Baloo 2', sans-serif; font-weight: 700; margin-bottom: 12px; font-size: 0.95em; }
+        .cmp-a .cmp-title { color: var(--duo-blue-dark); }
+        .cmp-b .cmp-title { color: var(--duo-purple-dark); }
         .cmp-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
         .cmp-list li {
-            font-size: 0.88em; color: #cbd5e1; line-height: 1.5;
+            font-size: 0.88em; color: var(--duo-text); line-height: 1.5;
             padding-left: 16px; position: relative;
         }
         .cmp-list li::before {
             content: '·'; position: absolute; left: 3px; top: -2px;
-            font-size: 1.4em; color: #475569;
+            font-size: 1.4em; color: var(--duo-border-dark);
         }
-        .cmp-divider { width: 1px; background: rgba(71,85,105,0.6); }
+        .cmp-divider { width: 1px; background: var(--duo-border); }
 
         /* hierarchy */
         .vis-hierarchy { display: flex; flex-direction: column; align-items: center; }
         .hier-root {
-            padding: 11px 20px; border-radius: 10px; font-weight: 600; color: #f1f5f9;
-            background: linear-gradient(165deg, rgba(96,165,250,0.22), rgba(59,130,246,0.12));
-            border: 1px solid rgba(96,165,250,0.4);
+            padding: 11px 20px; border-radius: 12px; font-family: 'Baloo 2', sans-serif; font-weight: 700; color: var(--duo-blue-dark);
+            background: #EAF8FF;
+            border: 2px solid var(--duo-blue);
         }
-        .hier-stem { width: 2px; height: 22px; background: rgba(71,85,105,0.8); }
+        .hier-stem { width: 2px; height: 22px; background: var(--duo-border-dark); }
         .hier-children { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
         .hier-child {
-            position: relative; padding: 9px 15px; border-radius: 8px;
-            font-size: 0.88em; color: #cbd5e1;
-            background: rgba(51,65,85,0.5); border: 1px solid rgba(71,85,105,0.6);
+            position: relative; padding: 9px 15px; border-radius: 10px;
+            font-size: 0.88em; font-weight: 600; color: var(--duo-text);
+            background: var(--duo-card); border: 2px solid var(--duo-border);
         }
         .hier-tick {
             position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
-            width: 2px; height: 12px; background: rgba(71,85,105,0.8);
+            width: 2px; height: 12px; background: var(--duo-border-dark);
         }
 
         /* timeline */
         .vis-timeline { position: relative; padding-left: 26px; }
         .vis-timeline::before {
-            content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
-            background: linear-gradient(180deg, #60a5fa, rgba(167,139,250,0.3));
+            content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 3px;
+            border-radius: 3px;
+            background: var(--duo-blue);
         }
         .tl-item { position: relative; padding-bottom: 20px; }
         .tl-item:last-child { padding-bottom: 0; }
         .tl-marker {
             position: absolute; left: -26px; top: 4px;
-            width: 12px; height: 12px; border-radius: 50%;
-            background: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
+            width: 13px; height: 13px; border-radius: 50%;
+            background: var(--duo-blue); box-shadow: 0 0 0 3px #EAF8FF;
         }
-        .tl-label { font-weight: 700; color: #93c5fd; font-size: 0.85em; margin-bottom: 3px; }
-        .tl-text { color: #cbd5e1; font-size: 0.9em; line-height: 1.5; }
+        .tl-label { font-family: 'Baloo 2', sans-serif; font-weight: 700; color: var(--duo-blue-dark); font-size: 0.85em; margin-bottom: 3px; }
+        .tl-text { color: var(--duo-text); font-size: 0.9em; line-height: 1.5; }
 
         /* table */
         .vis-table-wrap { overflow-x: auto; }
         .vis-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
         .vis-table th {
-            text-align: left; padding: 11px 14px; color: #93c5fd; font-weight: 700;
-            border-bottom: 2px solid rgba(96,165,250,0.35); white-space: nowrap;
+            text-align: left; padding: 11px 14px; color: var(--duo-blue-dark); font-family: 'Baloo 2', sans-serif; font-weight: 700;
+            border-bottom: 3px solid var(--duo-blue); white-space: nowrap;
         }
         .vis-table td {
-            padding: 11px 14px; color: #cbd5e1; line-height: 1.5;
-            border-bottom: 1px solid rgba(71,85,105,0.35);
+            padding: 11px 14px; color: var(--duo-text); line-height: 1.5;
+            border-bottom: 1px solid var(--duo-border);
         }
         .vis-table tr:last-child td { border-bottom: none; }
 
         /* bar */
         .vis-bar { display: flex; flex-direction: column; gap: 13px; }
         .bar-row { display: grid; grid-template-columns: minmax(70px, 22%) 1fr auto; gap: 12px; align-items: center; }
-        .bar-label { font-size: 0.86em; color: #cbd5e1; }
-        .bar-track { height: 22px; background: rgba(51,65,85,0.6); border-radius: 6px; overflow: hidden; }
+        .bar-label { font-size: 0.86em; color: var(--duo-text); font-weight: 600; }
+        .bar-track { height: 22px; background: var(--duo-border); border-radius: 8px; overflow: hidden; }
         .bar-fill {
-            height: 100%; border-radius: 6px;
-            background: linear-gradient(90deg, #3b82f6, #60a5fa);
-            box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2);
+            height: 100%; border-radius: 8px;
+            background: var(--duo-blue);
             animation: barGrow 0.6s cubic-bezier(0.16,1,0.3,1);
         }
-        .bar-value { font-size: 0.84em; color: #93c5fd; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .bar-value { font-size: 0.84em; color: var(--duo-blue-dark); font-weight: 800; font-variant-numeric: tabular-nums; }
         @keyframes barGrow { from { width: 0 !important; } }
 
         @media (max-width: 640px) {
@@ -961,102 +983,101 @@
             .bar-fill { animation: none; }
         }
 
-        /* ---- Lesson step engine ---- */
-        .lesson-step-bar {
-            background: rgba(51, 65, 85, 0.5);
-            height: 6px; border-radius: 3px; overflow: hidden; margin: 16px 0 28px;
-        }
-        .lesson-step-bar > div {
-            height: 100%; width: 0%;
-            background: linear-gradient(90deg, #60a5fa, #a78bfa);
-            transition: width 0.35s cubic-bezier(0.4,0,0.2,1);
-        }
         .step-eyebrow {
-            font-size: 0.72em; font-weight: 700; letter-spacing: 0.12em;
-            text-transform: uppercase; color: #60a5fa; margin-bottom: 14px;
+            font-family: 'Baloo 2', sans-serif;
+            font-size: 0.78em; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; color: var(--duo-green-dark); margin-bottom: 14px;
         }
-        .challenge-eyebrow { color: #fbbf24; }
-        .step-note { color: #64748b; font-size: 0.88em; margin: 10px 0 16px; }
+        .challenge-eyebrow { color: var(--duo-orange-dark); }
+        .step-note { color: var(--duo-text-light); font-size: 0.88em; margin: 10px 0 16px; font-weight: 600; }
         .step-next { margin-top: 24px; }
 
         .hook-card {
-            font-size: 1.25em; line-height: 1.6; font-weight: 500; color: #f1f5f9;
-            background: linear-gradient(135deg, rgba(96,165,250,0.12), rgba(167,139,250,0.08));
-            border: 1px solid rgba(96,165,250,0.25);
-            border-radius: 14px; padding: 28px;
+            font-size: 1.25em; line-height: 1.6; font-weight: 700; color: var(--duo-text);
+            background: #EAF8FF;
+            border: 2px solid var(--duo-blue);
+            border-radius: 18px; padding: 28px;
         }
-        .card-idea { font-size: 1.3em; color: #e2e8f0; margin-bottom: 14px; }
+        .card-idea { font-family: 'Baloo 2', sans-serif; font-size: 1.3em; color: var(--duo-text); margin-bottom: 14px; }
         .analogy-box {
-            background: rgba(167,139,250,0.1); border-inline-start: 4px solid #a78bfa;
-            padding: 16px 20px; border-radius: 8px; margin-top: 16px; line-height: 1.6;
+            background: #F3E4FF; border-inline-start: 4px solid var(--duo-purple);
+            padding: 16px 20px; border-radius: 10px; margin-top: 16px; line-height: 1.6;
         }
-        .analogy-label { display: block; color: #a78bfa; font-weight: 600; margin-bottom: 6px; font-size: 0.85em; }
+        .analogy-label { display: block; color: var(--duo-purple-dark); font-weight: 700; margin-bottom: 6px; font-size: 0.85em; }
         .misconception-box {
-            background: rgba(239,68,68,0.1); border-inline-start: 4px solid #ef4444;
-            padding: 20px; border-radius: 8px; margin: 20px 0; line-height: 1.6;
+            background: #FFDFE0; border-inline-start: 4px solid var(--duo-red);
+            padding: 20px; border-radius: 10px; margin: 20px 0; line-height: 1.6; color: var(--duo-text);
         }
 
         .worked-list { margin: 20px 0; display: flex; flex-direction: column; gap: 10px; }
         .worked-reveal {
             width: 100%; text-align: start; display: flex; align-items: center; gap: 14px;
-            background: rgba(51,65,85,0.5); border: 2px solid #475569; color: #e2e8f0;
-            border-radius: 10px; padding: 14px 18px; cursor: pointer; font-size: 0.98em;
-            font-family: inherit; transition: all 0.2s ease;
+            background: var(--duo-card); border: 2px solid var(--duo-border); color: var(--duo-text);
+            border-radius: 12px; padding: 14px 18px; cursor: pointer; font-size: 0.98em; font-weight: 700;
+            font-family: 'Nunito', sans-serif; transition: all 0.15s ease;
         }
-        .worked-reveal:hover { border-color: #60a5fa; }
-        .worked-reveal.revealed { border-color: #10b981; }
+        .worked-reveal:hover { border-color: var(--duo-blue); }
+        .worked-reveal.revealed { border-color: var(--duo-green); }
         .worked-num {
             flex: none; width: 26px; height: 26px; border-radius: 50%;
-            background: #60a5fa; color: #0f172a; font-weight: 700; font-size: 0.85em;
+            background: var(--duo-blue); color: #fff; font-weight: 800; font-size: 0.85em;
             display: grid; place-items: center;
         }
-        .worked-reveal.revealed .worked-num { background: #10b981; }
+        .worked-reveal.revealed .worked-num { background: var(--duo-green); }
         .worked-why {
-            padding: 14px 18px; margin-top: 6px; color: #94a3b8; line-height: 1.6;
-            background: rgba(16,185,129,0.07); border-radius: 8px;
+            padding: 14px 18px; margin-top: 6px; color: var(--duo-text); line-height: 1.6;
+            background: #E3FFC7; border-radius: 10px;
         }
 
         .hint-btn { margin-top: 16px; }
         .hint-box {
-            margin-top: 14px; padding: 16px; border-radius: 8px; line-height: 1.6;
-            background: rgba(251,191,36,0.1); border-inline-start: 4px solid #fbbf24;
+            margin-top: 14px; padding: 16px; border-radius: 10px; line-height: 1.6;
+            background: #FFF6DC; border-inline-start: 4px solid var(--duo-yellow); color: var(--duo-text);
         }
 
         .option.dimmed { opacity: 0.35; }
-        .option.picked { border-color: #a78bfa; background: rgba(167,139,250,0.15); }
+        .option.picked { border-color: var(--duo-purple); background: #F3E4FF; }
         .option.locked-in { cursor: default; }
-        .option.locked-in:hover { transform: none; }
+        .option.locked-in:hover { transform: none; border-color: inherit; }
 
-        .feedback { margin-top: 22px; padding: 20px; border-radius: 10px; line-height: 1.6; }
-        .feedback-ok { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); }
-        .feedback-bad { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); }
-        .feedback-head { font-weight: 700; margin-bottom: 8px; font-size: 1.05em; }
-        .feedback-ok .feedback-head { color: #4ade80; }
-        .feedback-bad .feedback-head { color: #fca5a5; }
+        /* ---- Bounce / shake: the tap-feedback Duolingo gives on every answer ---- */
+        @keyframes popTap {
+            0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); }
+        }
+        @keyframes shakeTap {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); } 40% { transform: translateX(8px); }
+            60% { transform: translateX(-5px); } 80% { transform: translateX(5px); }
+        }
+        .option.pop { animation: popTap 0.3s ease; }
+        .option.shake { animation: shakeTap 0.4s ease; }
+        @media (prefers-reduced-motion: reduce) {
+            .option.pop, .option.shake { animation: none; }
+        }
 
         .memory-input {
             width: 100%; min-height: 120px; margin: 16px 0; padding: 16px;
-            background: rgba(15,23,42,0.7); border: 2px solid #475569; border-radius: 10px;
-            color: #e2e8f0; font-family: inherit; font-size: 0.98em; resize: vertical;
+            background: var(--duo-card); border: 2px solid var(--duo-border); border-radius: 14px;
+            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-size: 0.98em; resize: vertical;
         }
-        .memory-input:focus { outline: none; border-color: #60a5fa; }
+        .memory-input:focus { outline: none; border-color: var(--duo-blue); }
 
         .complete-screen { text-align: center; padding: 20px 0; }
         .complete-badge {
             width: 84px; height: 84px; margin: 0 auto 20px; border-radius: 50%;
             display: grid; place-items: center; font-size: 2.4em; color: #fff;
-            background: linear-gradient(165deg, #4ade80, #10b981 55%, #047857);
-            box-shadow: 0 10px 0 -1px #065f46, 0 16px 30px rgba(0,0,0,0.5), 0 0 40px rgba(16,185,129,0.4);
-            animation: unlockPop 0.7s cubic-bezier(0.34,1.56,0.64,1);
+            background: var(--duo-green);
+            border-bottom: 6px solid var(--duo-green-dark);
+            animation: unlockPop 0.6s cubic-bezier(0.34,1.56,0.64,1);
         }
-        .complete-title { font-size: 1.7em; margin-bottom: 26px; color: #f1f5f9; }
+        .complete-title { font-family: 'Baloo 2', sans-serif; font-size: 1.7em; margin-bottom: 26px; color: var(--duo-text); }
         .complete-stats {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(90px,1fr));
             gap: 14px; margin-bottom: 30px;
         }
-        .cstat { background: rgba(30,41,59,0.6); border: 1px solid #475569; border-radius: 12px; padding: 16px 10px; }
-        .cstat-val { font-size: 1.5em; font-weight: 700; color: #60a5fa; }
-        .cstat-lbl { font-size: 0.78em; color: #94a3b8; margin-top: 4px; }
+        .cstat { background: var(--duo-bg); border: 2px solid var(--duo-border); border-radius: 14px; padding: 16px 10px; }
+        .cstat-val { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; font-weight: 800; color: var(--duo-green-dark); }
+        .cstat-lbl { color: var(--duo-text-light); font-size: 0.78em; margin-top: 4px; font-weight: 600; }
         .complete-screen .button { margin: 6px; }
 
         .confetti {
@@ -1074,335 +1095,231 @@
         }
 
         /* Lesson Content */
-        .lesson-header {
-            margin-bottom: 30px;
-        }
-
-        .lesson-title {
-            font-size: 2em;
-            margin-bottom: 10px;
-            color: #60a5fa;
-        }
-
-        .lesson-description {
-            color: #94a3b8;
-            font-size: 1.05em;
-            line-height: 1.6;
-        }
+        .lesson-header { margin-bottom: 30px; }
+        .lesson-title { font-family: 'Baloo 2', sans-serif; font-size: 2em; margin-bottom: 10px; color: var(--duo-green-dark); }
+        .lesson-description { color: var(--duo-text-light); font-size: 1.05em; line-height: 1.6; }
 
         .concept-text {
-            background: rgba(30, 41, 59, 0.6);
-            border-left: 4px solid #60a5fa;
+            background: var(--duo-bg);
+            border-left: 4px solid var(--duo-blue);
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
             margin: 20px 0;
             line-height: 1.7;
         }
 
         .example-box {
-            background: rgba(16, 185, 129, 0.1);
-            border-left: 4px solid #10b981;
+            background: #E3FFC7;
+            border-left: 4px solid var(--duo-green);
             padding: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
             margin: 20px 0;
         }
 
-        .example-label {
-            color: #10b981;
-            font-weight: bold;
-            margin-bottom: 8px;
-        }
+        .example-label { color: var(--duo-green-dark); font-family: 'Baloo 2', sans-serif; font-weight: 700; margin-bottom: 8px; }
 
         /* Question Section */
         .question-section {
             margin: 30px 0;
-            background: rgba(30, 41, 59, 0.6);
+            background: var(--duo-bg);
             padding: 25px;
-            border-radius: 12px;
+            border-radius: 16px;
         }
 
-        .question-text {
-            font-size: 1.1em;
-            margin-bottom: 20px;
-            font-weight: 500;
-        }
+        .question-text { font-size: 1.1em; margin-bottom: 20px; font-weight: 700; }
 
-        .options {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+        .options { display: flex; flex-direction: column; gap: 10px; }
 
         .option {
-            background: rgba(51, 65, 85, 0.5);
-            border: 2px solid #475569;
-            border-radius: 8px;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-bottom: 4px solid var(--duo-border-dark);
+            border-radius: 14px;
             padding: 15px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.12s ease;
         }
 
         .option:hover {
-            border-color: #60a5fa;
-            background: rgba(51, 65, 85, 0.8);
-            transform: translateX(5px);
+            border-color: var(--duo-blue);
         }
 
         .option.correct {
-            background: rgba(16, 185, 129, 0.2);
-            border-color: #10b981;
-            color: #10b981;
+            background: #D7FFB8;
+            border-color: var(--duo-green);
+            border-bottom-color: var(--duo-green-dark);
+            color: var(--duo-green-dark);
         }
 
         .option.incorrect {
-            background: rgba(239, 68, 68, 0.2);
-            border-color: #ef4444;
-            color: #fca5a5;
+            background: #FFDFE0;
+            border-color: var(--duo-red);
+            border-bottom-color: var(--duo-red-dark);
+            color: var(--duo-red-dark);
         }
 
-        /* Button Styles */
+        /* Button Styles: flat colour + a solid bottom edge that presses flush on click */
         .button {
-            background: linear-gradient(135deg, #60a5fa, #3b82f6);
+            background: var(--duo-green);
             color: white;
             border: none;
-            padding: 12px 30px;
-            border-radius: 8px;
+            border-bottom: 4px solid var(--duo-green-dark);
+            padding: 13px 30px;
+            border-radius: 14px;
+            font-family: 'Baloo 2', sans-serif;
             font-size: 1em;
-            font-weight: 600;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: background 0.15s ease, transform 0.05s ease, border-bottom-width 0.05s ease;
             display: inline-block;
         }
 
-        .button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(96, 165, 250, 0.3);
+        .button:hover { background: #61E002; }
+
+        .button:active {
+            border-bottom-width: 0;
+            transform: translateY(4px);
         }
 
         .button:disabled {
-            opacity: 0.5;
+            background: var(--duo-border);
+            border-bottom-color: var(--duo-border-dark);
+            color: #ADADAD;
             cursor: not-allowed;
+            transform: none;
         }
 
         .button-secondary {
-            background: rgba(96, 165, 250, 0.1);
-            border: 2px solid #60a5fa;
-            color: #60a5fa;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-bottom: 4px solid var(--duo-border-dark);
+            color: var(--duo-blue-dark);
         }
 
-        .button-secondary:hover {
-            background: rgba(96, 165, 250, 0.2);
-        }
+        .button-secondary:hover { background: var(--duo-bg); }
 
         /* Tutor Chat */
-        .tutor-section {
-            margin-top: 30px;
-            background: rgba(30, 41, 59, 0.6);
-            border-radius: 12px;
-            padding: 20px;
-        }
-
-        .tutor-title {
-            color: #a78bfa;
-            font-weight: bold;
-            margin-bottom: 15px;
-        }
-
-        .tutor-input {
-            display: flex;
-            gap: 10px;
-        }
-
+        .tutor-section { margin-top: 30px; background: var(--duo-bg); border-radius: 16px; padding: 20px; }
+        .tutor-title { color: var(--duo-purple-dark); font-family: 'Baloo 2', sans-serif; font-weight: 700; margin-bottom: 15px; }
+        .tutor-input { display: flex; gap: 10px; }
         .tutor-input input {
             flex: 1;
-            background: rgba(15, 23, 42, 0.6);
-            border: 2px solid #475569;
-            border-radius: 8px;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-radius: 12px;
             padding: 10px 15px;
-            color: #e2e8f0;
+            color: var(--duo-text);
+            font-family: 'Nunito', sans-serif;
             font-size: 0.95em;
         }
-
-        .tutor-input input:focus {
-            outline: none;
-            border-color: #a78bfa;
-        }
-
-        .tutor-input button {
-            padding: 10px 20px;
-        }
+        .tutor-input input:focus { outline: none; border-color: var(--duo-purple); }
+        .tutor-input button { padding: 10px 20px; }
 
         .tutor-response {
             margin-top: 15px;
-            background: rgba(51, 65, 85, 0.5);
+            background: var(--duo-bg);
             padding: 15px;
-            border-radius: 8px;
-            border-left: 3px solid #a78bfa;
+            border-radius: 12px;
+            border-left: 3px solid var(--duo-purple);
             max-height: 200px;
             overflow-y: auto;
         }
 
         /* Progress Bar */
-        .progress-bar {
-            background: rgba(51, 65, 85, 0.5);
-            height: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 20px 0;
-        }
-
-        .progress-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #60a5fa, #a78bfa);
-            transition: width 0.3s ease;
-        }
+        .progress-bar { background: var(--duo-border); height: 12px; border-radius: 8px; overflow: hidden; margin: 20px 0; }
+        .progress-fill { height: 100%; border-radius: 8px; background: var(--duo-green); transition: width 0.3s ease; }
 
         /* Stats */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin: 30px 0;
-        }
-
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin: 30px 0; }
         .stat-card {
-            background: rgba(30, 41, 59, 0.6);
+            background: var(--duo-card);
             padding: 20px;
-            border-radius: 12px;
+            border-radius: 16px;
             text-align: center;
-            border: 1px solid #475569;
+            border: 2px solid var(--duo-border);
         }
-
-        .stat-value {
-            font-size: 1.8em;
-            font-weight: bold;
-            color: #60a5fa;
-        }
-
-        .stat-label {
-            color: #94a3b8;
-            font-size: 0.85em;
-            margin-top: 5px;
-        }
+        .stat-value { font-family: 'Baloo 2', sans-serif; font-size: 1.8em; font-weight: 800; color: var(--duo-green-dark); }
+        .stat-label { color: var(--duo-text-light); font-size: 0.85em; margin-top: 5px; font-weight: 600; }
 
         /* Animations */
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
 
         /* Modal */
         .modal {
             display: none;
             position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.7);
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(60, 60, 60, 0.55);
             z-index: 1000;
             align-items: center;
             justify-content: center;
             animation: fadeIn 0.3s ease;
         }
-
-        .modal.active {
-            display: flex;
-        }
-
+        .modal.active { display: flex; }
         .modal-content {
-            background: #0f172a;
-            border-radius: 16px;
+            background: var(--duo-card);
+            border-radius: 20px;
             padding: 40px;
             max-width: 500px;
             max-height: 80vh;
             overflow-y: auto;
-            border: 2px solid #475569;
+            border: 2px solid var(--duo-border);
         }
-
-        .modal-title {
-            font-size: 1.5em;
-            margin-bottom: 20px;
-            color: #60a5fa;
-        }
+        .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 20px; color: var(--duo-green-dark); }
 
         .error-message {
-            background: rgba(239, 68, 68, 0.2);
-            border: 2px solid #ef4444;
-            color: #fca5a5;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
+            background: #FFDFE0; border: 2px solid var(--duo-red);
+            color: var(--duo-red-dark); padding: 15px; border-radius: 12px; margin: 20px 0;
         }
-
         .success-message {
-            background: rgba(16, 185, 129, 0.2);
-            border: 2px solid #10b981;
-            color: #86efac;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
+            background: #E3FFC7; border: 2px solid var(--duo-green);
+            color: var(--duo-green-dark); padding: 15px; border-radius: 12px; margin: 20px 0;
         }
-
         .info-message {
-            background: rgba(96, 165, 250, 0.2);
-            border: 2px solid #60a5fa;
-            color: #bfdbfe;
-            padding: 15px;
-            border-radius: 8px;
-            margin: 20px 0;
+            background: #EAF8FF; border: 2px solid var(--duo-blue);
+            color: var(--duo-blue-dark); padding: 15px; border-radius: 12px; margin: 20px 0;
         }
 
-        .nav-buttons {
-            display: flex;
-            gap: 10px;
-            margin-top: 30px;
-            justify-content: space-between;
-        }
+        .nav-buttons { display: flex; gap: 10px; margin-top: 30px; justify-content: space-between; }
 
         .reset-button {
-            background: rgba(239, 68, 68, 0.1);
-            border: 2px solid #ef4444;
-            color: #fca5a5;
+            background: var(--duo-card);
+            border: 2px solid var(--duo-red);
+            border-bottom: 4px solid var(--duo-red-dark);
+            color: var(--duo-red);
         }
-
-        .reset-button:hover {
-            background: rgba(239, 68, 68, 0.2);
-        }
+        .reset-button:hover { background: #FFDFE0; }
 
         @media (max-width: 768px) {
-            h1 {
-                font-size: 1.8em;
-            }
-
-            .upload-section {
-                padding: 20px;
-            }
-
-            .lesson-title {
-                font-size: 1.5em;
-            }
+            h1 { font-size: 1.8em; }
+            .upload-section { padding: 20px; }
+            .lesson-title { font-size: 1.5em; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
-            <h1><span id="t_title">🚀 AI Learning Path</span></h1>
+            <h1><span id="t_title">🦉 AI Learning Path</span></h1>
             <p class="subtitle" id="t_subtitle">Turn any PDF into an interactive learning journey</p>
-            <button id="changeKeyBtn" class="button button-secondary" style="margin-top: 15px; padding: 6px 16px; font-size: 0.85em;">Change API key</button>
+
+            <div class="duo-hud" id="duoHud">
+                <div class="hud-stat hud-streak" title="Day streak">
+                    <span class="hud-icon">🔥</span><span id="hudStreak">0</span>
+                </div>
+                <div class="hud-stat hud-gems" title="Gems">
+                    <span class="hud-icon">💎</span><span id="hudGems">0</span>
+                </div>
+                <div class="hud-stat hud-xp" title="Total XP">
+                    <span class="hud-icon">⭐</span><span id="hudXp">0</span>
+                </div>
+            </div>
+
+            <button id="changeKeyBtn" class="button button-secondary" style="margin-top: 15px; padding: 8px 18px; font-size: 0.8em;">Change API key</button>
             <div id="usageBadge" class="usage-badge" title=""></div>
         </header>
 
@@ -1518,18 +1435,20 @@
     <!-- ===== Lesson Screen (separate page) ===== -->
     <div id="lessonScreen" class="lesson-screen" aria-hidden="true">
         <header class="lesson-topbar">
-            <button class="back-btn" id="backBtn" aria-label="Back">
+            <button class="back-btn" id="backBtn" aria-label="Close">
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
-                     stroke="currentColor" stroke-width="2.2"
+                     stroke="currentColor" stroke-width="3"
                      stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                    <path d="M6 6l12 12M18 6L6 18"/>
                 </svg>
             </button>
+            <div class="lesson-step-bar" id="lessonStepBar"></div>
+            <div class="topbar-hearts" id="topbarHearts"></div>
+        </header>
+        <div class="topbar-title-row">
             <div class="topbar-title" id="lessonTitle"></div>
             <div class="topbar-xp" id="lessonXpBadge"></div>
-        </header>
-
-        <div class="lesson-step-bar"><div id="lessonStepBar"></div></div>
+        </div>
 
         <div class="lesson-scroll" id="lessonScroll">
             <div class="lesson-scroll-inner">
@@ -1538,6 +1457,9 @@
                 <div class="lesson-scroll-pad"></div>
             </div>
         </div>
+
+        <!-- Duolingo-style sliding feedback banner: docked above the tutor, filled after each grade -->
+        <div class="feedback-bar" id="feedbackBar"></div>
 
         <!-- Ask AI: available throughout the lesson -->
         <div class="tutor-dock" id="tutorDock">
@@ -1559,19 +1481,19 @@
     <div id="apiKeyModal" class="modal active">
         <div class="modal-content">
             <div class="modal-title">🔑 API key required</div>
-            <p style="margin-bottom: 15px; color: #94a3b8;">
+            <p style="margin-bottom: 15px; color: var(--duo-text-light);">
                 <span>This app uses the Claude API to generate lessons.</span>
             </p>
-            <p style="margin-bottom: 20px; font-size: 0.9em; color: #64748b;">
-                <span>Create a key at:</span> <a href="https://platform.claude.com" target="_blank" style="color: #60a5fa;">platform.claude.com</a>
+            <p style="margin-bottom: 20px; font-size: 0.9em; color: var(--duo-text-light);">
+                <span>Create a key at:</span> <a href="https://platform.claude.com" target="_blank" style="color: var(--duo-blue-dark); font-weight: 700;">platform.claude.com</a>
             </p>
             <input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="
                 width: 100%;
-                background: rgba(15, 23, 42, 0.8);
-                border: 2px solid #475569;
-                border-radius: 8px;
+                background: var(--duo-card);
+                border: 2px solid var(--duo-border);
+                border-radius: 12px;
                 padding: 12px;
-                color: #e2e8f0;
+                color: var(--duo-text);
                 font-family: monospace;
                 margin-bottom: 15px;
             " />
@@ -2261,6 +2183,12 @@ ${languageRule()}`;
             }
         }
 
+        // Concepts are grouped into fixed-size units purely for the path's visual
+        // rhythm (a banner every N nodes, a star node ending each unit) — the
+        // underlying course/progress data has no notion of units.
+        const UNIT_SIZE = 5;
+        const UNIT_COLORS = ['#58CC02', '#1CB0F6', '#CE82FF', '#FF9600', '#FF4B4B'];
+
         function displayLearningPath() {
             document.getElementById('sourcePicker').hidden = true;
             document.getElementById('learningPath').classList.add('active');
@@ -2269,6 +2197,7 @@ ${languageRule()}`;
             document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
             document.getElementById('totalLessons').textContent = courseData.concepts.length;
             updateProgress();
+            renderHud();
 
             // Build path
             const pathContainer = document.getElementById('lessonPath');
@@ -2281,9 +2210,23 @@ ${languageRule()}`;
             pathContainer.innerHTML = '';
 
             courseData.concepts.forEach((concept, index) => {
+                if (index % UNIT_SIZE === 0) {
+                    const unitNum = Math.floor(index / UNIT_SIZE) + 1;
+                    const banner = document.createElement('div');
+                    banner.className = 'unit-banner';
+                    banner.style.background = UNIT_COLORS[(unitNum - 1) % UNIT_COLORS.length];
+                    banner.innerHTML = `
+                        <div class="unit-banner-label">Unit ${unitNum}</div>
+                        <div class="unit-banner-title">${esc(concept.name)}</div>`;
+                    pathContainer.appendChild(banner);
+                }
+
+                const isCheckpoint = (index + 1) % UNIT_SIZE === 0 || index === courseData.concepts.length - 1;
+
                 const node = document.createElement('div');
                 node.className = 'lesson-node';
                 node.classList.add('locked');
+                if (isCheckpoint) node.classList.add('checkpoint');
 
                 if (progress[index] && progress[index].completed) {
                     node.classList.remove('locked');
@@ -2297,10 +2240,11 @@ ${languageRule()}`;
                 }
 
                 const dueNow = isDueForReview(index);
+                const icon = isCheckpoint ? '★' : (index + 1);
 
                 node.innerHTML = `
                     <div class="lesson-circle">
-                        <span>${index + 1}</span>
+                        <span>${icon}</span>
                         ${dueNow ? '<span class="due-dot" title="Due for review"></span>' : ''}
                     </div>
                     <div class="lesson-label">${concept.name.substring(0, 18)}</div>
@@ -2399,6 +2343,7 @@ ${languageRule()}`;
                 lesson: { title: 'Review session' },
                 steps, step: 0,
                 correct: 0, total: 0,
+                heartsLeft: 5,
                 startedAt: Date.now(),
                 review: { items, byLesson: {} },
                 result: null,
@@ -2408,6 +2353,8 @@ ${languageRule()}`;
             document.getElementById('lessonXpBadge').textContent = `${items.length} questions`;
             document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">🔁 Spaced repetition</span>`;
             applyContentDirection();
+            buildStepSegments(steps.length);
+            renderHearts();
             openLessonScreen();
             renderStep();
         }
@@ -2419,7 +2366,73 @@ ${languageRule()}`;
                 scheduleReview(Number(idx), accuracy);
             });
             saveProgress();
+            bumpStreak();
+            renderHud();
             return { lessonsReviewed: Object.keys(byLesson).length, correct: lessonState.correct, total: lessonState.total };
+        }
+
+        // ============= Duolingo-style HUD: streak, gems, hearts =============
+        const STREAK_STORAGE = 'streak_data';   // { count, lastActive: 'YYYY-MM-DD' }
+
+        function todayStr(offsetDays = 0) {
+            return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
+        }
+
+        function getStreak() {
+            const data = JSON.parse(localStorage.getItem(STREAK_STORAGE) || 'null');
+            if (!data) return 0;
+            // The streak is only "alive" if the learner showed up today or yesterday.
+            if (data.lastActive !== todayStr() && data.lastActive !== todayStr(-1)) return 0;
+            return data.count;
+        }
+
+        // Call once per completed lesson/review. Consecutive calendar days extend
+        // the streak; a gap resets it; the same day twice is a no-op.
+        function bumpStreak() {
+            const today = todayStr();
+            const data = JSON.parse(localStorage.getItem(STREAK_STORAGE) || 'null') || { count: 0, lastActive: null };
+            if (data.lastActive !== today) {
+                data.count = (data.lastActive === todayStr(-1)) ? data.count + 1 : 1;
+                data.lastActive = today;
+                localStorage.setItem(STREAK_STORAGE, JSON.stringify(data));
+            }
+        }
+
+        // Gems are a cosmetic currency derived from XP — no separate ledger to keep in sync.
+        function renderHud() {
+            const streakEl = document.getElementById('hudStreak');
+            if (!streakEl) return;
+            const totalXp = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
+            streakEl.textContent = getStreak();
+            document.getElementById('hudXp').textContent = totalXp;
+            document.getElementById('hudGems').textContent = Math.floor(totalXp / 20);
+        }
+
+        // Build the segmented step-progress pills once we know how many steps a
+        // lesson/review has. renderStep() then just toggles .filled/.current.
+        function buildStepSegments(total) {
+            const bar = document.getElementById('lessonStepBar');
+            if (!bar) return;
+            bar.innerHTML = Array.from({ length: total }, () => '<div class="step-segment"></div>').join('');
+        }
+
+        function updateStepSegments(step, total) {
+            const bar = document.getElementById('lessonStepBar');
+            if (!bar) return;
+            [...bar.children].forEach((seg, i) => {
+                seg.classList.toggle('filled', i < step);
+                seg.classList.toggle('current', i === step);
+            });
+        }
+
+        // Hearts are cosmetic feedback, not a hard gate — missing them never
+        // blocks progress, it just reflects how clean the run has been so far.
+        function renderHearts() {
+            const el = document.getElementById('topbarHearts');
+            if (!el || !lessonState) return;
+            const left = lessonState.heartsLeft ?? 5;
+            el.innerHTML = Array.from({ length: 5 }, (_, i) =>
+                `<span class="heart${i < left ? '' : ' lost'}">${i < left ? '❤' : '🖤'}</span>`).join('');
         }
 
         // ============= Usage & cost tracking =============
@@ -3081,8 +3094,7 @@ ${languageRule()}`;
             const opts = q.options.map((o, i) =>
                 `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
             return `<div class="question-text">${esc(q.text)}</div>
-                    <div class="options" id="answerOpts">${opts}</div>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    <div class="options" id="answerOpts">${opts}</div>`;
         }
 
         function renderBlank(q, p) {
@@ -3092,8 +3104,7 @@ ${languageRule()}`;
                 `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
             return `<div class="question-text blank-sentence">${sentence}</div>
                     <div class="step-note">Choose the word that fills the gap</div>
-                    <div class="options" id="answerOpts">${opts}</div>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    <div class="options" id="answerOpts">${opts}</div>`;
         }
 
         function renderBoolean(q, p) {
@@ -3101,8 +3112,7 @@ ${languageRule()}`;
                     <div class="bool-row" id="answerOpts">
                         <div class="option bool-opt" data-answer="true">✓ True</div>
                         <div class="option bool-opt" data-answer="false">✗ False</div>
-                    </div>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    </div>`;
         }
 
         function renderOrder(q, p) {
@@ -3114,8 +3124,7 @@ ${languageRule()}`;
                     <div class="step-note">Tap in the correct order</div>
                     <ol class="order-slots" id="orderSlots"></ol>
                     <div class="order-pool" id="orderPool">${pool}</div>
-                    <button class="button button-secondary order-undo" id="orderUndo" hidden>Undo last</button>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    <button class="button button-secondary order-undo" id="orderUndo" hidden>Undo last</button>`;
         }
 
         function renderCategorize(q, p) {
@@ -3129,8 +3138,7 @@ ${languageRule()}`;
             return `<div class="question-text">${esc(q.text)}</div>
                     <div class="step-note">Tap an item, then tap its group</div>
                     <div class="cat-pool" id="catPool">${pool}</div>
-                    <div class="cat-buckets" id="catBuckets">${buckets}</div>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    <div class="cat-buckets" id="catBuckets">${buckets}</div>`;
         }
 
         function renderMatch(q, p) {
@@ -3144,8 +3152,7 @@ ${languageRule()}`;
                     <div class="match-grid">
                         <div class="match-col" id="matchLeft">${left}</div>
                         <div class="match-col" id="matchRight">${right}</div>
-                    </div>
-                    <div class="feedback" id="feedback" hidden></div>`;
+                    </div>`;
         }
 
         // ---- Wiring & grading ----
@@ -3154,7 +3161,12 @@ ${languageRule()}`;
         function wireQuestion(q, onGraded) {
             const done = (correct, explanationOverride) => {
                 lessonState.total++;
-                if (correct) lessonState.correct++;
+                if (correct) {
+                    lessonState.correct++;
+                } else if ((lessonState.heartsLeft ?? 5) > 0) {
+                    lessonState.heartsLeft = (lessonState.heartsLeft ?? 5) - 1;
+                    renderHearts();
+                }
                 showQuestionFeedback(correct, explanationOverride || q.explanation);
                 onGraded && onGraded(correct);
             };
@@ -3171,13 +3183,15 @@ ${languageRule()}`;
             }
         }
 
+        // Duolingo's signature moment: a colored banner docks in from the bottom
+        // of the screen, above the tutor dock, with the verdict and a big Continue.
         function showQuestionFeedback(correct, explanation) {
-            const fb = document.getElementById('feedback');
-            if (!fb) return;
-            fb.hidden = false;
-            fb.className = 'feedback ' + (correct ? 'feedback-ok' : 'feedback-bad');
-            fb.innerHTML = `<div class="feedback-head">${correct ? 'Correct!' : 'Not quite'}</div>
-                ${explanation ? `<div>${esc(explanation)}</div>` : ''}
+            const bar = document.getElementById('feedbackBar');
+            if (!bar) return;
+            bar.className = 'feedback-bar show ' + (correct ? 'feedback-ok' : 'feedback-bad');
+            bar.innerHTML = `
+                <div class="feedback-head">${correct ? '✓ Nice!' : '✗ Not quite'}</div>
+                <div class="feedback-body">${explanation ? esc(explanation) : ''}</div>
                 <button class="button step-next" id="stepNext">Continue</button>`;
             document.getElementById('stepNext').onclick = advanceStep;
         }
@@ -3195,12 +3209,14 @@ ${languageRule()}`;
                 el.onclick = () => {
                     if (opts.some(o => o.classList.contains('locked-in'))) return;
                     const picked = Number(el.dataset.answer);
+                    const isRight = picked === q.correct;
                     lockOptions();
                     opts.forEach((o, i) => {
                         if (i === q.correct) o.classList.add('correct');
                         else if (i === picked) o.classList.add('incorrect');
                     });
-                    done(picked === q.correct);
+                    el.classList.add(isRight ? 'pop' : 'shake');
+                    done(isRight);
                 };
             });
         }
@@ -3211,13 +3227,15 @@ ${languageRule()}`;
                 el.onclick = () => {
                     if (opts.some(o => o.classList.contains('locked-in'))) return;
                     const picked = el.dataset.answer === 'true';
+                    const isRight = picked === q.answer;
                     opts.forEach(o => { o.classList.add('locked-in'); o.onclick = null; });
                     opts.forEach(o => {
                         const val = o.dataset.answer === 'true';
                         if (val === q.answer) o.classList.add('correct');
                         else if (val === picked) o.classList.add('incorrect');
                     });
-                    done(picked === q.answer);
+                    el.classList.add(isRight ? 'pop' : 'shake');
+                    done(isRight);
                 };
             });
         }
@@ -3324,7 +3342,7 @@ ${languageRule()}`;
             const rightBtns = [...document.querySelectorAll('.match-right')];
             let selLeft = null;
             const matched = {};   // left index -> right index
-            const palette = ['#60a5fa', '#a78bfa', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee'];
+            const palette = ['#1CB0F6', '#CE82FF', '#58CC02', '#FFC800', '#FF4B4B', '#FF9600'];
 
             leftBtns.forEach(btn => {
                 btn.onclick = () => {
@@ -3439,6 +3457,7 @@ ${languageRule()}`;
                 lessonState = {
                     lesson, steps, step: 0,
                     correct: 0, total: 0,
+                    heartsLeft: 5,
                     startedAt: Date.now(),
                     answered: {},
                     result: null
@@ -3459,6 +3478,8 @@ ${languageRule()}`;
                     <span class="meta-chip">${steps.length} steps</span>`;
 
                 applyContentDirection();
+                buildStepSegments(steps.length);
+                renderHearts();
                 displayLearningPath();
                 openLessonScreen();
                 renderStep();
@@ -3487,10 +3508,12 @@ ${languageRule()}`;
             const s = steps[step];
 
             document.getElementById('lessonTitle').textContent = lesson.title;
+            updateStepSegments(step, steps.length);
 
-            const pct = Math.round((step / (steps.length - 1)) * 100);
-            const bar = document.getElementById('lessonStepBar');
-            if (bar) bar.style.width = pct + '%';
+            // A stale banner from the previous step must never carry over —
+            // it lives outside the body that gets replaced below.
+            const feedbackBar = document.getElementById('feedbackBar');
+            if (feedbackBar) { feedbackBar.className = 'feedback-bar'; feedbackBar.innerHTML = ''; }
 
             const body = document.getElementById('lessonExplanation');
 
@@ -3584,8 +3607,7 @@ ${languageRule()}`;
                 <div class="question-text">${esc(p.problem)}</div>
                 <div class="options" id="answerOpts">${opts}</div>
                 ${p.hint ? `<button class="button button-secondary hint-btn" id="hintBtn">Show hint</button>
-                <div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}
-                <div class="feedback" id="feedback" hidden></div>`;
+                <div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}`;
         }
 
         function stepQuiz(l, i) {
@@ -3665,6 +3687,8 @@ ${languageRule()}`;
             scheduleReview(currentLessonIndex, accuracy);
             saveProgress();
             updateProgress();
+            bumpStreak();
+            renderHud();
             return { accuracy, xp, minutes: Math.max(1, Math.round((Date.now() - startedAt) / 60000)) };
         }
 
@@ -3745,15 +3769,9 @@ ${languageRule()}`;
                     correct: p.correct,
                     explanation: '',   // practice shows tailored feedback instead
                 }, (correct) => {
-                    const fb = document.getElementById('feedback');
                     const msg = correct ? p.feedback.correct : p.feedback.incorrect;
-                    if (fb && msg) {
-                        // Replace the generic explanation with practice-specific feedback.
-                        const answer = fb.querySelector('div:not(.feedback-head)');
-                        if (answer) answer.textContent = msg;
-                        else fb.querySelector('.feedback-head')
-                            .insertAdjacentHTML('afterend', `<div>${esc(msg)}</div>`);
-                    }
+                    const body = document.querySelector('#feedbackBar .feedback-body');
+                    if (body && msg) body.textContent = msg;
                 });
             }
 
@@ -3848,7 +3866,7 @@ ${languageRule()}`;
 
         function celebrate() {
             if (prefersReducedMotion()) return;
-            const colors = ['#60a5fa', '#a78bfa', '#4ade80', '#fbbf24', '#f472b6'];
+            const colors = ['#58CC02', '#1CB0F6', '#CE82FF', '#FFC800', '#FF4B4B'];
             for (let i = 0; i < 40; i++) {
                 const c = document.createElement('div');
                 c.className = 'confetti';
@@ -3893,11 +3911,11 @@ ${languageRule()}`;
 
         document.getElementById('uploadSection').addEventListener('dragover', (e) => {
             e.preventDefault();
-            document.getElementById('uploadSection').style.borderColor = '#60a5fa';
+            document.getElementById('uploadSection').style.borderColor = '#1CB0F6';
         });
 
         document.getElementById('uploadSection').addEventListener('dragleave', () => {
-            document.getElementById('uploadSection').style.borderColor = '#475569';
+            document.getElementById('uploadSection').style.borderColor = '';
         });
 
         document.getElementById('uploadSection').addEventListener('drop', (e) => {
@@ -4007,6 +4025,7 @@ ${languageRule()}`;
 
         // Initialize
         renderUsage();
+        renderHud();
         loadLibrary();
         migrateLegacyCourse();
         loadLibrary();

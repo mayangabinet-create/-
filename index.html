@@ -520,10 +520,10 @@
         .auth-input:focus { outline: none; border-color: var(--duo-blue); }
 
         .auth-password-row { position: relative; }
-        .auth-password-row .auth-input { padding-right: 46px; margin-bottom: 0; }
+        .auth-password-row .auth-input { padding-right: 54px; margin-bottom: 0; }
         .auth-password-toggle {
-            position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
-            width: 34px; height: 34px; border: none; background: none;
+            position: absolute; top: 50%; right: 2px; transform: translateY(-50%);
+            width: 44px; height: 44px; border: none; background: none;
             color: var(--duo-text-light); font-size: 1.2em; cursor: pointer;
             display: grid; place-items: center;
         }
@@ -542,7 +542,6 @@
             display: flex; align-items: center; justify-content: center; gap: 10px;
             margin-top: 10px; font-size: 0.85em; color: var(--duo-text-light);
         }
-        .user-badge .button-secondary { padding: 5px 14px; font-size: 0.85em; }
 
         /* ---- Interactive question types ---- */
         .blank-gap {
@@ -644,8 +643,8 @@
         .course-card:hover { border-color: var(--duo-blue); }
         .course-card:active { transform: translateY(2px); border-bottom-width: 2px; }
         .course-delete {
-            position: absolute; top: 10px; right: 10px;
-            width: 26px; height: 26px; border-radius: 50%;
+            position: absolute; top: 2px; right: 2px;
+            width: 44px; height: 44px; border-radius: 50%;
             background: transparent; border: none; color: var(--duo-border-dark);
             font-size: 1.2em; line-height: 1; cursor: pointer;
             transition: all 0.16s ease;
@@ -798,7 +797,7 @@
             padding: 16px 18px 10px;
         }
         .back-btn {
-            width: 36px; height: 36px;
+            width: 44px; height: 44px;
             display: grid; place-items: center;
             border-radius: 50%;
             background: transparent;
@@ -1382,8 +1381,8 @@
             position: relative;
         }
         .modal-close {
-            position: absolute; top: 14px; right: 14px;
-            width: 32px; height: 32px; border-radius: 50%;
+            position: absolute; top: 6px; right: 6px;
+            width: 44px; height: 44px; border-radius: 50%;
             background: transparent; border: none; color: var(--duo-text-light);
             cursor: pointer; display: grid; place-items: center;
         }
@@ -1440,7 +1439,6 @@
 
             <div class="user-badge" id="userBadge" hidden>
                 <span id="userEmail"></span>
-                <button id="signOutBtn" class="button button-secondary">Sign out</button>
             </div>
             <button id="signInPromptBtn" class="button button-secondary" style="margin-top: 10px; padding: 8px 20px;" hidden>Sign in</button>
             <div id="usageBadge" class="usage-badge" title=""></div>
@@ -4388,7 +4386,9 @@ ${languageRule()}`;
             }
 
             const btn = document.getElementById('authSubmitBtn');
+            const originalBtnText = btn.textContent;
             btn.disabled = true;
+            btn.textContent = isUp ? 'Creating account…' : 'Signing in…';
             try {
                 const { data, error } = isUp
                     ? await supabase.auth.signUp({ email, password })
@@ -4419,6 +4419,7 @@ ${languageRule()}`;
                 err.hidden = false;
             } finally {
                 btn.disabled = false;
+                btn.textContent = originalBtnText;
             }
         }
 
@@ -4451,10 +4452,6 @@ ${languageRule()}`;
                 ? error.message
                 : `If an account exists for ${email}, a reset link is on its way.`;
             err.hidden = false;
-        });
-
-        document.getElementById('signOutBtn').addEventListener('click', async () => {
-            await supabase.auth.signOut();
         });
 
         supabase.auth.onAuthStateChange((event) => {

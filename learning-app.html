@@ -1,0 +1,4029 @@
+<!DOCTYPE html>
+<html lang="en" id="htmlRoot">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Learning Path</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin: 40px 0;
+            animation: fadeIn 0.6s ease;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #94a3b8;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 30px;
+        }
+
+        /* Upload Section */
+        .upload-section {
+            background: rgba(15, 23, 42, 0.8);
+            border: 2px dashed #475569;
+            border-radius: 16px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            animation: slideUp 0.6s ease 0.1s both;
+        }
+
+        .upload-section:hover {
+            border-color: #60a5fa;
+            background: rgba(30, 41, 59, 0.8);
+            transform: translateY(-2px);
+        }
+
+        .upload-section.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 15px;
+        }
+
+        .upload-text {
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+
+        .upload-hint {
+            color: #64748b;
+            font-size: 0.9em;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(96, 165, 250, 0.3);
+            border-radius: 50%;
+            border-top-color: #60a5fa;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Learning Path */
+        .learning-path {
+            display: none;
+            animation: fadeIn 0.6s ease;
+        }
+
+        .learning-path.active {
+            display: block;
+        }
+
+        .path-container {
+            background:
+                radial-gradient(ellipse 80% 50% at 50% 0%, rgba(96, 165, 250, 0.08), transparent 70%),
+                linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(10, 15, 30, 0.98));
+            border-radius: 20px;
+            padding: 60px 20px 80px;
+            overflow-y: auto;
+            max-height: 620px;
+            margin-bottom: 30px;
+            perspective: 1200px;
+            perspective-origin: 50% 30%;
+            scroll-behavior: smooth;
+            position: relative;
+        }
+
+        .path-title {
+            text-align: center;
+            margin-bottom: 50px;
+            font-size: 1.3em;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: #93c5fd;
+            text-shadow: 0 0 24px rgba(96, 165, 250, 0.35);
+        }
+
+        /* The tilted world the path lives in */
+        .lesson-path {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 34px;
+            transform: rotateX(14deg);
+            transform-style: preserve-3d;
+            padding-bottom: 40px;
+        }
+
+        /* Connecting road — has thickness, not a hairline */
+        .lesson-path::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 40px;
+            width: 14px;
+            transform: translateX(-50%) translateZ(-30px);
+            border-radius: 8px;
+            background:
+                linear-gradient(90deg,
+                    rgba(30, 41, 59, 0.9) 0%,
+                    rgba(71, 85, 105, 0.85) 35%,
+                    rgba(100, 116, 139, 0.7) 50%,
+                    rgba(51, 65, 85, 0.85) 70%,
+                    rgba(15, 23, 42, 0.9) 100%);
+            box-shadow:
+                inset 0 2px 3px rgba(255, 255, 255, 0.12),
+                inset 0 -2px 4px rgba(0, 0, 0, 0.5),
+                0 12px 28px rgba(0, 0, 0, 0.55);
+            z-index: 0;
+        }
+
+        .lesson-node {
+            position: relative;
+            z-index: 1;
+            cursor: pointer;
+            transform-style: preserve-3d;
+            transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Contact shadow on the "ground" beneath each node */
+        .lesson-node::after {
+            content: '';
+            position: absolute;
+            top: 52px;
+            left: 50%;
+            width: 56px;
+            height: 14px;
+            transform: translateX(-50%) translateZ(-28px);
+            background: radial-gradient(ellipse, rgba(0, 0, 0, 0.6), transparent 70%);
+            filter: blur(4px);
+            pointer-events: none;
+            transition: all 0.22s ease;
+        }
+
+        /* The physical button */
+        .lesson-circle {
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1em;
+            color: white;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: all 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+            will-change: transform;
+        }
+
+        /* Specular highlight — the light source sits upper-left */
+        .lesson-circle::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 50%;
+            background: linear-gradient(150deg,
+                rgba(255, 255, 255, 0.42) 0%,
+                rgba(255, 255, 255, 0.12) 28%,
+                transparent 55%);
+            pointer-events: none;
+        }
+
+        /* Inner rim, sells the moulded-plastic look */
+        .lesson-circle::after {
+            content: '';
+            position: absolute;
+            inset: 5px;
+            border-radius: 50%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            pointer-events: none;
+        }
+
+        .lesson-circle > span {
+            position: relative;
+            z-index: 2;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.45);
+        }
+
+        /* ---- Locked: recessed into the board ---- */
+        .lesson-node.locked .lesson-circle {
+            background: linear-gradient(165deg, #2b3648, #1a2231);
+            box-shadow:
+                inset 0 4px 8px rgba(0, 0, 0, 0.75),
+                inset 0 -2px 3px rgba(255, 255, 255, 0.05),
+                0 2px 4px rgba(0, 0, 0, 0.3);
+            color: #64748b;
+            transform: translateZ(-6px) scale(0.94);
+        }
+
+        .lesson-node.locked .lesson-circle::before { opacity: 0.25; }
+        .lesson-node.locked::after { opacity: 0.35; }
+
+        /* ---- Current: raised, lit, breathing ---- */
+        .lesson-node.current .lesson-circle {
+            background: linear-gradient(165deg, #7cb8ff, #3b82f6 55%, #1d4ed8);
+            box-shadow:
+                0 10px 0 -1px #1e40af,
+                0 14px 22px rgba(0, 0, 0, 0.5),
+                0 0 34px rgba(96, 165, 250, 0.55),
+                inset 0 -3px 6px rgba(0, 0, 0, 0.28);
+            transform: translateZ(14px);
+            animation: nodePulse 2.6s ease-in-out infinite;
+        }
+
+        /* ---- Completed: polished green, seated ---- */
+        .lesson-node.completed .lesson-circle {
+            background: linear-gradient(165deg, #4ade80, #10b981 55%, #047857);
+            box-shadow:
+                0 7px 0 -1px #065f46,
+                0 10px 18px rgba(0, 0, 0, 0.45),
+                0 0 18px rgba(16, 185, 129, 0.3),
+                inset 0 -3px 6px rgba(0, 0, 0, 0.25);
+            transform: translateZ(8px);
+        }
+
+
+        /* ---- Interactions: lift on hover, press down on click ---- */
+        .lesson-node:hover { transform: translateY(-5px); }
+        .lesson-node:hover::after {
+            opacity: 0.8;
+            width: 64px;
+            filter: blur(6px);
+        }
+
+        .lesson-node:active .lesson-circle {
+            transform: translateZ(2px) translateY(6px) scale(0.97);
+            box-shadow:
+                0 2px 0 -1px rgba(0, 0, 0, 0.5),
+                0 3px 8px rgba(0, 0, 0, 0.4),
+                inset 0 3px 7px rgba(0, 0, 0, 0.35);
+            transition-duration: 0.06s;
+        }
+
+        .lesson-node:active::after {
+            opacity: 0.3;
+            width: 44px;
+        }
+
+        .lesson-label {
+            text-align: center;
+            margin-top: 22px;
+            font-size: 0.82em;
+            font-weight: 500;
+            color: #cbd5e1;
+            max-width: 110px;
+            line-height: 1.35;
+            transform: translateZ(10px);
+            text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+            transition: color 0.2s ease;
+        }
+
+        .lesson-node.locked .lesson-label { color: #64748b; }
+        .lesson-node:hover .lesson-label { color: #f1f5f9; }
+
+        /* ---- Unlock burst ---- */
+        .lesson-node.unlocking .lesson-circle {
+            animation: unlockPop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+
+        .unlock-ring {
+            position: absolute;
+            top: 34px;
+            left: 50%;
+            width: 68px;
+            height: 68px;
+            margin: -34px 0 0 -34px;
+            border-radius: 50%;
+            border: 2px solid rgba(147, 197, 253, 0.9);
+            pointer-events: none;
+            animation: ringExpand 0.7s ease-out forwards;
+        }
+
+        .spark {
+            position: absolute;
+            top: 34px;
+            left: 50%;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #bfdbfe;
+            box-shadow: 0 0 8px rgba(191, 219, 254, 0.9);
+            pointer-events: none;
+            animation: sparkFly 0.75s ease-out forwards;
+        }
+
+        @keyframes nodePulse {
+            0%, 100% {
+                box-shadow:
+                    0 10px 0 -1px #1e40af,
+                    0 14px 22px rgba(0, 0, 0, 0.5),
+                    0 0 30px rgba(96, 165, 250, 0.5),
+                    inset 0 -3px 6px rgba(0, 0, 0, 0.28);
+                transform: translateZ(14px) scale(1);
+            }
+            50% {
+                box-shadow:
+                    0 10px 0 -1px #1e40af,
+                    0 14px 22px rgba(0, 0, 0, 0.5),
+                    0 0 48px rgba(96, 165, 250, 0.8),
+                    inset 0 -3px 6px rgba(0, 0, 0, 0.28);
+                transform: translateZ(18px) scale(1.035);
+            }
+        }
+
+        @keyframes unlockPop {
+            0%   { transform: translateZ(-6px) scale(0.94); }
+            45%  { transform: translateZ(24px) scale(1.18); }
+            70%  { transform: translateZ(14px) scale(0.97); }
+            100% { transform: translateZ(14px) scale(1); }
+        }
+
+        @keyframes ringExpand {
+            0%   { transform: scale(0.7); opacity: 0.9; border-width: 3px; }
+            100% { transform: scale(2.4); opacity: 0; border-width: 1px; }
+        }
+
+        @keyframes sparkFly {
+            0%   { transform: translate(0, 0) scale(1); opacity: 1; }
+            100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+        }
+
+        /* Accessibility: honour reduced-motion */
+        @media (prefers-reduced-motion: reduce) {
+            .lesson-path { transform: none; }
+            .lesson-node.current .lesson-circle { animation: none; }
+            .lesson-node.unlocking .lesson-circle { animation: none; }
+            .unlock-ring, .spark { display: none; }
+            .path-container { scroll-behavior: auto; }
+            .lesson-node, .lesson-circle { transition-duration: 0.01ms; }
+        }
+
+        @media (max-width: 768px) {
+            .lesson-path { transform: rotateX(9deg); gap: 28px; }
+            .path-container { perspective: 900px; padding: 40px 12px 60px; }
+        }
+
+
+
+
+
+        .usage-badge {
+            margin-top: 14px;
+            font-size: 0.75em;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            color: #64748b;
+            letter-spacing: 0.02em;
+            cursor: help;
+        }
+
+
+
+
+        .source-picker { animation: slideUp 0.6s ease 0.1s both; }
+        .source-tabs {
+            display: flex; gap: 6px; margin-bottom: 18px;
+            background: rgba(15,23,42,0.6); padding: 5px;
+            border-radius: 12px; border: 1px solid #334155;
+        }
+        .source-tab {
+            flex: 1; padding: 11px; border: none; border-radius: 8px;
+            background: transparent; color: #94a3b8;
+            font-family: inherit; font-size: 0.94em; font-weight: 600;
+            cursor: pointer; transition: all 0.18s ease;
+        }
+        .source-tab:hover { color: #cbd5e1; }
+        .source-tab.active {
+            background: rgba(96,165,250,0.15); color: #93c5fd;
+            box-shadow: inset 0 0 0 1px rgba(96,165,250,0.3);
+        }
+        .paste-area {
+            width: 100%; min-height: 220px; padding: 20px;
+            background: rgba(15,23,42,0.8); border: 2px solid #475569;
+            border-radius: 12px; color: #e2e8f0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 0.95em; resize: vertical; line-height: 1.6;
+        }
+        .paste-area:focus { outline: none; border-color: #60a5fa; }
+
+
+
+        /* ---- Interactive question types ---- */
+        .blank-gap {
+            display: inline-block; min-width: 46px; text-align: center;
+            padding: 2px 12px; margin: 0 4px; border-radius: 6px;
+            background: rgba(96,165,250,0.18); color: #93c5fd; font-weight: 700;
+            border-bottom: 2px solid #60a5fa;
+        }
+        .blank-sentence { line-height: 2; }
+
+        .bool-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .bool-opt { text-align: center; font-weight: 600; font-size: 1.05em; }
+
+        /* order */
+        .order-slots {
+            list-style: none; margin: 16px 0; padding: 0;
+            display: flex; flex-direction: column; gap: 8px; min-height: 8px;
+        }
+        .order-placed {
+            padding: 12px 16px; border-radius: 10px;
+            background: rgba(51,65,85,0.6); border: 1px solid #475569;
+            color: #e2e8f0; font-size: 0.94em;
+        }
+        .order-placed.slot-ok { border-color: #10b981; background: rgba(16,185,129,0.14); }
+        .order-placed.slot-bad { border-color: #ef4444; background: rgba(239,68,68,0.14); }
+        .order-pool { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+        .order-chip {
+            padding: 11px 16px; border-radius: 10px;
+            background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.4);
+            color: #cbd5e1; font-family: inherit; font-size: 0.92em; cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .order-chip:hover:not(.used):not(:disabled) { background: rgba(96,165,250,0.22); transform: translateY(-1px); }
+        .order-chip.used { opacity: 0.3; pointer-events: none; }
+        .order-chip:disabled { cursor: default; }
+        .order-undo { margin-top: 12px; }
+
+        /* categorize */
+        .cat-pool { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 18px; min-height: 8px; }
+        .cat-chip {
+            padding: 10px 15px; border-radius: 10px;
+            background: rgba(167,139,250,0.14); border: 1px solid rgba(167,139,250,0.4);
+            color: #ddd6fe; font-family: inherit; font-size: 0.9em; cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .cat-chip:hover:not(.placed) { transform: translateY(-1px); }
+        .cat-chip.selected { background: rgba(167,139,250,0.35); box-shadow: 0 0 0 2px rgba(167,139,250,0.6); }
+        .cat-chip.placed { opacity: 0.3; pointer-events: none; }
+        .cat-buckets { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+        .cat-bucket {
+            border: 1px dashed #475569; border-radius: 12px; padding: 12px;
+            background: rgba(15,23,42,0.4);
+        }
+        .cat-bucket-title { font-weight: 700; color: #93c5fd; font-size: 0.85em; margin-bottom: 10px; text-align: center; }
+        .cat-drop { display: flex; flex-wrap: wrap; gap: 6px; min-height: 40px; }
+        .cat-drop:hover { border-color: #60a5fa; }
+        .cat-placed {
+            padding: 6px 11px; border-radius: 8px; font-size: 0.84em;
+            background: rgba(51,65,85,0.8); color: #e2e8f0;
+        }
+
+        /* match */
+        .match-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+        .match-col { display: flex; flex-direction: column; gap: 8px; }
+        .match-item {
+            padding: 13px 14px; border-radius: 10px; text-align: left;
+            background: rgba(51,65,85,0.55); border: 2px solid #475569;
+            color: #cbd5e1; font-family: inherit; font-size: 0.9em; cursor: pointer;
+            transition: all 0.15s ease;
+        }
+        .match-item:hover:not(.matched) { border-color: #60a5fa; }
+        .match-item.selected { box-shadow: 0 0 0 2px rgba(96,165,250,0.6); background: rgba(96,165,250,0.15); }
+        .match-item.matched { cursor: default; opacity: 0.85; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .order-chip, .cat-chip, .match-item { transition: none; }
+        }
+
+        /* ---- Course library ---- */
+        .library-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            margin-bottom: 22px;
+        }
+        .library-title { font-size: 1.5em; color: #f1f5f9; }
+        .library-count {
+            font-size: 0.8em; color: #64748b;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .library-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px;
+        }
+        .course-card {
+            position: relative; cursor: pointer; padding: 22px 20px;
+            background: linear-gradient(165deg, rgba(30,41,59,0.8), rgba(15,23,42,0.9));
+            border: 1px solid #334155; border-radius: 14px;
+            transition: transform 0.18s cubic-bezier(0.34,1.56,0.64,1), border-color 0.18s ease;
+        }
+        .course-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(96,165,250,0.5);
+            box-shadow: 0 12px 26px rgba(0,0,0,0.4);
+        }
+        .course-card:active { transform: translateY(-1px) scale(0.99); }
+        .course-delete {
+            position: absolute; top: 10px; right: 10px;
+            width: 26px; height: 26px; border-radius: 50%;
+            background: transparent; border: none; color: #475569;
+            font-size: 1.2em; line-height: 1; cursor: pointer;
+            transition: all 0.16s ease;
+        }
+        .course-delete:hover { background: rgba(239,68,68,0.15); color: #fca5a5; }
+        .course-title {
+            font-weight: 600; color: #f1f5f9; font-size: 1.02em;
+            margin-bottom: 6px; padding-right: 24px; line-height: 1.35;
+        }
+        .course-meta { font-size: 0.79em; color: #64748b; margin-bottom: 16px; }
+        .course-bar { height: 5px; background: rgba(51,65,85,0.7); border-radius: 3px; overflow: hidden; }
+        .course-bar-fill {
+            height: 100%; border-radius: 3px;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            transition: width 0.4s ease;
+        }
+        .course-pct { font-size: 0.74em; color: #64748b; margin-top: 7px; }
+        .library-empty { text-align: center; padding: 50px 20px; color: #64748b; }
+        .library-empty-icon { font-size: 2.6em; margin-bottom: 12px; opacity: 0.6; }
+        .nav-buttons { display: flex; gap: 10px; margin-top: 24px; }
+        .nav-buttons .button { flex: 1; }
+
+        /* ---- Spaced repetition ---- */
+        .review-banner {
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.35);
+            border-radius: 12px; padding: 14px 18px; margin-bottom: 20px;
+        }
+        .review-banner-text { display: flex; align-items: center; gap: 10px; color: #fde68a; font-weight: 600; font-size: 0.95em; }
+        .review-banner-icon { font-size: 1.3em; }
+        .review-banner .button { padding: 9px 20px; font-size: 0.9em; white-space: nowrap; flex: none; }
+        @media (max-width: 480px) {
+            .review-banner { flex-direction: column; align-items: stretch; text-align: center; }
+        }
+        .due-dot {
+            position: absolute; top: -2px; right: -2px;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: #fbbf24; border: 2px solid #0f172a;
+            box-shadow: 0 0 8px rgba(251,191,36,0.7);
+        }
+
+        /* ---- Lesson preview dialog ---- */
+        .preview-overlay {
+            position: fixed; inset: 0; z-index: 800;
+            display: grid; place-items: center; padding: 20px;
+            background: rgba(5, 9, 20, 0.78);
+            backdrop-filter: blur(6px);
+            opacity: 0; visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+        }
+        .preview-overlay.show {
+            opacity: 1; visibility: visible;
+            transition: opacity 0.2s ease, visibility 0s;
+        }
+        .preview-card {
+            width: 100%; max-width: 440px;
+            background: linear-gradient(165deg, #1a2536, #0f172a);
+            border: 1px solid rgba(96,165,250,0.25);
+            border-radius: 18px; padding: 32px 28px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.6), 0 0 50px rgba(96,165,250,0.1);
+            transform: scale(0.94) translateY(12px);
+            transition: transform 0.28s cubic-bezier(0.16,1,0.3,1);
+        }
+        .preview-overlay.show .preview-card { transform: scale(1) translateY(0); }
+
+        .preview-num {
+            width: 46px; height: 46px; border-radius: 50%;
+            display: grid; place-items: center; margin-bottom: 18px;
+            font-weight: 700; color: #fff;
+            background: linear-gradient(165deg, #7cb8ff, #3b82f6 55%, #1d4ed8);
+            box-shadow: 0 6px 0 -1px #1e40af, 0 8px 16px rgba(0,0,0,0.4);
+        }
+        .preview-title { font-size: 1.45em; color: #f1f5f9; margin-bottom: 12px; line-height: 1.3; }
+        .preview-desc { color: #94a3b8; line-height: 1.65; margin-bottom: 18px; }
+        .preview-why {
+            background: rgba(96,165,250,0.08);
+            border-inline-start: 3px solid #60a5fa;
+            border-radius: 8px; padding: 14px 16px;
+            color: #cbd5e1; font-size: 0.94em; line-height: 1.6;
+        }
+        .preview-why:empty { display: none; }
+        .preview-why .why-label {
+            display: block; color: #60a5fa; font-size: 0.8em;
+            font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            margin-bottom: 6px;
+        }
+        .preview-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 26px; }
+        .preview-actions { display: flex; flex-direction: column; gap: 10px; }
+        .preview-actions .button { width: 100%; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .preview-overlay { transition: opacity 0.01ms, visibility 0.01ms; }
+            .preview-card { transform: none; transition: none; }
+            .preview-overlay.show .preview-card { transform: none; }
+        }
+
+        .loading-overlay {
+            position: fixed; inset: 0; z-index: 900;
+            display: grid; place-items: center;
+            background: rgba(5, 9, 20, 0.82);
+            backdrop-filter: blur(6px);
+            opacity: 0; visibility: hidden;
+            transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+        }
+        .loading-overlay.show {
+            opacity: 1; visibility: visible;
+            transition: opacity 0.2s ease, visibility 0s;
+        }
+        .loading-card {
+            display: flex; flex-direction: column; align-items: center; gap: 18px;
+            color: #cbd5e1; font-size: 1.02em; text-align: center; padding: 0 24px;
+        }
+        .spinner-lg { width: 34px; height: 34px; border-width: 3px; }
+
+        /* ===== Lesson screen: a separate page, not a panel ===== */
+        .lesson-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 500;
+            display: flex;
+            flex-direction: column;
+            background:
+                radial-gradient(ellipse 90% 40% at 50% 0%, rgba(96,165,250,0.10), transparent 65%),
+                linear-gradient(180deg, #0f172a, #0a0f1e);
+            opacity: 0;
+            visibility: hidden;
+            transform: scale(1.04) translateY(18px);
+            transition: opacity 0.32s cubic-bezier(0.4,0,0.2,1),
+                        transform 0.32s cubic-bezier(0.4,0,0.2,1),
+                        visibility 0s linear 0.32s;
+        }
+        .lesson-screen.open {
+            opacity: 1;
+            visibility: visible;
+            transform: scale(1) translateY(0);
+            transition: opacity 0.34s cubic-bezier(0.16,1,0.3,1),
+                        transform 0.42s cubic-bezier(0.16,1,0.3,1),
+                        visibility 0s;
+        }
+
+        /* Path recedes while the lesson is open */
+        body.lesson-open .container {
+            transform: scale(0.97);
+            filter: brightness(0.7);
+            transition: transform 0.34s cubic-bezier(0.16,1,0.3,1), filter 0.34s ease;
+        }
+        .container { transition: transform 0.3s ease, filter 0.3s ease; }
+        body.lesson-open { overflow: hidden; }
+
+        .lesson-topbar {
+            flex: none;
+            display: grid;
+            grid-template-columns: 44px 1fr auto;
+            align-items: center;
+            gap: 14px;
+            padding: 16px 18px 12px;
+            border-bottom: 1px solid rgba(71,85,105,0.35);
+        }
+        .back-btn {
+            width: 44px; height: 44px;
+            display: grid; place-items: center;
+            border-radius: 50%;
+            background: rgba(51,65,85,0.5);
+            border: 1px solid rgba(148,163,184,0.2);
+            color: #cbd5e1;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+        .back-btn:hover { background: rgba(71,85,105,0.8); color: #f1f5f9; transform: scale(1.06); }
+        .back-btn:active { transform: scale(0.94); }
+
+        .topbar-title {
+            font-size: 1.05em; font-weight: 600; color: #f1f5f9;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .topbar-xp {
+            font-size: 0.8em; font-weight: 700; color: #fbbf24;
+            background: rgba(251,191,36,0.12);
+            border: 1px solid rgba(251,191,36,0.3);
+            padding: 5px 12px; border-radius: 999px; white-space: nowrap;
+        }
+
+        .lesson-screen .lesson-step-bar {
+            flex: none; margin: 0; height: 4px; border-radius: 0;
+            background: rgba(51,65,85,0.6);
+        }
+
+        .lesson-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            scroll-behavior: smooth;
+            padding: 28px 22px 0;
+        }
+        /* Constrain the column, not each child — otherwise a shrink-wrapped
+           child (like .lesson-body) drifts off-centre. */
+        .lesson-scroll-inner { max-width: 720px; margin: 0 auto; width: 100%; }
+        .lesson-scroll-pad { height: 120px; }
+
+        .lesson-meta {
+            display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 26px;
+        }
+        .meta-chip {
+            font-size: 0.8em; color: #94a3b8;
+            background: rgba(30,41,59,0.7);
+            border: 1px solid rgba(71,85,105,0.5);
+            padding: 6px 13px; border-radius: 999px;
+        }
+
+        /* Ask-AI dock, pinned above the fold */
+        .tutor-dock {
+            flex: none;
+            border-top: 1px solid rgba(71,85,105,0.35);
+            background: rgba(10,15,30,0.94);
+            backdrop-filter: blur(12px);
+            padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+        }
+        .tutor-dock > * { max-width: 720px; margin-inline: auto; }
+        .tutor-toggle {
+            width: 100%; padding: 12px;
+            background: rgba(167,139,250,0.1);
+            border: 1px solid rgba(167,139,250,0.35);
+            color: #c4b5fd; border-radius: 10px;
+            font-family: inherit; font-size: 0.94em; font-weight: 600;
+            cursor: pointer; transition: all 0.18s ease;
+        }
+        .tutor-toggle:hover { background: rgba(167,139,250,0.18); }
+        .tutor-panel { padding-top: 12px; }
+        .tutor-panel .tutor-response { margin-top: 12px; max-height: 160px; overflow-y: auto; }
+
+        @media (max-width: 768px) {
+            .lesson-scroll { padding: 22px 16px 0; }
+            .lesson-topbar { padding: 12px 14px 10px; }
+            .topbar-title { font-size: 0.96em; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .lesson-screen { transition: opacity 0.01ms, visibility 0.01ms; transform: none; }
+            .lesson-screen.open { transform: none; }
+            body.lesson-open .container { transform: none; filter: none; }
+            .lesson-scroll { scroll-behavior: auto; }
+        }
+
+
+
+        .tutor-actions {
+            display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px;
+        }
+        .tutor-chip {
+            padding: 7px 13px; border-radius: 999px;
+            background: rgba(51,65,85,0.55); border: 1px solid rgba(148,163,184,0.22);
+            color: #cbd5e1; font-family: inherit; font-size: 0.8em;
+            cursor: pointer; transition: all 0.16s ease; white-space: nowrap;
+        }
+        .tutor-chip:hover {
+            background: rgba(167,139,250,0.16); border-color: rgba(167,139,250,0.5); color: #ddd6fe;
+        }
+        .tutor-chip:active { transform: scale(0.96); }
+        .tutor-asked {
+            font-size: 0.8em; color: #a78bfa; font-weight: 600;
+            margin-bottom: 8px; letter-spacing: 0.01em;
+        }
+        .tutor-answer { color: #e2e8f0; line-height: 1.65; white-space: pre-wrap; }
+        .tutor-thinking { display: flex; align-items: center; gap: 10px; color: #94a3b8; }
+
+
+        /* Generated content follows the course language; the chrome does not. */
+        [dir="rtl"] .concept-text,
+        [dir="rtl"] .question-text,
+        [dir="rtl"] .hook-card,
+        [dir="rtl"] .card-idea,
+        [dir="rtl"] .analogy-box,
+        [dir="rtl"] .misconception-box,
+        [dir="rtl"] .example-box,
+        [dir="rtl"] .worked-reveal,
+        [dir="rtl"] .worked-why,
+        [dir="rtl"] .option,
+        [dir="rtl"] .feedback,
+        [dir="rtl"] .summary-facts,
+        [dir="rtl"] .tutor-answer,
+        [dir="rtl"] .vis-table th,
+        [dir="rtl"] .vis-table td { text-align: right; }
+
+        [dir="rtl"] .cmp-list li { padding-left: 0; padding-right: 16px; }
+        [dir="rtl"] .cmp-list li::before { left: auto; right: 3px; }
+        [dir="rtl"] .vis-timeline { padding-left: 0; padding-right: 26px; }
+        [dir="rtl"] .vis-timeline::before { left: auto; right: 5px; }
+        [dir="rtl"] .tl-marker { left: auto; right: -26px; }
+        [dir="rtl"] .flow-arrow { transform: scaleX(-1); }
+        [dir="rtl"] .lesson-label,
+        [dir="rtl"] .complete-screen { text-align: center; }
+
+        /* ---- Generated visuals ---- */
+        .visual {
+            margin: 24px 0; padding: 22px;
+            background: rgba(15,23,42,0.55);
+            border: 1px solid rgba(71,85,105,0.5);
+            border-radius: 14px;
+        }
+
+        /* flow */
+        .vis-flow { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
+        .flow-node {
+            flex: 1 1 110px; min-width: 110px; text-align: center;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+        }
+        .flow-dot {
+            width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+            font-weight: 700; font-size: 0.85em; color: #fff; flex: none;
+            background: linear-gradient(165deg, #7cb8ff, #3b82f6);
+            box-shadow: 0 4px 0 -1px #1e40af, 0 6px 12px rgba(0,0,0,0.35);
+        }
+        .flow-label { font-size: 0.88em; color: #cbd5e1; line-height: 1.4; }
+        .flow-arrow { align-self: center; color: #475569; font-size: 1.3em; padding: 0 2px; }
+
+        /* compare */
+        .vis-compare { display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; }
+        .cmp-title { font-weight: 700; margin-bottom: 12px; font-size: 0.95em; }
+        .cmp-a .cmp-title { color: #60a5fa; }
+        .cmp-b .cmp-title { color: #a78bfa; }
+        .cmp-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+        .cmp-list li {
+            font-size: 0.88em; color: #cbd5e1; line-height: 1.5;
+            padding-left: 16px; position: relative;
+        }
+        .cmp-list li::before {
+            content: '·'; position: absolute; left: 3px; top: -2px;
+            font-size: 1.4em; color: #475569;
+        }
+        .cmp-divider { width: 1px; background: rgba(71,85,105,0.6); }
+
+        /* hierarchy */
+        .vis-hierarchy { display: flex; flex-direction: column; align-items: center; }
+        .hier-root {
+            padding: 11px 20px; border-radius: 10px; font-weight: 600; color: #f1f5f9;
+            background: linear-gradient(165deg, rgba(96,165,250,0.22), rgba(59,130,246,0.12));
+            border: 1px solid rgba(96,165,250,0.4);
+        }
+        .hier-stem { width: 2px; height: 22px; background: rgba(71,85,105,0.8); }
+        .hier-children { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+        .hier-child {
+            position: relative; padding: 9px 15px; border-radius: 8px;
+            font-size: 0.88em; color: #cbd5e1;
+            background: rgba(51,65,85,0.5); border: 1px solid rgba(71,85,105,0.6);
+        }
+        .hier-tick {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            width: 2px; height: 12px; background: rgba(71,85,105,0.8);
+        }
+
+        /* timeline */
+        .vis-timeline { position: relative; padding-left: 26px; }
+        .vis-timeline::before {
+            content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px;
+            background: linear-gradient(180deg, #60a5fa, rgba(167,139,250,0.3));
+        }
+        .tl-item { position: relative; padding-bottom: 20px; }
+        .tl-item:last-child { padding-bottom: 0; }
+        .tl-marker {
+            position: absolute; left: -26px; top: 4px;
+            width: 12px; height: 12px; border-radius: 50%;
+            background: #60a5fa; box-shadow: 0 0 0 3px rgba(96,165,250,0.18);
+        }
+        .tl-label { font-weight: 700; color: #93c5fd; font-size: 0.85em; margin-bottom: 3px; }
+        .tl-text { color: #cbd5e1; font-size: 0.9em; line-height: 1.5; }
+
+        /* table */
+        .vis-table-wrap { overflow-x: auto; }
+        .vis-table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+        .vis-table th {
+            text-align: left; padding: 11px 14px; color: #93c5fd; font-weight: 700;
+            border-bottom: 2px solid rgba(96,165,250,0.35); white-space: nowrap;
+        }
+        .vis-table td {
+            padding: 11px 14px; color: #cbd5e1; line-height: 1.5;
+            border-bottom: 1px solid rgba(71,85,105,0.35);
+        }
+        .vis-table tr:last-child td { border-bottom: none; }
+
+        /* bar */
+        .vis-bar { display: flex; flex-direction: column; gap: 13px; }
+        .bar-row { display: grid; grid-template-columns: minmax(70px, 22%) 1fr auto; gap: 12px; align-items: center; }
+        .bar-label { font-size: 0.86em; color: #cbd5e1; }
+        .bar-track { height: 22px; background: rgba(51,65,85,0.6); border-radius: 6px; overflow: hidden; }
+        .bar-fill {
+            height: 100%; border-radius: 6px;
+            background: linear-gradient(90deg, #3b82f6, #60a5fa);
+            box-shadow: inset 0 -2px 4px rgba(0,0,0,0.2);
+            animation: barGrow 0.6s cubic-bezier(0.16,1,0.3,1);
+        }
+        .bar-value { font-size: 0.84em; color: #93c5fd; font-weight: 700; font-variant-numeric: tabular-nums; }
+        @keyframes barGrow { from { width: 0 !important; } }
+
+        @media (max-width: 640px) {
+            .vis-compare { grid-template-columns: 1fr; gap: 18px; }
+            .cmp-divider { width: 100%; height: 1px; }
+            .flow-arrow { transform: rotate(90deg); }
+            .vis-flow { flex-direction: column; align-items: center; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .bar-fill { animation: none; }
+        }
+
+        /* ---- Lesson step engine ---- */
+        .lesson-step-bar {
+            background: rgba(51, 65, 85, 0.5);
+            height: 6px; border-radius: 3px; overflow: hidden; margin: 16px 0 28px;
+        }
+        .lesson-step-bar > div {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            transition: width 0.35s cubic-bezier(0.4,0,0.2,1);
+        }
+        .step-eyebrow {
+            font-size: 0.72em; font-weight: 700; letter-spacing: 0.12em;
+            text-transform: uppercase; color: #60a5fa; margin-bottom: 14px;
+        }
+        .challenge-eyebrow { color: #fbbf24; }
+        .step-note { color: #64748b; font-size: 0.88em; margin: 10px 0 16px; }
+        .step-next { margin-top: 24px; }
+
+        .hook-card {
+            font-size: 1.25em; line-height: 1.6; font-weight: 500; color: #f1f5f9;
+            background: linear-gradient(135deg, rgba(96,165,250,0.12), rgba(167,139,250,0.08));
+            border: 1px solid rgba(96,165,250,0.25);
+            border-radius: 14px; padding: 28px;
+        }
+        .card-idea { font-size: 1.3em; color: #e2e8f0; margin-bottom: 14px; }
+        .analogy-box {
+            background: rgba(167,139,250,0.1); border-inline-start: 4px solid #a78bfa;
+            padding: 16px 20px; border-radius: 8px; margin-top: 16px; line-height: 1.6;
+        }
+        .analogy-label { display: block; color: #a78bfa; font-weight: 600; margin-bottom: 6px; font-size: 0.85em; }
+        .misconception-box {
+            background: rgba(239,68,68,0.1); border-inline-start: 4px solid #ef4444;
+            padding: 20px; border-radius: 8px; margin: 20px 0; line-height: 1.6;
+        }
+
+        .worked-list { margin: 20px 0; display: flex; flex-direction: column; gap: 10px; }
+        .worked-reveal {
+            width: 100%; text-align: start; display: flex; align-items: center; gap: 14px;
+            background: rgba(51,65,85,0.5); border: 2px solid #475569; color: #e2e8f0;
+            border-radius: 10px; padding: 14px 18px; cursor: pointer; font-size: 0.98em;
+            font-family: inherit; transition: all 0.2s ease;
+        }
+        .worked-reveal:hover { border-color: #60a5fa; }
+        .worked-reveal.revealed { border-color: #10b981; }
+        .worked-num {
+            flex: none; width: 26px; height: 26px; border-radius: 50%;
+            background: #60a5fa; color: #0f172a; font-weight: 700; font-size: 0.85em;
+            display: grid; place-items: center;
+        }
+        .worked-reveal.revealed .worked-num { background: #10b981; }
+        .worked-why {
+            padding: 14px 18px; margin-top: 6px; color: #94a3b8; line-height: 1.6;
+            background: rgba(16,185,129,0.07); border-radius: 8px;
+        }
+
+        .hint-btn { margin-top: 16px; }
+        .hint-box {
+            margin-top: 14px; padding: 16px; border-radius: 8px; line-height: 1.6;
+            background: rgba(251,191,36,0.1); border-inline-start: 4px solid #fbbf24;
+        }
+
+        .option.dimmed { opacity: 0.35; }
+        .option.picked { border-color: #a78bfa; background: rgba(167,139,250,0.15); }
+        .option.locked-in { cursor: default; }
+        .option.locked-in:hover { transform: none; }
+
+        .feedback { margin-top: 22px; padding: 20px; border-radius: 10px; line-height: 1.6; }
+        .feedback-ok { background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); }
+        .feedback-bad { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); }
+        .feedback-head { font-weight: 700; margin-bottom: 8px; font-size: 1.05em; }
+        .feedback-ok .feedback-head { color: #4ade80; }
+        .feedback-bad .feedback-head { color: #fca5a5; }
+
+        .memory-input {
+            width: 100%; min-height: 120px; margin: 16px 0; padding: 16px;
+            background: rgba(15,23,42,0.7); border: 2px solid #475569; border-radius: 10px;
+            color: #e2e8f0; font-family: inherit; font-size: 0.98em; resize: vertical;
+        }
+        .memory-input:focus { outline: none; border-color: #60a5fa; }
+
+        .complete-screen { text-align: center; padding: 20px 0; }
+        .complete-badge {
+            width: 84px; height: 84px; margin: 0 auto 20px; border-radius: 50%;
+            display: grid; place-items: center; font-size: 2.4em; color: #fff;
+            background: linear-gradient(165deg, #4ade80, #10b981 55%, #047857);
+            box-shadow: 0 10px 0 -1px #065f46, 0 16px 30px rgba(0,0,0,0.5), 0 0 40px rgba(16,185,129,0.4);
+            animation: unlockPop 0.7s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .complete-title { font-size: 1.7em; margin-bottom: 26px; color: #f1f5f9; }
+        .complete-stats {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(90px,1fr));
+            gap: 14px; margin-bottom: 30px;
+        }
+        .cstat { background: rgba(30,41,59,0.6); border: 1px solid #475569; border-radius: 12px; padding: 16px 10px; }
+        .cstat-val { font-size: 1.5em; font-weight: 700; color: #60a5fa; }
+        .cstat-lbl { font-size: 0.78em; color: #94a3b8; margin-top: 4px; }
+        .complete-screen .button { margin: 6px; }
+
+        .confetti {
+            position: fixed; width: 9px; height: 14px; border-radius: 2px;
+            z-index: 9999; pointer-events: none; top: -10px;
+            animation: confettiFall 3s cubic-bezier(0.3,0.6,0.5,1) forwards;
+        }
+        @keyframes confettiFall {
+            0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(105vh) rotate(720deg); opacity: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .complete-badge { animation: none; }
+            .confetti { display: none; }
+        }
+
+        /* Lesson Content */
+        .lesson-header {
+            margin-bottom: 30px;
+        }
+
+        .lesson-title {
+            font-size: 2em;
+            margin-bottom: 10px;
+            color: #60a5fa;
+        }
+
+        .lesson-description {
+            color: #94a3b8;
+            font-size: 1.05em;
+            line-height: 1.6;
+        }
+
+        .concept-text {
+            background: rgba(30, 41, 59, 0.6);
+            border-left: 4px solid #60a5fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            line-height: 1.7;
+        }
+
+        .example-box {
+            background: rgba(16, 185, 129, 0.1);
+            border-left: 4px solid #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .example-label {
+            color: #10b981;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        /* Question Section */
+        .question-section {
+            margin: 30px 0;
+            background: rgba(30, 41, 59, 0.6);
+            padding: 25px;
+            border-radius: 12px;
+        }
+
+        .question-text {
+            font-size: 1.1em;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .option {
+            background: rgba(51, 65, 85, 0.5);
+            border: 2px solid #475569;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .option:hover {
+            border-color: #60a5fa;
+            background: rgba(51, 65, 85, 0.8);
+            transform: translateX(5px);
+        }
+
+        .option.correct {
+            background: rgba(16, 185, 129, 0.2);
+            border-color: #10b981;
+            color: #10b981;
+        }
+
+        .option.incorrect {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: #ef4444;
+            color: #fca5a5;
+        }
+
+        /* Button Styles */
+        .button {
+            background: linear-gradient(135deg, #60a5fa, #3b82f6);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(96, 165, 250, 0.3);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .button-secondary {
+            background: rgba(96, 165, 250, 0.1);
+            border: 2px solid #60a5fa;
+            color: #60a5fa;
+        }
+
+        .button-secondary:hover {
+            background: rgba(96, 165, 250, 0.2);
+        }
+
+        /* Tutor Chat */
+        .tutor-section {
+            margin-top: 30px;
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .tutor-title {
+            color: #a78bfa;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+
+        .tutor-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        .tutor-input input {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.6);
+            border: 2px solid #475569;
+            border-radius: 8px;
+            padding: 10px 15px;
+            color: #e2e8f0;
+            font-size: 0.95em;
+        }
+
+        .tutor-input input:focus {
+            outline: none;
+            border-color: #a78bfa;
+        }
+
+        .tutor-input button {
+            padding: 10px 20px;
+        }
+
+        .tutor-response {
+            margin-top: 15px;
+            background: rgba(51, 65, 85, 0.5);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #a78bfa;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        /* Progress Bar */
+        .progress-bar {
+            background: rgba(51, 65, 85, 0.5);
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            transition: width 0.3s ease;
+        }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 30px 0;
+        }
+
+        .stat-card {
+            background: rgba(30, 41, 59, 0.6);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid #475569;
+        }
+
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #60a5fa;
+        }
+
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: #0f172a;
+            border-radius: 16px;
+            padding: 40px;
+            max-width: 500px;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 2px solid #475569;
+        }
+
+        .modal-title {
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            color: #60a5fa;
+        }
+
+        .error-message {
+            background: rgba(239, 68, 68, 0.2);
+            border: 2px solid #ef4444;
+            color: #fca5a5;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .success-message {
+            background: rgba(16, 185, 129, 0.2);
+            border: 2px solid #10b981;
+            color: #86efac;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .info-message {
+            background: rgba(96, 165, 250, 0.2);
+            border: 2px solid #60a5fa;
+            color: #bfdbfe;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+            justify-content: space-between;
+        }
+
+        .reset-button {
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid #ef4444;
+            color: #fca5a5;
+        }
+
+        .reset-button:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .upload-section {
+                padding: 20px;
+            }
+
+            .lesson-title {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><span id="t_title">🚀 AI Learning Path</span></h1>
+            <p class="subtitle" id="t_subtitle">Turn any PDF into an interactive learning journey</p>
+            <button id="changeKeyBtn" class="button button-secondary" style="margin-top: 15px; padding: 6px 16px; font-size: 0.85em;">Change API key</button>
+            <div id="usageBadge" class="usage-badge" title=""></div>
+        </header>
+
+        <div class="main-content">
+            <!-- Library: all courses live here -->
+            <div id="libraryScreen" hidden>
+                <div class="library-head">
+                    <h2 class="library-title">Your courses</h2>
+                    <span class="library-count" id="libraryCount"></span>
+                </div>
+                <div class="library-grid" id="libraryGrid"></div>
+                <div class="library-empty" id="libraryEmpty" hidden>
+                    <div class="library-empty-icon">📚</div>
+                    <p>No courses yet. Upload a document to build your first one.</p>
+                </div>
+                <button class="button" id="newCourseBtn" style="width:100%; margin-top:20px;">New course</button>
+            </div>
+
+            <!-- Source picker: two tabs, both reachable at any time -->
+            <div id="sourcePicker" class="source-picker">
+                <div class="source-tabs" role="tablist">
+                    <button class="source-tab active" id="tabFile" role="tab" aria-selected="true">Upload a file</button>
+                    <button class="source-tab" id="tabPaste" role="tab" aria-selected="false">Paste text</button>
+                </div>
+
+                <div id="uploadSection" class="upload-section">
+                    <div class="upload-icon">📄</div>
+                    <div class="upload-text">Drop a PDF here, or click to browse</div>
+                    <div class="upload-hint">PDF or TXT</div>
+                    <input type="file" id="fileInput" accept=".pdf,.txt">
+                </div>
+
+                <div id="textPasteSection" hidden>
+                    <textarea id="textInput" class="paste-area" placeholder="Paste your study material here..."></textarea>
+                    <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Build learning path</button>
+                </div>
+
+                <button class="button button-secondary" id="backToLibraryBtn" style="width:100%; margin-top:12px;" hidden>Back to my courses</button>
+            </div>
+
+            <!-- Learning Path Section -->
+            <div id="learningPath" class="learning-path">
+                <!-- Stats -->
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="courseTitle">Loading...</div>
+                        <div class="stat-label">Course</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalLessons">0</div>
+                        <div class="stat-label">Lessons</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="completedCount">0</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="progressPercent">0%</div>
+                        <div class="stat-label">Progress</div>
+                    </div>
+                </div>
+
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressBar" style="width: 0%;"></div>
+                </div>
+
+                <!-- Spaced-repetition nudge: only shown when something is due -->
+                <div class="review-banner" id="reviewBanner" hidden>
+                    <div class="review-banner-text">
+                        <span class="review-banner-icon" aria-hidden="true">🔁</span>
+                        <span id="reviewBannerText"></span>
+                    </div>
+                    <button class="button" id="startReviewBtn">Review now</button>
+                </div>
+
+                <!-- Path Container -->
+                <div class="path-container">
+                    <div class="path-title">Learning path</div>
+                    <div class="lesson-path" id="lessonPath"></div>
+                </div>
+
+                <div class="nav-buttons">
+                    <button class="button button-secondary" id="libraryBtn">My courses</button>
+                    <button class="button reset-button" id="resetBtn">Reset progress</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lesson preview: shown when tapping a node, before entering -->
+    <div id="previewOverlay" class="preview-overlay" aria-hidden="true">
+        <div class="preview-card" id="previewCard" role="dialog" aria-modal="true" aria-labelledby="previewTitle">
+            <div class="preview-num" id="previewNum"></div>
+            <h3 class="preview-title" id="previewTitle"></h3>
+            <p class="preview-desc" id="previewDesc"></p>
+            <div class="preview-why" id="previewWhy"></div>
+            <div class="preview-chips" id="previewChips"></div>
+            <div class="preview-actions">
+                <button class="button" id="previewStart"></button>
+                <button class="button button-secondary" id="previewCancel"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading overlay: works regardless of which screen is showing -->
+    <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
+        <div class="loading-card">
+            <div class="spinner spinner-lg"></div>
+            <div id="loadingText"></div>
+        </div>
+    </div>
+
+    <!-- ===== Lesson Screen (separate page) ===== -->
+    <div id="lessonScreen" class="lesson-screen" aria-hidden="true">
+        <header class="lesson-topbar">
+            <button class="back-btn" id="backBtn" aria-label="Back">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
+                     stroke="currentColor" stroke-width="2.2"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            <div class="topbar-title" id="lessonTitle"></div>
+            <div class="topbar-xp" id="lessonXpBadge"></div>
+        </header>
+
+        <div class="lesson-step-bar"><div id="lessonStepBar"></div></div>
+
+        <div class="lesson-scroll" id="lessonScroll">
+            <div class="lesson-scroll-inner">
+                <div class="lesson-meta" id="lessonMeta"></div>
+                <div id="lessonExplanation"></div>
+                <div class="lesson-scroll-pad"></div>
+            </div>
+        </div>
+
+        <!-- Ask AI: available throughout the lesson -->
+        <div class="tutor-dock" id="tutorDock">
+            <button class="tutor-toggle" id="tutorToggle">
+                <span>🤖 Ask the tutor</span>
+            </button>
+            <div class="tutor-panel" id="tutorPanel" hidden>
+                <div class="tutor-actions" id="tutorActions"></div>
+                <div class="tutor-input">
+                    <input type="text" id="tutorQuestion" placeholder="Or ask anything about this lesson..." />
+                    <button class="button" id="tutorAskBtn">Ask</button>
+                </div>
+                <div id="tutorResponse" class="tutor-response" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Key Modal -->
+    <div id="apiKeyModal" class="modal active">
+        <div class="modal-content">
+            <div class="modal-title">🔑 API key required</div>
+            <p style="margin-bottom: 15px; color: #94a3b8;">
+                <span>This app uses the Claude API to generate lessons.</span>
+            </p>
+            <p style="margin-bottom: 20px; font-size: 0.9em; color: #64748b;">
+                <span>Create a key at:</span> <a href="https://platform.claude.com" target="_blank" style="color: #60a5fa;">platform.claude.com</a>
+            </p>
+            <input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="
+                width: 100%;
+                background: rgba(15, 23, 42, 0.8);
+                border: 2px solid #475569;
+                border-radius: 8px;
+                padding: 12px;
+                color: #e2e8f0;
+                font-family: monospace;
+                margin-bottom: 15px;
+            " />
+            <button class="button" id="setApiKeyBtn" style="width: 100%;">Save key</button>
+            <button class="button button-secondary" id="cancelApiKeyBtn" style="width: 100%; margin-top: 10px; display: none;">Cancel</button>
+            <div class="info-message" style="margin-top: 15px; font-size: 0.9em;">
+                <span>ℹ️ Your key is stored only in this browser, and sent only to Anthropic.</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_KEY_STORAGE = 'anthropic_api_key';
+        // Multi-course storage. Each course owns its own progress and source text.
+        const LIBRARY_STORAGE = 'course_library';   // [{id, title, language, created, conceptCount}]
+        const ACTIVE_STORAGE  = 'active_course_id';
+        const MAX_COURSES = 8;                      // localStorage is ~5MB; sources are the bulk
+
+        const courseKey   = id => `course:${id}`;
+        const progressKey = id => `progress:${id}`;
+        const sourceKey   = id => `source:${id}`;
+
+        // Legacy single-course keys, migrated on first load.
+        const COURSE_DATA_STORAGE = 'course_data';
+        const PROGRESS_STORAGE = 'learning_progress';
+
+
+        let apiKey = localStorage.getItem(API_KEY_STORAGE);
+        let courseData = null;
+        let currentLessonIndex = 0;
+        let progress = {};
+        let activeCourseId = null;
+        let library = [];
+
+        // PDF.js setup
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // ============= API & AI Functions =============
+        const AI_MODEL = 'claude-haiku-4-5';
+
+        // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
+        // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
+        // Too low a ceiling truncates the response mid-object and JSON.parse dies.
+        const MAX_TOKENS = { path: 4000, lesson: 5000, tutor: 400, feedback: 250 };
+
+        let lastCallTruncated = false;
+
+        async function callAI(userMessage, systemPrompt = '', opts = {}) {
+            lastCallTruncated = false;
+            if (!apiKey) {
+                showApiKeyModal();
+                return null;
+            }
+
+            const { retries = 2, maxTokens = 1000, task = 'other' } = opts;
+            const url = 'https://api.anthropic.com/v1/messages';
+
+            const body = {
+                model: AI_MODEL,
+                max_tokens: maxTokens,
+                messages: [{ role: 'user', content: userMessage }],
+            };
+            if (systemPrompt) body.system = systemPrompt;
+
+            for (let attempt = 0; attempt <= retries; attempt++) {
+                try {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': apiKey,
+                            'anthropic-version': '2023-06-01',
+                            // Required to call the API straight from a browser.
+                            // The name is a warning: the key is exposed to anyone
+                            // who opens this page. Fine locally, not for sharing.
+                            'anthropic-dangerous-direct-browser-access': 'true',
+                        },
+                        body: JSON.stringify(body),
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        recordUsage(task, data.usage);
+                        if (data.stop_reason === 'max_tokens') {
+                            console.warn(`Response truncated at max_tokens for task "${task}"`);
+                        }
+                        lastCallTruncated = data.stop_reason === 'max_tokens';
+                        const parts = data.content || [];
+                        return parts.filter(p => p.type === 'text').map(p => p.text).join('') || '';
+                    }
+
+                    const error = await response.json().catch(() => ({}));
+                    const message = error.error?.message || `HTTP ${response.status}`;
+                    console.error('Anthropic error:', response.status, error);
+
+                    // Rate limited or overloaded — back off and retry
+                    if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+                        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+                        continue;
+                    }
+
+                    if (response.status === 401) {
+                        showError("That API key is not valid. Check it and try again.");
+                        showApiKeyModal();
+                        return null;
+                    }
+                    if (response.status === 429) { showError("Rate limited. Wait a moment and try again."); return null; }
+                    // Out of credits
+                    if (response.status === 400 && /credit|balance/i.test(message)) {
+                        showError("Your Claude account is out of credits. Add credits in the console.");
+                        return null;
+                    }
+
+                    showError(message);
+                    return null;
+
+                } catch (error) {
+                    console.error('Network error:', error);
+                    if (attempt < retries) {
+                        await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
+                        continue;
+                    }
+                    showError("Connection problem. Check your internet and try again.");
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        async function extractConceptsFromPDF(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let text = '';
+
+            for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                text += textContent.items.map(item => item.str).join(' ') + '\n';
+            }
+
+            return text;
+        }
+
+        async function generateLessonPath(text) {
+            showMessage("\ud83e\udd16 Analyzing your material...");
+
+            const extractPrompt = `Analyse the study material below and extract its key concepts.
+
+MATERIAL:
+${text.substring(0, 5000)}
+
+TASK:
+1. Identify 10-20 core concepts a learner must understand from this material.
+2. Order them by logical progression — prerequisites first.
+3. For each concept give:
+   - name (1-4 words)
+   - description (one sentence)
+   - difficulty (1-5)
+   - why it matters
+
+Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
+{
+  "courseName": "Course title",
+  "language": "The language of the MATERIAL above, as an English name (e.g. English, Hebrew, Spanish)",
+  "concepts": [
+    {
+      "id": 1,
+      "name": "Concept name",
+      "description": "One-sentence description",
+      "difficulty": 2,
+      "importance": "Why this matters",
+      "examples": ["Example 1", "Example 2"]
+    }
+  ]
+}
+
+LANGUAGE: write every string above in the same language as the MATERIAL.
+If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.`;
+
+            const result = await callAI(extractPrompt, '', { maxTokens: MAX_TOKENS.path, task: 'path' });
+            if (!result) return null;
+
+            const data = extractJSON(result);
+            if (!data || !Array.isArray(data.concepts) || !data.concepts.length) {
+                console.error('Could not parse course structure. Truncated:', lastCallTruncated, result);
+                showError(lastCallTruncated ? "The response was cut off. Try a shorter piece of text." : "The model returned an invalid course structure. Try again.");
+                return null;
+            }
+            // A truncated response still yields usable concepts — keep the valid ones.
+            // A truncated tail can leave a name-only husk. Require real content.
+            data.concepts = data.concepts.filter(c => c && c.name && c.description);
+            return data;
+        }
+
+        // The course is written in whatever language the source material used.
+        // Everything downstream — lessons, tutor, feedback — must follow suit.
+        function courseLanguage() {
+            if (courseData?.language) return courseData.language;
+            // The model didn't report one. Guess from the concept names.
+            const sample = (courseData?.concepts || []).map(c => c.name).join(' ');
+            if (/[\u0590-\u05FF]/.test(sample)) return 'Hebrew';
+            if (/[\u0600-\u06FF]/.test(sample)) return 'Arabic';
+            if (/[\u0400-\u04FF]/.test(sample)) return 'Russian';
+            // Kana first: Japanese also uses kanji, which sit in the CJK block.
+            if (/[\u3040-\u30FF]/.test(sample)) return 'Japanese';
+            if (/[\uAC00-\uD7AF]/.test(sample)) return 'Korean';
+            if (/[\u4E00-\u9FFF]/.test(sample)) return 'Chinese';
+            return 'English';
+        }
+
+        function languageRule() {
+            return `Write everything in ${courseLanguage()}. Do not switch languages or translate.`;
+        }
+
+        const RTL_LANGUAGES = ['Hebrew', 'Arabic', 'Persian', 'Farsi', 'Urdu'];
+
+        function isRTL() {
+            return RTL_LANGUAGES.includes(courseLanguage());
+        }
+
+        // The UI chrome stays LTR; only the generated content flips.
+        function applyContentDirection() {
+            const dir = isRTL() ? 'rtl' : 'ltr';
+            ['lessonExplanation', 'lessonScroll', 'lessonPath', 'tutorResponse'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.setAttribute('dir', dir);
+            });
+            const preview = document.getElementById('previewCard');
+            if (preview) preview.setAttribute('dir', dir);
+        }
+
+        async function generateLesson(concept) {
+            // Ground the lesson in the actual document, not the model's priors.
+            const excerpt = retrieveExcerpt(concept, getSourceText());
+
+            const prompt = `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
+
+Description: ${concept.description}
+Why it matters: ${concept.importance}
+${excerpt ? `
+SOURCE MATERIAL — this is the passage from the learner's own document where this concept appears:
+"""
+${excerpt}
+"""
+
+GROUNDING RULES (these override everything else):
+- Every fact, number, date, name, definition and example must come from the SOURCE MATERIAL above.
+- Quiz questions must be answerable from the SOURCE MATERIAL alone. Never test outside knowledge.
+- If the source states a specific figure or rule, use that exact figure or rule.
+- Do not add facts the source does not contain. If the source is thin on something, teach less rather than invent.
+- Wrong answer options should be plausible misreadings of the source, not facts from elsewhere.
+` : ''}
+${languageRule()}
+
+Principles:
+- Never a wall of text. Each card = ONE idea, 2-3 sentences.
+- Assume no prior knowledge.
+- Open with curiosity, not a definition.
+- Questions test real understanding. Distractors must be mistakes a real learner would make.
+- Vary the position of the correct answer. Never always first.
+
+VISUALS: wherever a diagram would genuinely aid understanding, attach one to that card.
+Choose the type that fits the content. Omit the "visual" field entirely if a diagram adds nothing.
+
+Visual types:
+  "flow"    — a process or sequence.        { "type":"flow", "steps":["Step one","Step two","Step three"] }
+  "compare" — two things side by side.      { "type":"compare", "left":{"title":"A","points":["..."]}, "right":{"title":"B","points":["..."]} }
+  "hierarchy" — a concept and its parts.    { "type":"hierarchy", "root":"Main idea", "children":["Part one","Part two"] }
+  "timeline" — events in order.             { "type":"timeline", "events":[{"label":"1990","text":"What happened"}] }
+  "table"   — structured facts.             { "type":"table", "headers":["Col A","Col B"], "rows":[["a1","b1"],["a2","b2"]] }
+  "bar"     — comparing quantities.         { "type":"bar", "unit":"%", "bars":[{"label":"X","value":40},{"label":"Y","value":75}] }
+
+Keep visual labels short — under 6 words each. 2-5 items per visual.
+
+Return valid JSON only (no markdown, no surrounding prose):
+
+{
+  "title": "${concept.name}",
+  "estimatedMinutes": 6,
+  "hook": { "text": "A surprising question or fact that creates curiosity. 1-2 sentences. Not a definition." },
+  "prediction": {
+    "question": "A guess-before-we-explain question. Not graded, just provokes thought.",
+    "options": ["Guess A", "Guess B", "Guess C"]
+  },
+  "cards": [
+    { "idea": "Short heading", "text": "2-3 sentences explaining ONE idea", "analogy": "An everyday analogy, or null", "visual": null }
+  ],
+  "workedExample": {
+    "problem": "A concrete problem with numbers or a real situation",
+    "steps": [ { "action": "What you do at this step", "why": "Why it is correct" } ],
+    "answer": "The final answer",
+    "visual": null
+  },
+  "practice": {
+    "problem": "A similar problem the learner solves alone",
+    "hint": "A hint, revealed only on request",
+    "options": ["A","B","C","D"],
+    "correct": 0,
+    "feedback": { "correct": "Why this is right", "incorrect": "The common mistake here, and why it is wrong" }
+  },
+  "quiz": [
+    // Choose the BEST interaction type for each concept. Mix at least 3 different
+    // types across the 4-5 questions. Never repeat the same type twice in a row.
+    // Every type needs an "explanation". Pick from:
+    //
+    // choice   — one right answer among options.
+    //   { "type":"choice", "text":"Question", "options":["A","B","C","D"], "correct":0, "explanation":"..." }
+    //
+    // boolean  — a statement that is true or false.
+    //   { "type":"boolean", "text":"A claim to judge", "answer":true, "explanation":"..." }
+    //
+    // order    — arrange items into the correct sequence (steps, chronology, size).
+    //   { "type":"order", "text":"Put these in order", "items":["first","second","third"], "explanation":"..." }
+    //   (list items in the CORRECT order; the app shuffles them for the learner)
+    //
+    // categorize — sort items into buckets.
+    //   { "type":"categorize", "text":"Sort these", "buckets":["Group A","Group B"],
+    //     "items":[{"text":"thing","bucket":"Group A"}], "explanation":"..." }
+    //
+    // blank    — fill the gap by choosing the right word. Use ___ in the sentence.
+    //   { "type":"blank", "text":"Water boils at ___ degrees.", "options":["50","100","200"], "correct":1, "explanation":"..." }
+    //
+    // match    — pair items from two columns.
+    //   { "type":"match", "text":"Match each to its partner",
+    //     "pairs":[{"left":"Heart","right":"Pumps blood"}], "explanation":"..." }
+    //
+    // mistake  — find the one wrong statement among several correct ones.
+    //   { "type":"mistake", "text":"Which statement is WRONG?", "options":["true1","FALSE one","true2"], "correct":1, "explanation":"..." }
+    //
+    // Every fact must come from the SOURCE MATERIAL. Distractors must be plausible
+    // misreadings of the source, not facts from elsewhere.
+    { "type":"choice", "text":"Question", "options":["A","B","C","D"], "correct":0, "explanation":"..." }
+  ],
+  "challenge": {
+    // The capstone. Combine several ideas. Use any question type from the quiz
+    // list above (include its "type" field and matching fields).
+    "type": "choice",
+    "text": "One larger problem combining several ideas from this lesson",
+    "options": ["A","B","C","D"],
+    "correct": 0,
+    "explanation": "A full explanation of the solution"
+  },
+  "summary": {
+    "mainIdea": "The central idea in one sentence",
+    "keyFacts": ["Fact 1", "Fact 2", "Fact 3"],
+    "commonMistake": "The most common mistake",
+    "realWorld": "Where this shows up in daily life",
+    "visual": null
+  },
+  "memoryCheck": { "prompt": "Explain this concept as if teaching a friend." }
+}
+
+Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions using a MIX of types.
+At least TWO cards should carry a visual. All fields required. "correct" is a 0-based index.
+Prefer interactive types (order, categorize, match, blank) over plain choice where the content suits them.
+${languageRule()}`;
+
+            const result = await callAI(prompt, '', { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
+
+            // callAI returns null when it already reported an error, and '' when
+            // the model replied with nothing usable. The empty case used to fall
+            // through in silence — the spinner vanished and nothing happened.
+            if (result === null) return null;
+            if (!result.trim()) {
+                console.error('Model returned no text for this lesson.');
+                showError("The model returned an empty response. Try again.");
+                return null;
+            }
+
+            const lesson = extractJSON(result);
+            if (!lesson) {
+                console.error('Could not parse lesson. Truncated:', lastCallTruncated, result);
+                showError(lastCallTruncated
+                    ? "The lesson was cut off before it finished. Try again."
+                    : "The model returned an invalid lesson. Try again.");
+                return null;
+            }
+
+            const normalised = normaliseLesson(lesson, concept);
+
+            // A truncated response can parse into a husk with no teachable content.
+            // Rendering that gives an empty lesson that jumps straight to "complete".
+            const contentSteps = normalised.cards.length + normalised.quiz.length
+                + (normalised.hook ? 1 : 0) + (normalised.workedExample ? 1 : 0)
+                + (normalised.practice ? 1 : 0) + (normalised.challenge ? 1 : 0);
+            if (contentSteps < 2) {
+                console.error('Lesson has too little content to teach:', normalised);
+                showError(lastCallTruncated
+                    ? "The lesson was cut off before it finished. Try again."
+                    : "The model returned an incomplete lesson. Try again.");
+                return null;
+            }
+
+            return normalised;
+        }
+
+        // Validate one question of any type. Returns a clean question or null.
+        // A malformed question is dropped rather than crashing the lesson.
+        function normaliseQuestion(q) {
+            if (!q || !q.text) return null;
+            const arr = v => Array.isArray(v) ? v : [];
+            const clamp = (i, n) => (Number.isInteger(i) && i >= 0 && i < n) ? i : 0;
+            // Legacy questions had no type; treat them as choice.
+            const type = q.type || 'choice';
+
+            switch (type) {
+                case 'choice':
+                case 'blank':
+                case 'mistake': {
+                    const options = arr(q.options).filter(o => o != null).map(String);
+                    if (options.length < 2) return null;
+                    return { type, text: String(q.text), options,
+                             correct: clamp(q.correct, options.length),
+                             explanation: q.explanation || '' };
+                }
+                case 'boolean': {
+                    if (typeof q.answer !== 'boolean') return null;
+                    return { type, text: String(q.text), answer: q.answer,
+                             explanation: q.explanation || '' };
+                }
+                case 'order': {
+                    const items = arr(q.items).filter(o => o != null).map(String);
+                    if (items.length < 2) return null;
+                    return { type, text: String(q.text), items,   // stored in correct order
+                             explanation: q.explanation || '' };
+                }
+                case 'categorize': {
+                    const buckets = arr(q.buckets).filter(o => o != null).map(String);
+                    const items = arr(q.items)
+                        .filter(it => it && it.text != null && buckets.includes(it.bucket))
+                        .map(it => ({ text: String(it.text), bucket: String(it.bucket) }));
+                    if (buckets.length < 2 || items.length < 2) return null;
+                    return { type, text: String(q.text), buckets, items,
+                             explanation: q.explanation || '' };
+                }
+                case 'match': {
+                    const pairs = arr(q.pairs)
+                        .filter(p => p && p.left != null && p.right != null)
+                        .map(p => ({ left: String(p.left), right: String(p.right) }));
+                    if (pairs.length < 2) return null;
+                    return { type, text: String(q.text), pairs,
+                             explanation: q.explanation || '' };
+                }
+                default:
+                    // Unknown type: salvage as choice if it has options, else drop.
+                    if (arr(q.options).length >= 2) {
+                        return normaliseQuestion({ ...q, type: 'choice' });
+                    }
+                    return null;
+            }
+        }
+
+        // Drop any visual the renderer couldn't draw, before it reaches the UI.
+        function validVisual(v) {
+            if (!v || typeof v !== 'object' || !v.type) return null;
+            const ok = {
+                flow: v => Array.isArray(v.steps) && v.steps.filter(Boolean).length >= 2,
+                compare: v => v.left && v.right && Array.isArray(v.left.points) && Array.isArray(v.right.points),
+                hierarchy: v => v.root && Array.isArray(v.children) && v.children.filter(Boolean).length >= 1,
+                timeline: v => Array.isArray(v.events) && v.events.some(e => e && (e.label || e.text)),
+                table: v => Array.isArray(v.headers) && v.headers.length
+                            && Array.isArray(v.rows) && v.rows.some(r => Array.isArray(r) && r.length),
+                bar: v => Array.isArray(v.bars) && v.bars.some(b => b && typeof b.value === 'number' && isFinite(b.value)),
+            }[v.type];
+            return (ok && ok(v)) ? v : null;
+        }
+
+        // Models drift from the schema. Fill gaps so the step engine never crashes.
+        function normaliseLesson(l, concept) {
+            const arr = v => Array.isArray(v) ? v : [];
+            const clampIdx = (i, len) => (Number.isInteger(i) && i >= 0 && i < len) ? i : 0;
+
+            l.title = l.title || concept.name;
+            l.estimatedMinutes = l.estimatedMinutes || 6;
+            l.hook = l.hook?.text ? l.hook : null;
+            l.prediction = (l.prediction?.question && arr(l.prediction.options).length) ? l.prediction : null;
+            l.cards = arr(l.cards).filter(c => c && c.text);
+            l.cards.forEach(c => { c.visual = validVisual(c.visual); });
+            l.workedExample = (l.workedExample?.problem && arr(l.workedExample.steps).length) ? l.workedExample : null;
+            if (l.workedExample) l.workedExample.visual = validVisual(l.workedExample.visual);
+
+            if (l.practice && arr(l.practice.options).length) {
+                l.practice.correct = clampIdx(l.practice.correct, l.practice.options.length);
+                l.practice.feedback = l.practice.feedback || { correct: '', incorrect: '' };
+            } else { l.practice = null; }
+
+            l.quiz = arr(l.quiz).map(normaliseQuestion).filter(Boolean);
+            l.challenge = normaliseQuestion(l.challenge);
+
+            l.summary = l.summary || null;
+            if (l.summary) {
+                l.summary.keyFacts = arr(l.summary.keyFacts);
+                l.summary.visual = validVisual(l.summary.visual);
+            }
+            l.memoryCheck = l.memoryCheck?.prompt ? l.memoryCheck : null;
+
+            return l;
+        }
+
+        // The tutor sees the current lesson, where you are in it, and how you're
+        // doing. Preset actions cost nothing to type and keep prompts short.
+        const TUTOR_ACTIONS = [
+            { id: 'simpler',   label: 'Explain more simply',  ask: 'Explain this more simply, as if to a complete beginner.' },
+            { id: 'deeper',    label: 'Go deeper',            ask: 'Explain this in more depth. What is really going on underneath?' },
+            { id: 'example',   label: 'Another example',      ask: 'Give me a different example of this concept.' },
+            { id: 'realworld', label: 'Real-world use',       ask: 'Where does this show up in real life? Give a concrete case.' },
+            { id: 'practice',  label: 'Practice question',    ask: 'Give me one practice question on this, with the answer hidden until I ask.' },
+            { id: 'harder',    label: 'Harder challenge',     ask: 'Give me a harder challenge that stretches this concept.' },
+            { id: 'quizme',    label: 'Quiz me',              ask: 'Quiz me with one sharp question that tests whether I truly understand this.' },
+            { id: 'summarise', label: 'Summarise the lesson', ask: 'Summarise this whole lesson in three short bullet points.' },
+            { id: 'compare',   label: 'Compare with...',      ask: 'Compare this concept with a closely related one, and say precisely how they differ.' },
+        ];
+
+        function tutorContext() {
+            if (!lessonState || !courseData) return '';
+            const l = lessonState.lesson;
+            const s = lessonState.steps[lessonState.step];
+            const { correct, total } = lessonState;
+
+            // Only the step they're actually on. Never the whole lesson, never the PDF.
+            let hereNow = '';
+            if (s.type === 'card' && l.cards[s.i]) hereNow = l.cards[s.i].text;
+            else if (s.type === 'quiz' && l.quiz[s.i]) hereNow = l.quiz[s.i].text;
+            else if (s.type === 'worked' && l.workedExample) hereNow = l.workedExample.problem;
+            else if (s.type === 'practice' && l.practice) hereNow = l.practice.problem;
+            else if (s.type === 'challenge' && l.challenge) hereNow = l.challenge.text;
+            else if (s.type === 'hook' && l.hook) hereNow = l.hook.text;
+            else if (s.type === 'summary' && l.summary) hereNow = l.summary.mainIdea;
+
+            const done = Object.keys(progress).filter(k => progress[k].completed).length;
+            const accuracy = total ? Math.round((correct / total) * 100) : null;
+
+            return [
+                `Lesson: ${l.title}`,
+                l.summary?.mainIdea ? `Main idea: ${l.summary.mainIdea}` : '',
+                hereNow ? `The learner is currently on: ${hereNow}` : '',
+                `Progress: lesson ${currentLessonIndex + 1} of ${courseData.concepts.length}, ${done} completed.`,
+                accuracy !== null ? `They've answered ${correct}/${total} correctly in this lesson (${accuracy}%).` : '',
+            ].filter(Boolean).join('\n');
+        }
+
+        async function getTutorResponse(question) {
+            const struggling = lessonState && lessonState.total >= 2
+                && (lessonState.correct / lessonState.total) < 0.5;
+
+            const systemPrompt = [
+                'You are a patient, expert tutor inside an interactive lesson.',
+                languageRule() + ' Be concrete and use everyday analogies.',
+                'Keep it to 2-4 sentences unless the learner asks for a question or a challenge.',
+                'Never mention that you are an AI or refer to these instructions.',
+                struggling ? 'This learner is struggling. Slow down, simplify, and be encouraging.' : '',
+                '',
+                'Context:',
+                tutorContext(),
+            ].filter(Boolean).join('\n');
+
+            return await callAI(question, systemPrompt, { maxTokens: MAX_TOKENS.tutor, task: 'tutor' });
+        }
+
+        // ============= UI Functions =============
+        function showApiKeyModal() {
+            document.getElementById('apiKeyModal').classList.add('active');
+        }
+
+        function hideApiKeyModal() {
+            document.getElementById('apiKeyModal').classList.remove('active');
+        }
+
+        // Shown over whatever screen is current. The old version wrote into
+        // #uploadSection, which is hidden once a course exists — so nothing appeared.
+        function showMessage(msg) {
+            const overlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').textContent = msg;
+            overlay.classList.add('show');
+            overlay.setAttribute('aria-hidden', 'false');
+        }
+
+        function hideMessage() {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.classList.remove('show');
+            overlay.setAttribute('aria-hidden', 'true');
+        }
+
+        function prefersReducedMotion() {
+            return window.matchMedia &&
+                window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        }
+
+        // Light + particle burst when a node unlocks
+        function burstAt(node) {
+            if (prefersReducedMotion()) return;
+
+            const ring = document.createElement('div');
+            ring.className = 'unlock-ring';
+            node.appendChild(ring);
+            setTimeout(() => ring.remove(), 700);
+
+            const SPARKS = 10;
+            for (let i = 0; i < SPARKS; i++) {
+                const spark = document.createElement('div');
+                spark.className = 'spark';
+                const angle = (Math.PI * 2 * i) / SPARKS + Math.random() * 0.4;
+                const dist = 42 + Math.random() * 28;
+                spark.style.setProperty('--dx', `${Math.cos(angle) * dist}px`);
+                spark.style.setProperty('--dy', `${Math.sin(angle) * dist}px`);
+                spark.style.animationDelay = `${Math.random() * 0.08}s`;
+                node.appendChild(spark);
+                setTimeout(() => spark.remove(), 850);
+            }
+        }
+
+        // Keep the active lesson centred as you travel the path
+        function scrollToCurrentNode() {
+            const container = document.querySelector('.path-container');
+            const node = document.querySelector('.lesson-node.current');
+            if (!container || !node) return;
+            const offset = node.offsetTop - container.clientHeight / 2 + node.offsetHeight / 2;
+            container.scrollTo({
+                top: Math.max(0, offset),
+                behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+            });
+        }
+
+        function showError(msg) {
+            hideMessage();          // never leave the spinner up behind an alert
+            alert(msg);
+        }
+
+        // Return the app to a usable state after any failure.
+        function resetToUpload() {
+            hideMessage();
+            closeLessonScreen();
+            closePreview();
+            document.getElementById('learningPath').classList.remove('active');
+            document.getElementById('sourcePicker').hidden = false;
+            document.getElementById('backToLibraryBtn').hidden = library.length === 0;
+        }
+
+        async function handleFileUpload(file) {
+            showMessage("\ud83d\udcd6 Reading PDF...");
+            let text;
+            try {
+                text = await extractConceptsFromPDF(file);
+            } catch (err) {
+                console.error('PDF read error:', err);
+                hideMessage();
+                showError("Couldn't read that file. Make sure it's a valid PDF.");
+                return;
+            }
+            if (!text || text.trim().length < 100) {
+                hideMessage();
+                showError("No text found in that file. It may be a scanned PDF with no text layer.");
+                return;
+            }
+            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''));
+        }
+
+        async function processLearningMaterial(text, title = 'Learning Course') {
+            showMessage("Generating a personalised learning path...");
+            try {
+                const course = await generateLessonPath(text);
+                if (!course) {
+                    resetToUpload();   // error already surfaced; give them a way back
+                    return;
+                }
+
+                const id = newCourseId();
+                if (!course.courseName) course.courseName = title;
+                // The source lives under its own key, not inside the course object,
+                // so loading a course doesn't drag the whole document into memory.
+                if (!saveCourse(id, course, text)) return;
+
+                courseData = course;
+                activeCourseId = id;
+                progress = {};
+                localStorage.setItem(ACTIVE_STORAGE, id);
+
+                applyContentDirection();
+                document.getElementById('sourcePicker').hidden = true;
+                document.getElementById('libraryScreen').hidden = true;
+                document.getElementById('learningPath').classList.add('active');
+                displayLearningPath();
+                // Land on the path, not inside a lesson. The user picks where to start.
+            } finally {
+                hideMessage();
+            }
+        }
+
+        function displayLearningPath() {
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('learningPath').classList.add('active');
+
+            // Update stats
+            document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
+            document.getElementById('totalLessons').textContent = courseData.concepts.length;
+            updateProgress();
+
+            // Build path
+            const pathContainer = document.getElementById('lessonPath');
+            const previouslyUnlocked = new Set(
+                [...pathContainer.querySelectorAll('.lesson-node')]
+                    .map((n, i) => (!n.classList.contains('locked') ? i : -1))
+                    .filter(i => i >= 0)
+            );
+            const hadNodes = pathContainer.children.length > 0;
+            pathContainer.innerHTML = '';
+
+            courseData.concepts.forEach((concept, index) => {
+                const node = document.createElement('div');
+                node.className = 'lesson-node';
+                node.classList.add('locked');
+
+                if (progress[index] && progress[index].completed) {
+                    node.classList.remove('locked');
+                    node.classList.add('completed');
+                }
+
+                if (index === currentLessonIndex) {
+                    node.classList.remove('locked');
+                    node.classList.remove('completed');
+                    node.classList.add('current');
+                }
+
+                const dueNow = isDueForReview(index);
+
+                node.innerHTML = `
+                    <div class="lesson-circle">
+                        <span>${index + 1}</span>
+                        ${dueNow ? '<span class="due-dot" title="Due for review"></span>' : ''}
+                    </div>
+                    <div class="lesson-label">${concept.name.substring(0, 18)}</div>
+                `;
+
+                // Celebrate nodes that just became available
+                const nowUnlocked = !node.classList.contains('locked');
+                if (hadNodes && nowUnlocked && !previouslyUnlocked.has(index)) {
+                    node.classList.add('unlocking');
+                    burstAt(node);
+                    setTimeout(() => node.classList.remove('unlocking'), 700);
+                }
+
+                node.onclick = () => openPreview(index);
+                pathContainer.appendChild(node);
+            });
+
+            renderReviewBanner();
+            requestAnimationFrame(scrollToCurrentNode);
+        }
+
+        // ============= Spaced repetition =============
+        // Pure logic, no AI calls. A lightweight SM-2: each completion (first pass
+        // or a later review) schedules the next one further out, unless the
+        // learner did poorly, in which case it resets to daily.
+        function isDueForReview(index) {
+            const srs = progress[index]?.srs;
+            return !!(progress[index]?.completed && srs && srs.dueAt <= Date.now());
+        }
+
+        function scheduleReview(index, accuracyPct) {
+            if (!progress[index]) progress[index] = {};
+            const srs = progress[index].srs || { ease: 2.5, interval: 0, reps: 0 };
+
+            // Map accuracy onto SM-2's 0-5 quality scale.
+            const quality = accuracyPct >= 90 ? 5 : accuracyPct >= 75 ? 4
+                : accuracyPct >= 60 ? 3 : accuracyPct >= 40 ? 2 : 1;
+
+            if (quality < 3) {
+                srs.reps = 0;
+                srs.interval = 1;
+            } else {
+                srs.reps++;
+                if (srs.reps === 1) srs.interval = 1;
+                else if (srs.reps === 2) srs.interval = 6;
+                else srs.interval = Math.round(srs.interval * srs.ease);
+                srs.ease = Math.max(1.3, srs.ease + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
+            }
+
+            srs.dueAt = Date.now() + srs.interval * 86400000;
+            srs.lastReviewed = Date.now();
+            progress[index].srs = srs;
+        }
+
+        function getDueLessons() {
+            if (!courseData) return [];
+            return courseData.concepts
+                .map((_, i) => i)
+                .filter(i => isDueForReview(i) && progress[i]?.lesson);
+        }
+
+        function renderReviewBanner() {
+            const banner = document.getElementById('reviewBanner');
+            if (!banner) return;
+            const due = getDueLessons();
+            banner.hidden = due.length === 0;
+            if (due.length) {
+                document.getElementById('reviewBannerText').textContent = due.length === 1
+                    ? '1 lesson is due for review'
+                    : `${due.length} lessons are due for review`;
+            }
+        }
+
+        // Pull 1-2 cached quiz questions per due lesson. Reuses the questions the
+        // learner already generated and paid for — a review session costs nothing.
+        function buildReviewSteps() {
+            const items = [];
+            getDueLessons().forEach(idx => {
+                const lesson = progress[idx].lesson;
+                const pool = [...(lesson.quiz || [])];
+                if (lesson.challenge) pool.push(lesson.challenge);
+                if (!pool.length) return;
+                shuffle(pool).slice(0, 2).forEach(question => items.push({ lessonIndex: idx, question }));
+            });
+            return shuffle(items);
+        }
+
+        function startReviewSession() {
+            const items = buildReviewSteps();
+            if (!items.length) return;
+
+            const steps = items.map((_, i) => ({ type: 'reviewq', i }));
+            steps.push({ type: 'reviewComplete' });
+
+            lessonState = {
+                lesson: { title: 'Review session' },
+                steps, step: 0,
+                correct: 0, total: 0,
+                startedAt: Date.now(),
+                review: { items, byLesson: {} },
+                result: null,
+            };
+
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('lessonXpBadge').textContent = `${items.length} questions`;
+            document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">🔁 Spaced repetition</span>`;
+            applyContentDirection();
+            openLessonScreen();
+            renderStep();
+        }
+
+        function commitReviewResult() {
+            const { byLesson } = lessonState.review;
+            Object.entries(byLesson).forEach(([idx, stat]) => {
+                const accuracy = stat.total ? Math.round((stat.correct / stat.total) * 100) : 100;
+                scheduleReview(Number(idx), accuracy);
+            });
+            saveProgress();
+            return { lessonsReviewed: Object.keys(byLesson).length, correct: lessonState.correct, total: lessonState.total };
+        }
+
+        // ============= Usage & cost tracking =============
+        // Haiku 4.5 pricing: $1 per 1M input tokens, $5 per 1M output tokens.
+        const PRICE_IN = 1 / 1_000_000;
+        const PRICE_OUT = 5 / 1_000_000;
+        const USAGE_STORAGE = 'ai_usage';
+
+        let usage = JSON.parse(localStorage.getItem(USAGE_STORAGE) || 'null') || {
+            calls: 0, inputTokens: 0, outputTokens: 0, cached: 0, byTask: {}
+        };
+
+        function recordUsage(task, u) {
+            if (!u) return;
+            const inTok = u.input_tokens || 0;
+            const outTok = u.output_tokens || 0;
+            usage.calls++;
+            usage.inputTokens += inTok;
+            usage.outputTokens += outTok;
+            usage.byTask[task] = usage.byTask[task] || { calls: 0, in: 0, out: 0 };
+            usage.byTask[task].calls++;
+            usage.byTask[task].in += inTok;
+            usage.byTask[task].out += outTok;
+            localStorage.setItem(USAGE_STORAGE, JSON.stringify(usage));
+            renderUsage();
+        }
+
+        function recordCacheHit() {
+            usage.cached++;
+            localStorage.setItem(USAGE_STORAGE, JSON.stringify(usage));
+            renderUsage();
+        }
+
+        function totalCost() {
+            return usage.inputTokens * PRICE_IN + usage.outputTokens * PRICE_OUT;
+        }
+
+        function renderUsage() {
+            const el = document.getElementById('usageBadge');
+            if (!el) return;
+            const cost = totalCost();
+            el.textContent = `$${cost.toFixed(4)} · ${usage.calls} calls` +
+                (usage.cached ? ` · ${usage.cached} cached` : '');
+            el.title = Object.entries(usage.byTask)
+                .map(([k, v]) => `${k}: ${v.calls} calls, ${v.in}in/${v.out}out`)
+                .join('\n');
+        }
+
+        // Models wrap JSON in prose or markdown fences, and a truncated response
+        // ends mid-object. Rather than throw away a call we already paid for,
+        // find the JSON, and if it's cut off, rewind to the last complete element
+        // and close the open brackets.
+        function extractJSON(raw) {
+            if (!raw) return null;
+
+            let s = String(raw).trim();
+            s = s.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+
+            const start = s.indexOf('{');
+            if (start === -1) return null;
+            s = s.slice(start);
+
+            // Fast path: already valid, possibly with trailing prose.
+            const scan = (str) => {
+                const stack = [];
+                let inStr = false, esc = false;
+                // Positions where a top-level-complete value ends, and where each
+                // element of the outermost containers cleanly finishes.
+                let closedAt = -1;
+                const safePoints = [];
+                for (let i = 0; i < str.length; i++) {
+                    const c = str[i];
+                    if (esc) { esc = false; continue; }
+                    if (c === '\\') { esc = true; continue; }
+                    if (c === '"') { inStr = !inStr; continue; }
+                    if (inStr) continue;
+                    if (c === '{' || c === '[') stack.push(c);
+                    else if (c === '}' || c === ']') {
+                        stack.pop();
+                        if (stack.length === 0) closedAt = i;
+                        else safePoints.push(i);   // a nested value just closed
+                    } else if (c === ',' && stack.length) {
+                        safePoints.push(i - 1);    // element before this comma is complete
+                    }
+                }
+                return { stack, inStr, closedAt, safePoints };
+            };
+
+            let info = scan(s);
+            if (info.closedAt !== -1) {
+                try { return JSON.parse(s.slice(0, info.closedAt + 1)); } catch (_) {}
+            }
+
+            // Truncated. Rewind to the last point where a value cleanly ended,
+            // then close every container still open at that point.
+            for (let k = info.safePoints.length - 1; k >= 0; k--) {
+                const cut = info.safePoints[k];
+                const head = s.slice(0, cut + 1);
+                const st = scan(head);
+                if (st.inStr) continue;                 // landed inside a string
+                const closers = st.stack.slice().reverse()
+                    .map(ch => (ch === '{' ? '}' : ']')).join('');
+                try { return JSON.parse(head + closers); } catch (_) {}
+            }
+
+            return null;
+        }
+
+        // ============= Visual renderer =============
+        // The model emits a structured spec; we draw it. No image generation,
+        // no extra API calls, and the output is deterministic.
+        function renderVisual(v) {
+            if (!v || !v.type) return '';
+            const fns = {
+                flow: visFlow, compare: visCompare, hierarchy: visHierarchy,
+                timeline: visTimeline, table: visTable, bar: visBar,
+            };
+            const fn = fns[v.type];
+            if (!fn) return '';
+            try {
+                const inner = fn(v);
+                return inner ? `<figure class="visual">${inner}</figure>` : '';
+            } catch (err) {
+                console.warn('Visual render failed:', v.type, err);
+                return '';   // a broken diagram must never break the lesson
+            }
+        }
+
+        function visFlow(v) {
+            const steps = (v.steps || []).filter(Boolean);
+            if (steps.length < 2) return '';
+            return `<div class="vis-flow">${steps.map((s, i) => `
+                <div class="flow-node">
+                    <div class="flow-dot">${i + 1}</div>
+                    <div class="flow-label">${esc(s)}</div>
+                </div>
+                ${i < steps.length - 1 ? '<div class="flow-arrow" aria-hidden="true">→</div>' : ''}
+            `).join('')}</div>`;
+        }
+
+        function visCompare(v) {
+            const side = (s, cls) => {
+                if (!s) return '';
+                const pts = (s.points || []).filter(Boolean);
+                return `<div class="cmp-col ${cls}">
+                    <div class="cmp-title">${esc(s.title || '')}</div>
+                    <ul class="cmp-list">${pts.map(p => `<li>${esc(p)}</li>`).join('')}</ul>
+                </div>`;
+            };
+            if (!v.left || !v.right) return '';
+            return `<div class="vis-compare">${side(v.left, 'cmp-a')}<div class="cmp-divider"></div>${side(v.right, 'cmp-b')}</div>`;
+        }
+
+        function visHierarchy(v) {
+            const kids = (v.children || []).filter(Boolean);
+            if (!v.root || !kids.length) return '';
+            return `<div class="vis-hierarchy">
+                <div class="hier-root">${esc(v.root)}</div>
+                <div class="hier-stem" aria-hidden="true"></div>
+                <div class="hier-children">${kids.map(c =>
+                    `<div class="hier-child"><span class="hier-tick" aria-hidden="true"></span>${esc(c)}</div>`
+                ).join('')}</div>
+            </div>`;
+        }
+
+        function visTimeline(v) {
+            const ev = (v.events || []).filter(e => e && (e.label || e.text));
+            if (!ev.length) return '';
+            return `<div class="vis-timeline">${ev.map(e => `
+                <div class="tl-item">
+                    <div class="tl-marker" aria-hidden="true"></div>
+                    <div class="tl-body">
+                        ${e.label ? `<div class="tl-label">${esc(e.label)}</div>` : ''}
+                        ${e.text ? `<div class="tl-text">${esc(e.text)}</div>` : ''}
+                    </div>
+                </div>`).join('')}</div>`;
+        }
+
+        function visTable(v) {
+            const heads = (v.headers || []).filter(Boolean);
+            const rows = (v.rows || []).filter(r => Array.isArray(r) && r.length);
+            if (!heads.length || !rows.length) return '';
+            return `<div class="vis-table-wrap"><table class="vis-table">
+                <thead><tr>${heads.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+                <tbody>${rows.map(r =>
+                    `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`
+                ).join('')}</tbody>
+            </table></div>`;
+        }
+
+        function visBar(v) {
+            const bars = (v.bars || []).filter(b => b && typeof b.value === 'number' && isFinite(b.value));
+            if (!bars.length) return '';
+            const max = Math.max(...bars.map(b => Math.abs(b.value)), 1);
+            const unit = v.unit || '';
+            return `<div class="vis-bar">${bars.map(b => {
+                const pct = Math.max(2, Math.round((Math.abs(b.value) / max) * 100));
+                return `<div class="bar-row">
+                    <div class="bar-label">${esc(b.label || '')}</div>
+                    <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+                    <div class="bar-value">${esc(String(b.value))}${esc(unit)}</div>
+                </div>`;
+            }).join('')}</div>`;
+        }
+
+        // ============= Grounding lessons in the source =============
+        // The model used to see only a concept name and a one-line description,
+        // so it wrote questions from general knowledge. Now each lesson gets the
+        // passage of the actual document that concept came from.
+
+        const CHUNK_CHARS = 1200;
+        const CHUNK_OVERLAP = 150;
+        const EXCERPT_BUDGET = 2400;   // chars of source sent per lesson
+
+        // Split on sentence boundaries where possible. A chunk that ends mid-sentence
+        // gives the model a fragment it will happily complete from imagination.
+        function chunkText(text) {
+            const clean = text.replace(/\s+/g, ' ').trim();
+            if (clean.length <= CHUNK_CHARS) return clean.length > 80 ? [clean] : [];
+
+            // Sentence enders across scripts: Latin, Hebrew/Arabic, CJK.
+            const sentences = clean.match(/[^.!?。！？׃]+[.!?。！？׃]+|\S+$/g) || [clean];
+
+            const chunks = [];
+            let cur = '';
+            for (const s of sentences) {
+                if (cur.length + s.length > CHUNK_CHARS && cur.length > 200) {
+                    chunks.push(cur.trim());
+                    // Carry a sentence of overlap so a concept straddling the seam
+                    // still appears in both chunks.
+                    const tail = cur.slice(-CHUNK_OVERLAP);
+                    const cut = tail.search(/[.!?。！？׃]\s/);
+                    cur = (cut >= 0 ? tail.slice(cut + 2) : '') + s;
+                } else {
+                    cur += s;
+                }
+            }
+            if (cur.trim().length > 80) chunks.push(cur.trim());
+            return chunks;
+        }
+
+        // Words too common to carry meaning. Short tokens are dropped anyway,
+        // which handles most stopwords in Hebrew, Arabic and Russian too.
+        const STOPWORDS = new Set([
+            'the','and','for','are','but','not','you','all','can','her','was','one','our',
+            'out','has','have','with','this','that','from','they','been','will','would',
+            'their','when','which','there','what','about','into','than','then','them','these'
+        ]);
+
+        function tokenize(s) {
+            return (s || '')
+                .toLowerCase()
+                .split(/[^\p{L}\p{N}]+/u)
+                .filter(w => w.length > 2 && !STOPWORDS.has(w));
+        }
+
+        // Classic TF-IDF-ish scoring: rare words that match count for more.
+        function buildIndex(chunks) {
+            const docFreq = new Map();
+            const tokenized = chunks.map(c => {
+                const toks = tokenize(c);
+                new Set(toks).forEach(t => docFreq.set(t, (docFreq.get(t) || 0) + 1));
+                return toks;
+            });
+            return { chunks, tokenized, docFreq, n: chunks.length };
+        }
+
+        function scoreChunk(queryTokens, chunkTokens, index) {
+            const counts = new Map();
+            chunkTokens.forEach(t => counts.set(t, (counts.get(t) || 0) + 1));
+            let score = 0;
+            for (const q of queryTokens) {
+                const tf = counts.get(q);
+                if (!tf) continue;
+                const df = index.docFreq.get(q) || 1;
+                const idf = Math.log(1 + index.n / df);
+                score += (1 + Math.log(tf)) * idf;
+            }
+            return score;
+        }
+
+        // Return the passages most likely to be where this concept was taught.
+        function retrieveExcerpt(concept, sourceText) {
+            if (!sourceText) return '';
+
+            const chunks = chunkText(sourceText);
+            if (!chunks.length) return '';
+            if (chunks.length === 1) return chunks[0].slice(0, EXCERPT_BUDGET);
+
+            const index = buildIndex(chunks);
+            const query = tokenize([
+                concept.name,
+                concept.description,
+                concept.importance,
+                ...(concept.examples || []),
+            ].join(' '));
+
+            if (!query.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+
+            const ranked = index.tokenized
+                .map((toks, i) => ({ i, score: scoreChunk(query, toks, index) }))
+                .filter(r => r.score > 0)
+                .sort((a, b) => b.score - a.score);
+
+            // Nothing matched — the concept may be synthesised across the document.
+            if (!ranked.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+
+            // Take the best chunk, then only add more if they are genuinely
+            // comparable. Filling the budget blindly drags in neighbouring
+            // sections and the model starts quizzing on the wrong chapter.
+            const best = ranked[0].score;
+            const RELEVANCE_FLOOR = 0.55;   // a chunk must score >=55% of the best
+
+            const picked = [ranked[0].i];
+            let budget = EXCERPT_BUDGET - chunks[ranked[0].i].length;
+
+            for (const r of ranked.slice(1)) {
+                if (budget <= 0) break;
+                if (r.score < best * RELEVANCE_FLOOR) break;   // ranked desc, so we're done
+                if (chunks[r.i].length > budget) continue;
+                picked.push(r.i);
+                budget -= chunks[r.i].length;
+            }
+            picked.sort((a, b) => a - b);
+
+            // Mark gaps so the model knows the passages are not contiguous.
+            let out = '';
+            picked.forEach((idx, k) => {
+                if (k > 0) out += (idx === picked[k - 1] + 1) ? ' ' : '\n[...]\n';
+                out += chunks[idx];
+            });
+            return out.slice(0, EXCERPT_BUDGET);
+        }
+
+        function getSourceText() {
+            if (!activeCourseId) return '';
+            return localStorage.getItem(sourceKey(activeCourseId)) || '';
+        }
+
+        // ============= Course library =============
+        function loadLibrary() {
+            try {
+                library = JSON.parse(localStorage.getItem(LIBRARY_STORAGE)) || [];
+            } catch (_) {
+                library = [];
+            }
+            return library;
+        }
+
+        function saveLibrary() {
+            localStorage.setItem(LIBRARY_STORAGE, JSON.stringify(library));
+        }
+
+        function saveProgress() {
+            if (!activeCourseId) return;
+            localStorage.setItem(progressKey(activeCourseId), JSON.stringify(progress));
+        }
+
+        // localStorage throws when full. Tell the user what to do about it.
+        function safeSet(key, value) {
+            try {
+                localStorage.setItem(key, value);
+                return true;
+            } catch (err) {
+                console.error('Storage write failed:', key, err);
+                showError('Out of browser storage. Delete a course to make room.');
+                return false;
+            }
+        }
+
+        function newCourseId() {
+            return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        }
+
+        function saveCourse(id, course, sourceText) {
+            if (!safeSet(courseKey(id), JSON.stringify(course))) return false;
+            if (sourceText) safeSet(sourceKey(id), sourceText);
+            localStorage.setItem(progressKey(id), JSON.stringify({}));
+
+            library = library.filter(c => c.id !== id);
+            library.unshift({
+                id,
+                title: course.courseName || 'Untitled course',
+                language: course.language || 'English',
+                conceptCount: course.concepts.length,
+                created: Date.now(),
+            });
+            saveLibrary();
+            return true;
+        }
+
+        function deleteCourse(id) {
+            [courseKey(id), progressKey(id), sourceKey(id)].forEach(k => localStorage.removeItem(k));
+            library = library.filter(c => c.id !== id);
+            saveLibrary();
+            if (activeCourseId === id) {
+                activeCourseId = null;
+                courseData = null;
+                progress = {};
+                localStorage.removeItem(ACTIVE_STORAGE);
+            }
+        }
+
+        function openCourse(id) {
+            const raw = localStorage.getItem(courseKey(id));
+            if (!raw) { showError('That course could not be found.'); return false; }
+            try {
+                courseData = JSON.parse(raw);
+            } catch (_) {
+                showError('That course is corrupted.');
+                return false;
+            }
+            progress = JSON.parse(localStorage.getItem(progressKey(id)) || '{}');
+            activeCourseId = id;
+            currentLessonIndex = 0;
+            localStorage.setItem(ACTIVE_STORAGE, id);
+
+            applyContentDirection();
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('libraryScreen').hidden = true;
+            document.getElementById('learningPath').classList.add('active');
+            displayLearningPath();
+            return true;
+        }
+
+        // One-time move from the old single-course keys.
+        function migrateLegacyCourse() {
+            const old = localStorage.getItem(COURSE_DATA_STORAGE);
+            if (!old || library.length) return;
+            try {
+                const course = JSON.parse(old);
+                if (!course?.concepts?.length) return;
+                const id = newCourseId();
+                localStorage.setItem(courseKey(id), old);
+                localStorage.setItem(progressKey(id), localStorage.getItem(PROGRESS_STORAGE) || '{}');
+                if (course.rawText) localStorage.setItem(sourceKey(id), course.rawText);
+                library = [{
+                    id,
+                    title: course.courseName || 'Untitled course',
+                    language: course.language || 'English',
+                    conceptCount: course.concepts.length,
+                    created: Date.now(),
+                }];
+                saveLibrary();
+                localStorage.setItem(ACTIVE_STORAGE, id);
+                localStorage.removeItem(COURSE_DATA_STORAGE);
+                localStorage.removeItem(PROGRESS_STORAGE);
+                console.log('Migrated legacy course into the library.');
+            } catch (err) {
+                console.warn('Legacy migration skipped:', err);
+            }
+        }
+
+        // ---- Library UI ----
+        function courseProgressPct(id) {
+            try {
+                const p = JSON.parse(localStorage.getItem(progressKey(id)) || '{}');
+                const meta = library.find(c => c.id === id);
+                if (!meta?.conceptCount) return 0;
+                const done = Object.values(p).filter(x => x && x.completed).length;
+                return Math.round((done / meta.conceptCount) * 100);
+            } catch (_) { return 0; }
+        }
+
+        function renderLibrary() {
+            const grid = document.getElementById('libraryGrid');
+            const empty = document.getElementById('libraryEmpty');
+            const count = document.getElementById('libraryCount');
+
+            count.textContent = `${library.length} of ${MAX_COURSES}`;
+            empty.hidden = library.length > 0;
+            grid.innerHTML = library.map(c => {
+                const pct = courseProgressPct(c.id);
+                const rtl = RTL_LANGUAGES.includes(c.language);
+                return `
+                <div class="course-card" data-id="${esc(c.id)}">
+                    <button class="course-delete" data-del="${esc(c.id)}" aria-label="Delete course" title="Delete">×</button>
+                    <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
+                    <div class="course-meta">${c.conceptCount} lessons · ${esc(c.language)}</div>
+                    <div class="course-bar"><div class="course-bar-fill" style="width:${pct}%"></div></div>
+                    <div class="course-pct">${pct}% complete</div>
+                </div>`;
+            }).join('');
+
+            grid.querySelectorAll('.course-card').forEach(card => {
+                card.onclick = (e) => {
+                    if (e.target.dataset.del) return;
+                    openCourse(card.dataset.id);
+                };
+            });
+            grid.querySelectorAll('[data-del]').forEach(btn => {
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    const meta = library.find(c => c.id === btn.dataset.del);
+                    if (confirm(`Delete "${meta?.title || 'this course'}"? This cannot be undone.`)) {
+                        deleteCourse(btn.dataset.del);
+                        renderLibrary();
+                    }
+                };
+            });
+        }
+
+        function showLibrary() {
+            loadLibrary();
+            renderLibrary();
+            document.getElementById('libraryScreen').hidden = false;
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('learningPath').classList.remove('active');
+        }
+
+        function showNewCourse() {
+            if (library.length >= MAX_COURSES) {
+                showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
+                return;
+            }
+            document.getElementById('libraryScreen').hidden = true;
+            document.getElementById('sourcePicker').hidden = false;
+            document.getElementById('backToLibraryBtn').hidden = library.length === 0;
+            document.getElementById('learningPath').classList.remove('active');
+        }
+
+        // ============= Lesson preview =============
+        let previewIndex = null;
+
+        function openPreview(index) {
+            const concept = courseData.concepts[index];
+            const done = progress[index]?.completed;
+            const cached = !!progress[index]?.lesson;
+
+            previewIndex = index;
+
+            const num = document.getElementById('previewNum');
+            num.textContent = index + 1;
+
+            document.getElementById('previewTitle').textContent = concept.name;
+            document.getElementById('previewDesc').textContent = concept.description || '';
+
+            const why = document.getElementById('previewWhy');
+            why.innerHTML = concept.importance
+                ? `<span class="why-label">Why this matters</span>${esc(concept.importance)}`
+                : '';
+
+            const diff = concept.difficulty || 1;
+            const chips = [
+                `<span class="meta-chip">Difficulty ${'●'.repeat(diff)}${'○'.repeat(Math.max(0, 5 - diff))}</span>`,
+                done ? `<span class="meta-chip">✓ Completed</span>` : '',
+                isDueForReview(index) ? `<span class="meta-chip">🔁 Due for review</span>` : '',
+                // Be honest about when a lesson costs an API call
+                cached ? `<span class="meta-chip">⚡ Ready — no cost</span>` : `<span class="meta-chip">✨ Will generate now</span>`,
+            ].filter(Boolean).join('');
+            document.getElementById('previewChips').innerHTML = chips;
+
+            document.getElementById('previewStart').textContent =
+                done ? "Review lesson" : cached ? "Start lesson" : "Generate and start";
+            document.getElementById('previewCancel').textContent = "Cancel";
+
+            applyContentDirection();
+            const ov = document.getElementById('previewOverlay');
+            ov.classList.add('show');
+            ov.setAttribute('aria-hidden', 'false');
+            document.getElementById('previewStart').focus();
+        }
+
+        function closePreview() {
+            const ov = document.getElementById('previewOverlay');
+            ov.classList.remove('show');
+            ov.setAttribute('aria-hidden', 'true');
+            previewIndex = null;
+        }
+
+        // ============= Screen Manager =============
+        let savedPathScroll = 0;
+
+        function openLessonScreen() {
+            const path = document.querySelector('.path-container');
+            savedPathScroll = path ? path.scrollTop : 0;
+
+            document.body.classList.add('lesson-open');
+            const screen = document.getElementById('lessonScreen');
+            screen.classList.add('open');
+            screen.setAttribute('aria-hidden', 'false');
+            document.getElementById('lessonScroll').scrollTop = 0;
+            document.getElementById('backBtn').focus();
+        }
+
+        function closeLessonScreen() {
+            const screen = document.getElementById('lessonScreen');
+            screen.classList.remove('open');
+            screen.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('lesson-open');
+            hideTutorPanel();
+
+            // Restore the path exactly as it was
+            const path = document.querySelector('.path-container');
+            if (path) {
+                const behavior = path.style.scrollBehavior;
+                path.style.scrollBehavior = 'auto';
+                path.scrollTop = savedPathScroll;
+                path.style.scrollBehavior = behavior;
+            }
+        }
+
+        function hideTutorPanel() {
+            const panel = document.getElementById('tutorPanel');
+            if (panel) panel.hidden = true;
+            const resp = document.getElementById('tutorResponse');
+            if (resp) resp.style.display = 'none';
+        }
+
+        // Leave a lesson without finishing it. No reward, no confetti.
+        function exitLesson() {
+            closeLessonScreen();
+            setTimeout(() => {
+                displayLearningPath();
+                scrollToCurrentNode();
+            }, 340);
+        }
+
+        // Finish a lesson properly: close, redraw, celebrate the unlock.
+        function completeLesson() {
+            closeLessonScreen();
+            setTimeout(() => {
+                displayLearningPath();
+                scrollToCurrentNode();
+                celebrate();
+            }, 340);
+        }
+
+        // ============= Question engine =============
+        // One renderer and one grader, dispatching on question type. Each type
+        // builds its own interaction; grading normalises them all to right/wrong
+        // plus an explanation, so the surrounding lesson flow stays identical.
+
+        function shuffle(arr) {
+            const a = arr.slice();
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        // Returns the inner HTML for a question body (without the eyebrow).
+        function renderQuestion(q, idPrefix) {
+            const p = idPrefix || 'q';
+            switch (q.type) {
+                case 'boolean':    return renderBoolean(q, p);
+                case 'order':      return renderOrder(q, p);
+                case 'categorize': return renderCategorize(q, p);
+                case 'match':      return renderMatch(q, p);
+                case 'blank':      return renderBlank(q, p);
+                case 'choice':
+                case 'mistake':
+                default:           return renderChoice(q, p);
+            }
+        }
+
+        function renderChoice(q, p) {
+            const opts = q.options.map((o, i) =>
+                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
+            return `<div class="question-text">${esc(q.text)}</div>
+                    <div class="options" id="answerOpts">${opts}</div>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function renderBlank(q, p) {
+            // Render the sentence with the gap highlighted, options below.
+            const sentence = esc(q.text).replace(/_{2,}|＿+/g, '<span class="blank-gap">?</span>');
+            const opts = q.options.map((o, i) =>
+                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
+            return `<div class="question-text blank-sentence">${sentence}</div>
+                    <div class="step-note">Choose the word that fills the gap</div>
+                    <div class="options" id="answerOpts">${opts}</div>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function renderBoolean(q, p) {
+            return `<div class="question-text">${esc(q.text)}</div>
+                    <div class="bool-row" id="answerOpts">
+                        <div class="option bool-opt" data-answer="true">✓ True</div>
+                        <div class="option bool-opt" data-answer="false">✗ False</div>
+                    </div>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function renderOrder(q, p) {
+            // Present shuffled; learner taps to build the sequence.
+            const shuffled = shuffle(q.items.map((text, idx) => ({ text, idx })));
+            const pool = shuffled.map(it =>
+                `<button class="order-chip" data-idx="${it.idx}">${esc(it.text)}</button>`).join('');
+            return `<div class="question-text">${esc(q.text)}</div>
+                    <div class="step-note">Tap in the correct order</div>
+                    <ol class="order-slots" id="orderSlots"></ol>
+                    <div class="order-pool" id="orderPool">${pool}</div>
+                    <button class="button button-secondary order-undo" id="orderUndo" hidden>Undo last</button>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function renderCategorize(q, p) {
+            const buckets = q.buckets.map((b, bi) =>
+                `<div class="cat-bucket" data-bucket="${bi}">
+                    <div class="cat-bucket-title">${esc(b)}</div>
+                    <div class="cat-drop" data-bucket="${bi}"></div>
+                 </div>`).join('');
+            const pool = shuffle(q.items.map((it, idx) => ({ it, idx }))).map(({ it, idx }) =>
+                `<button class="cat-chip" data-idx="${idx}">${esc(it.text)}</button>`).join('');
+            return `<div class="question-text">${esc(q.text)}</div>
+                    <div class="step-note">Tap an item, then tap its group</div>
+                    <div class="cat-pool" id="catPool">${pool}</div>
+                    <div class="cat-buckets" id="catBuckets">${buckets}</div>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function renderMatch(q, p) {
+            // Two columns; tap left then right to connect. Right side shuffled.
+            const left = q.pairs.map((pair, i) =>
+                `<button class="match-item match-left" data-left="${i}">${esc(pair.left)}</button>`).join('');
+            const right = shuffle(q.pairs.map((pair, i) => ({ text: pair.right, i })))
+                .map(r => `<button class="match-item match-right" data-right="${r.i}">${esc(r.text)}</button>`).join('');
+            return `<div class="question-text">${esc(q.text)}</div>
+                    <div class="step-note">Tap a term, then tap its match</div>
+                    <div class="match-grid">
+                        <div class="match-col" id="matchLeft">${left}</div>
+                        <div class="match-col" id="matchRight">${right}</div>
+                    </div>
+                    <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        // ---- Wiring & grading ----
+        // Each wirer calls finishQuestion(correct, explanation) when the learner
+        // has committed an answer.
+        function wireQuestion(q, onGraded) {
+            const done = (correct, explanationOverride) => {
+                lessonState.total++;
+                if (correct) lessonState.correct++;
+                showQuestionFeedback(correct, explanationOverride || q.explanation);
+                onGraded && onGraded(correct);
+            };
+
+            switch (q.type) {
+                case 'boolean':    return wireBoolean(q, done);
+                case 'order':      return wireOrder(q, done);
+                case 'categorize': return wireCategorize(q, done);
+                case 'match':      return wireMatch(q, done);
+                case 'blank':
+                case 'choice':
+                case 'mistake':
+                default:           return wireChoice(q, done);
+            }
+        }
+
+        function showQuestionFeedback(correct, explanation) {
+            const fb = document.getElementById('feedback');
+            if (!fb) return;
+            fb.hidden = false;
+            fb.className = 'feedback ' + (correct ? 'feedback-ok' : 'feedback-bad');
+            fb.innerHTML = `<div class="feedback-head">${correct ? 'Correct!' : 'Not quite'}</div>
+                ${explanation ? `<div>${esc(explanation)}</div>` : ''}
+                <button class="button step-next" id="stepNext">Continue</button>`;
+            document.getElementById('stepNext').onclick = advanceStep;
+        }
+
+        function lockOptions() {
+            document.querySelectorAll('#answerOpts .option').forEach(o => {
+                o.classList.add('locked-in');
+                o.onclick = null;
+            });
+        }
+
+        function wireChoice(q, done) {
+            const opts = [...document.querySelectorAll('#answerOpts .option')];
+            opts.forEach(el => {
+                el.onclick = () => {
+                    if (opts.some(o => o.classList.contains('locked-in'))) return;
+                    const picked = Number(el.dataset.answer);
+                    lockOptions();
+                    opts.forEach((o, i) => {
+                        if (i === q.correct) o.classList.add('correct');
+                        else if (i === picked) o.classList.add('incorrect');
+                    });
+                    done(picked === q.correct);
+                };
+            });
+        }
+
+        function wireBoolean(q, done) {
+            const opts = [...document.querySelectorAll('#answerOpts .bool-opt')];
+            opts.forEach(el => {
+                el.onclick = () => {
+                    if (opts.some(o => o.classList.contains('locked-in'))) return;
+                    const picked = el.dataset.answer === 'true';
+                    opts.forEach(o => { o.classList.add('locked-in'); o.onclick = null; });
+                    opts.forEach(o => {
+                        const val = o.dataset.answer === 'true';
+                        if (val === q.answer) o.classList.add('correct');
+                        else if (val === picked) o.classList.add('incorrect');
+                    });
+                    done(picked === q.answer);
+                };
+            });
+        }
+
+        function wireOrder(q, done) {
+            const slots = document.getElementById('orderSlots');
+            const pool = document.getElementById('orderPool');
+            const undo = document.getElementById('orderUndo');
+            const placed = [];   // idx values in tapped order
+
+            const refresh = () => {
+                undo.hidden = placed.length === 0;
+                slots.innerHTML = placed.map((idx, pos) => {
+                    const chip = q.items[idx];
+                    return `<li class="order-placed">${pos + 1}. ${esc(chip)}</li>`;
+                }).join('');
+                if (placed.length === q.items.length) grade();
+            };
+
+            const grade = () => {
+                pool.querySelectorAll('.order-chip').forEach(c => c.disabled = true);
+                undo.hidden = true;
+                // Correct order is the original array order: 0,1,2,...
+                const correct = placed.every((idx, pos) => idx === pos);
+                placed.forEach((idx, pos) => {
+                    const li = slots.children[pos];
+                    li.classList.add(idx === pos ? 'slot-ok' : 'slot-bad');
+                });
+                let exp = q.explanation || '';
+                if (!correct) {
+                    const answer = q.items.map((t, i) => `${i + 1}. ${t}`).join('  ');
+                    exp = (exp ? exp + ' ' : '') + 'Correct order: ' + answer;
+                }
+                done(correct, exp);
+            };
+
+            pool.querySelectorAll('.order-chip').forEach(chip => {
+                chip.onclick = () => {
+                    if (chip.disabled || chip.classList.contains('used')) return;
+                    chip.classList.add('used');
+                    placed.push(Number(chip.dataset.idx));
+                    refresh();
+                };
+            });
+            undo.onclick = () => {
+                const last = placed.pop();
+                const chip = pool.querySelector(`.order-chip[data-idx="${last}"]`);
+                if (chip) chip.classList.remove('used');
+                refresh();
+            };
+        }
+
+        function wireCategorize(q, done) {
+            const pool = document.getElementById('catPool');
+            let selected = null;   // the chip element awaiting a bucket
+            const assign = {};     // idx -> bucket index
+            const total = q.items.length;
+
+            pool.querySelectorAll('.cat-chip').forEach(chip => {
+                chip.onclick = () => {
+                    if (chip.classList.contains('placed')) return;
+                    pool.querySelectorAll('.cat-chip').forEach(c => c.classList.remove('selected'));
+                    if (selected === chip) { selected = null; return; }
+                    selected = chip;
+                    chip.classList.add('selected');
+                };
+            });
+
+            document.querySelectorAll('.cat-drop').forEach(drop => {
+                drop.onclick = () => {
+                    if (!selected) return;
+                    const idx = Number(selected.dataset.idx);
+                    const bucket = Number(drop.dataset.bucket);
+                    assign[idx] = bucket;
+                    const clone = document.createElement('span');
+                    clone.className = 'cat-placed';
+                    clone.textContent = q.items[idx].text;
+                    drop.appendChild(clone);
+                    selected.classList.add('placed');
+                    selected.classList.remove('selected');
+                    selected = null;
+                    if (Object.keys(assign).length === total) grade();
+                };
+            });
+
+            const grade = () => {
+                let right = 0;
+                q.items.forEach((it, idx) => {
+                    const correctBucket = q.buckets.indexOf(it.bucket);
+                    if (assign[idx] === correctBucket) right++;
+                });
+                const allRight = right === total;
+                let exp = q.explanation || '';
+                if (!allRight) {
+                    const key = q.items.map(it => `${it.text} → ${it.bucket}`).join(', ');
+                    exp = (exp ? exp + ' ' : '') + 'Correct grouping: ' + key;
+                }
+                done(allRight, exp);
+            };
+        }
+
+        function wireMatch(q, done) {
+            const leftBtns = [...document.querySelectorAll('.match-left')];
+            const rightBtns = [...document.querySelectorAll('.match-right')];
+            let selLeft = null;
+            const matched = {};   // left index -> right index
+            const palette = ['#60a5fa', '#a78bfa', '#4ade80', '#fbbf24', '#f472b6', '#22d3ee'];
+
+            leftBtns.forEach(btn => {
+                btn.onclick = () => {
+                    if (btn.classList.contains('matched')) return;
+                    leftBtns.forEach(b => b.classList.remove('selected'));
+                    if (selLeft === btn) { selLeft = null; return; }
+                    selLeft = btn;
+                    btn.classList.add('selected');
+                };
+            });
+
+            rightBtns.forEach(btn => {
+                btn.onclick = () => {
+                    if (!selLeft || btn.classList.contains('matched')) return;
+                    const li = Number(selLeft.dataset.left);
+                    const ri = Number(btn.dataset.right);
+                    matched[li] = ri;
+                    const color = palette[Object.keys(matched).length % palette.length];
+                    selLeft.classList.add('matched');
+                    btn.classList.add('matched');
+                    selLeft.style.borderColor = color;
+                    btn.style.borderColor = color;
+                    selLeft.classList.remove('selected');
+                    selLeft = null;
+                    if (Object.keys(matched).length === q.pairs.length) grade();
+                };
+            });
+
+            const grade = () => {
+                // Pair i is correct when left i is matched to right i.
+                let right = 0;
+                q.pairs.forEach((_, i) => { if (matched[i] === i) right++; });
+                const allRight = right === q.pairs.length;
+                let exp = q.explanation || '';
+                if (!allRight) {
+                    const key = q.pairs.map(pr => `${pr.left} = ${pr.right}`).join(', ');
+                    exp = (exp ? exp + ' ' : '') + 'Correct pairs: ' + key;
+                }
+                done(allRight, exp);
+            };
+        }
+
+        // ============= Lesson Step Engine =============
+        let lessonState = null;
+
+        let lessonLoading = false;   // guards against double-entry
+
+        async function loadLesson(index) {
+            if (lessonLoading) return;          // already fetching one
+            lessonLoading = true;
+
+            try {
+                currentLessonIndex = index;
+                const concept = courseData.concepts[index];
+
+                showMessage("\ud83c\udf93 Preparing lesson...");
+
+                let lesson = progress[index]?.lesson;
+
+                // A lesson cached by an older build may be malformed. Re-normalise
+                // it and throw it away if it has nothing to teach.
+                if (lesson) {
+                    lesson = normaliseLesson(lesson, concept);
+                    const usable = lesson.cards.length + lesson.quiz.length
+                        + (lesson.hook ? 1 : 0) + (lesson.workedExample ? 1 : 0)
+                        + (lesson.practice ? 1 : 0) + (lesson.challenge ? 1 : 0);
+                    if (usable < 2) {
+                        console.warn('Discarding a broken cached lesson.');
+                        delete progress[index].lesson;
+                        saveProgress();
+                        lesson = null;
+                    }
+                }
+
+                if (lesson) {
+                    recordCacheHit();           // served from cache, no API call
+                } else {
+                    lesson = await generateLesson(concept);
+                    if (!lesson) {
+                        // Generation failed. Stay on the path; the error was already shown.
+                        closeLessonScreen();
+                        return;
+                    }
+                    if (!progress[index]) progress[index] = {};
+                    progress[index].lesson = lesson;
+                    saveProgress();
+                }
+
+                // Build the step sequence, skipping anything the model omitted
+                const steps = [];
+                if (lesson.hook) steps.push({ type: 'hook' });
+                if (lesson.prediction) steps.push({ type: 'prediction' });
+                lesson.cards.forEach((_, i) => steps.push({ type: 'card', i }));
+                if (lesson.workedExample) steps.push({ type: 'worked' });
+                if (lesson.practice) steps.push({ type: 'practice' });
+                lesson.quiz.forEach((_, i) => steps.push({ type: 'quiz', i }));
+                if (lesson.challenge) steps.push({ type: 'challenge' });
+                if (lesson.summary) steps.push({ type: 'summary' });
+                if (lesson.memoryCheck) steps.push({ type: 'memory' });
+
+                // Never open a lesson that would show nothing but a finish screen.
+                if (!steps.length) {
+                    console.error('Lesson produced no steps:', lesson);
+                    showError("That lesson came back empty. Try opening it again.");
+                    if (progress[index]) delete progress[index].lesson;
+                    saveProgress();
+                    closeLessonScreen();
+                    return;
+                }
+                steps.push({ type: 'complete' });
+
+                lessonState = {
+                    lesson, steps, step: 0,
+                    correct: 0, total: 0,
+                    startedAt: Date.now(),
+                    answered: {},
+                    result: null
+                };
+
+                document.getElementById('sourcePicker').hidden = true;
+                document.getElementById('learningPath').classList.add('active');
+
+                // Max possible: base + 10 per gradeable question + perfect-run bonus.
+                const gradeable = (lesson.quiz?.length || 0)
+                    + (lesson.practice ? 1 : 0)
+                    + (lesson.challenge ? 1 : 0);
+                const maxXp = 20 + gradeable * 10 + (gradeable > 0 ? 25 : 0);
+                document.getElementById('lessonXpBadge').textContent = `Up to ${maxXp} XP`;
+                document.getElementById('lessonMeta').innerHTML = `
+                    <span class="meta-chip">⏱ ${lesson.estimatedMinutes} min</span>
+                    <span class="meta-chip">Difficulty ${'●'.repeat(concept.difficulty || 1)}${'○'.repeat(Math.max(0, 5 - (concept.difficulty || 1)))}</span>
+                    <span class="meta-chip">${steps.length} steps</span>`;
+
+                applyContentDirection();
+                displayLearningPath();
+                openLessonScreen();
+                renderStep();
+            } finally {
+                lessonLoading = false;
+                hideMessage();
+            }
+        }
+
+        function advanceStep() {
+            if (!lessonState) return;
+            if (lessonState.step < lessonState.steps.length - 1) {
+                lessonState.step++;
+                renderStep();
+            }
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s == null ? '' : String(s);
+            return d.innerHTML;
+        }
+
+        function renderStep() {
+            const { lesson, steps, step } = lessonState;
+            const s = steps[step];
+
+            document.getElementById('lessonTitle').textContent = lesson.title;
+
+            const pct = Math.round((step / (steps.length - 1)) * 100);
+            const bar = document.getElementById('lessonStepBar');
+            if (bar) bar.style.width = pct + '%';
+
+            const body = document.getElementById('lessonExplanation');
+
+            // Commit exactly once, before rendering the complete screen.
+            if (s.type === 'complete' && !lessonState.result) {
+                lessonState.result = commitLessonResult();
+            }
+            if (s.type === 'reviewComplete' && !lessonState.result) {
+                lessonState.result = commitReviewResult();
+            }
+
+            const renderers = {
+                hook: () => stepHook(lesson),
+                prediction: () => stepPrediction(lesson),
+                card: () => stepCard(lesson, s.i),
+                worked: () => stepWorked(lesson),
+                practice: () => stepPractice(lesson),
+                quiz: () => stepQuiz(lesson, s.i),
+                challenge: () => stepChallenge(lesson),
+                summary: () => stepSummary(lesson),
+                memory: () => stepMemory(lesson),
+                complete: () => stepComplete(lesson),
+                reviewq: () => stepReviewQuestion(s.i),
+                reviewComplete: () => stepReviewComplete(),
+            };
+            body.innerHTML = renderers[s.type]();
+            wireStep(s);
+            const scroller = document.getElementById('lessonScroll');
+            if (scroller) {
+                scroller.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+            }
+        }
+
+        // ---- Step renderers ----
+        function stepHook(l) {
+            return `
+                <div class="step-eyebrow">A moment of curiosity</div>
+                <div class="hook-card">${esc(l.hook.text)}</div>
+                <button class="button step-next" id="stepNext">Continue</button>`;
+        }
+
+        function stepPrediction(l) {
+            const opts = l.prediction.options.map((o, i) =>
+                `<div class="option" data-pick="${i}">${esc(o)}</div>`).join('');
+            return `
+                <div class="step-eyebrow">Guess before we explain</div>
+                <div class="question-text">${esc(l.prediction.question)}</div>
+                <div class="step-note">${"No wrong answer \u2014 just think for a second."}</div>
+                <div class="options" id="predictOpts">${opts}</div>`;
+        }
+
+        function stepCard(l, i) {
+            const c = l.cards[i];
+            const analogy = c.analogy
+                ? `<div class="analogy-box"><span class="analogy-label">Think of it this way</span>${esc(c.analogy)}</div>`
+                : '';
+            return `
+                <div class="step-eyebrow">Idea ${i + 1} / ${l.cards.length}</div>
+                ${c.idea ? `<h3 class="card-idea">${esc(c.idea)}</h3>` : ''}
+                <div class="concept-text">${esc(c.text)}</div>
+                ${renderVisual(c.visual)}
+                ${analogy}
+                <button class="button step-next" id="stepNext">Continue</button>`;
+        }
+
+        function stepWorked(l) {
+            const w = l.workedExample;
+            const steps = w.steps.map((st, i) => `
+                <div class="worked-step" data-idx="${i}">
+                    <button class="worked-reveal" data-reveal="${i}">
+                        <span class="worked-num">${i + 1}</span>
+                        <span>${esc(st.action)}</span>
+                    </button>
+                    <div class="worked-why" id="why${i}" hidden>${esc(st.why)}</div>
+                </div>`).join('');
+            return `
+                <div class="step-eyebrow">Worked example</div>
+                <div class="concept-text">${esc(w.problem)}</div>
+                ${renderVisual(w.visual)}
+                <div class="worked-list">${steps}</div>
+                <div class="example-box"><div class="example-label">The answer</div>${esc(w.answer)}</div>
+                <button class="button step-next" id="stepNext">Continue</button>`;
+        }
+
+        function stepPractice(l) {
+            const p = l.practice;
+            const opts = p.options.map((o, i) =>
+                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
+            return `
+                <div class="step-eyebrow">Guided practice</div>
+                <div class="question-text">${esc(p.problem)}</div>
+                <div class="options" id="answerOpts">${opts}</div>
+                ${p.hint ? `<button class="button button-secondary hint-btn" id="hintBtn">Show hint</button>
+                <div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}
+                <div class="feedback" id="feedback" hidden></div>`;
+        }
+
+        function stepQuiz(l, i) {
+            const q = l.quiz[i];
+            return `
+                <div class="step-eyebrow">Question ${i + 1} / ${l.quiz.length}</div>
+                ${renderQuestion(q, 'quiz')}`;
+        }
+
+        function stepChallenge(l) {
+            return `
+                <div class="step-eyebrow challenge-eyebrow">Final challenge</div>
+                <div class="step-note">Put it all together.</div>
+                ${renderQuestion(l.challenge, 'chal')}`;
+        }
+
+        function stepSummary(l) {
+            const s = l.summary;
+            const facts = s.keyFacts.map(f => `<li>${esc(f)}</li>`).join('');
+            return `
+                <div class="step-eyebrow">Summary</div>
+                <div class="concept-text"><strong>The main idea</strong><br>${esc(s.mainIdea)}</div>
+                ${renderVisual(s.visual)}
+                ${facts ? `<div class="summary-facts"><strong>Key facts</strong><ul>${facts}</ul></div>` : ''}
+                ${s.commonMistake ? `<div class="misconception-box"><strong>${"\u26a0\ufe0f Common Misconception:"}</strong><br>${esc(s.commonMistake)}</div>` : ''}
+                ${s.realWorld ? `<div class="example-box"><div class="example-label">${"\ud83d\udca1 Real-World Example:"}</div>${esc(s.realWorld)}</div>` : ''}
+                <button class="button step-next" id="stepNext">Continue</button>`;
+        }
+
+        function stepMemory(l) {
+            return `
+                <div class="step-eyebrow">Memory check</div>
+                <div class="question-text">${esc(l.memoryCheck.prompt)}</div>
+                <textarea class="memory-input" id="memoryInput" placeholder="Write it in your own words..."></textarea>
+                <button class="button" id="memorySubmit">Check my answer</button>
+                <div class="feedback" id="memoryFeedback" hidden></div>`;
+        }
+
+        function stepReviewQuestion(i) {
+            const { lessonIndex, question } = lessonState.review.items[i];
+            const concept = courseData.concepts[lessonIndex];
+            return `
+                <div class="step-eyebrow">Review · ${esc(concept.name)}</div>
+                ${renderQuestion(question, 'rev' + i)}`;
+        }
+
+        function stepReviewComplete() {
+            const { lessonsReviewed, correct, total } = lessonState.result;
+            const accuracy = total ? Math.round((correct / total) * 100) : 100;
+            return `
+                <div class="complete-screen">
+                    <div class="complete-badge">🔁</div>
+                    <h3 class="complete-title">Review complete</h3>
+                    <div class="complete-stats">
+                        <div class="cstat"><div class="cstat-val">${lessonsReviewed}</div><div class="cstat-lbl">Lessons reviewed</div></div>
+                        <div class="cstat"><div class="cstat-val">${accuracy}%</div><div class="cstat-lbl">Accuracy</div></div>
+                        <div class="cstat"><div class="cstat-val">${correct}/${total}</div><div class="cstat-lbl">Correct</div></div>
+                    </div>
+                    <div class="step-note">Lessons you remembered well come back later. Shaky ones come back tomorrow.</div>
+                    <button class="button button-secondary" id="backToPath">Back to path</button>
+                </div>`;
+        }
+
+        // Commit the result. Separate from rendering so re-rendering can't
+        // re-award XP or re-save progress.
+        function commitLessonResult() {
+            const { correct, total, startedAt } = lessonState;
+            const accuracy = total ? Math.round((correct / total) * 100) : 100;
+            const xp = 20 + correct * 10 + (accuracy === 100 && total > 0 ? 25 : 0);
+
+            if (!progress[currentLessonIndex]) progress[currentLessonIndex] = {};
+            const prev = progress[currentLessonIndex];
+            prev.completed = true;
+            // Replaying a lesson keeps your best result, it doesn't overwrite it.
+            prev.accuracy = Math.max(prev.accuracy || 0, accuracy);
+            prev.xp = Math.max(prev.xp || 0, xp);
+            scheduleReview(currentLessonIndex, accuracy);
+            saveProgress();
+            updateProgress();
+            return { accuracy, xp, minutes: Math.max(1, Math.round((Date.now() - startedAt) / 60000)) };
+        }
+
+        function stepComplete(l) {
+            const { correct, total } = lessonState;
+            const { accuracy, xp, minutes: mins } = lessonState.result;
+
+            const isLast = currentLessonIndex >= courseData.concepts.length - 1;
+            return `
+                <div class="complete-screen">
+                    <div class="complete-badge">✓</div>
+                    <h3 class="complete-title">Lesson complete</h3>
+                    <div class="complete-stats">
+                        <div class="cstat"><div class="cstat-val">+${xp}</div><div class="cstat-lbl">XP</div></div>
+                        <div class="cstat"><div class="cstat-val">${accuracy}%</div><div class="cstat-lbl">Accuracy</div></div>
+                        <div class="cstat"><div class="cstat-val">${correct}/${total}</div><div class="cstat-lbl">Correct</div></div>
+                        <div class="cstat"><div class="cstat-val">${mins}m</div><div class="cstat-lbl">Time</div></div>
+                    </div>
+                    ${isLast
+                        ? `<div class="step-note">You finished the whole course. Well done.</div>`
+                        : `<button class="button" id="continueNext">Next lesson</button>`}
+                    <button class="button button-secondary" id="backToPath">Back to path</button>
+                </div>`;
+        }
+
+        // ---- Wiring ----
+        function wireStep(s) {
+            const next = document.getElementById('stepNext');
+            if (next) next.onclick = advanceStep;
+
+            if (s.type === 'prediction') {
+                document.querySelectorAll('#predictOpts .option').forEach(el => {
+                    el.onclick = () => {
+                        document.querySelectorAll('#predictOpts .option').forEach(o => o.classList.add('dimmed'));
+                        el.classList.remove('dimmed');
+                        el.classList.add('picked');
+                        setTimeout(advanceStep, 550);
+                    };
+                });
+            }
+
+            if (s.type === 'worked') {
+                document.querySelectorAll('[data-reveal]').forEach(btn => {
+                    btn.onclick = () => {
+                        const why = document.getElementById('why' + btn.dataset.reveal);
+                        why.hidden = !why.hidden;
+                        btn.classList.toggle('revealed', !why.hidden);
+                    };
+                });
+            }
+
+            if (s.type === 'quiz' || s.type === 'challenge') {
+                const l = lessonState.lesson;
+                const item = s.type === 'quiz' ? l.quiz[s.i] : l.challenge;
+                wireQuestion(item);
+            }
+
+            if (s.type === 'reviewq') {
+                const { lessonIndex, question } = lessonState.review.items[s.i];
+                wireQuestion(question, (correct) => {
+                    const by = lessonState.review.byLesson;
+                    by[lessonIndex] = by[lessonIndex] || { correct: 0, total: 0 };
+                    by[lessonIndex].total++;
+                    if (correct) by[lessonIndex].correct++;
+                });
+            }
+
+            if (s.type === 'practice') {
+                // Practice keeps its optional hint, then grades like a choice question.
+                const p = lessonState.lesson.practice;
+                const hintBtn = document.getElementById('hintBtn');
+                if (hintBtn) hintBtn.onclick = () => {
+                    document.getElementById('hintBox').hidden = false;
+                    hintBtn.remove();
+                };
+                wireQuestion({
+                    type: 'choice', text: p.problem, options: p.options,
+                    correct: p.correct,
+                    explanation: '',   // practice shows tailored feedback instead
+                }, (correct) => {
+                    const fb = document.getElementById('feedback');
+                    const msg = correct ? p.feedback.correct : p.feedback.incorrect;
+                    if (fb && msg) {
+                        // Replace the generic explanation with practice-specific feedback.
+                        const answer = fb.querySelector('div:not(.feedback-head)');
+                        if (answer) answer.textContent = msg;
+                        else fb.querySelector('.feedback-head')
+                            .insertAdjacentHTML('afterend', `<div>${esc(msg)}</div>`);
+                    }
+                });
+            }
+
+            if (s.type === 'memory') {
+                document.getElementById('memorySubmit').onclick = () => evaluateMemory();
+            }
+
+            if (s.type === 'complete') {
+                const cn = document.getElementById('continueNext');
+                if (cn) cn.onclick = () => {
+                    // Return to the path, celebrate the unlock, then open the next lesson
+                    completeLesson();
+                    setTimeout(() => nextLesson(), 1100);
+                };
+                document.getElementById('backToPath').onclick = completeLesson;
+            }
+
+            if (s.type === 'reviewComplete') {
+                document.getElementById('backToPath').onclick = completeLesson;
+            }
+        }
+
+        async function evaluateMemory() {
+            const input = document.getElementById('memoryInput').value.trim();
+            const fb = document.getElementById('memoryFeedback');
+            if (!input) return;
+
+            fb.hidden = false;
+            fb.className = 'feedback';
+            fb.innerHTML = `<div class="spinner"></div> Thinking...`;
+
+            const l = lessonState.lesson;
+            const sys = "You are a tutor. Gently evaluate the learner's explanation: name what they got right, then what is missing. 2-3 sentences. " + languageRule();
+            const res = await callAI(
+                `Concept: ${l.title}\nMain idea: ${l.summary?.mainIdea || ''}\n\nLearner's explanation: ${input}`,
+                sys,
+                { maxTokens: MAX_TOKENS.feedback, task: 'feedback' }
+            );
+
+            fb.className = 'feedback feedback-ok';
+            fb.innerHTML = `
+                <div>${esc(res || "Thanks \u2014 putting it in your own words is the best way to remember it.")}</div>
+                <button class="button step-next" id="stepNext">Continue</button>`;
+            document.getElementById('stepNext').onclick = advanceStep;
+        }
+
+        function renderTutorActions() {
+            const box = document.getElementById('tutorActions');
+            if (!box || box.dataset.built) return;
+            box.innerHTML = TUTOR_ACTIONS.map(a =>
+                `<button class="tutor-chip" data-ask="${esc(a.id)}">${esc(a.label)}</button>`).join('');
+            box.querySelectorAll('.tutor-chip').forEach(chip => {
+                chip.onclick = () => {
+                    const action = TUTOR_ACTIONS.find(a => a.id === chip.dataset.ask);
+                    if (action) askTutor(action.ask, action.label);
+                };
+            });
+            box.dataset.built = '1';
+        }
+
+        let tutorBusy = false;
+
+        async function askTutor(presetQuestion, presetLabel) {
+            if (tutorBusy) return;
+
+            const input = document.getElementById('tutorQuestion');
+            const question = presetQuestion || input.value.trim();
+            if (!question || !courseData) return;
+
+            tutorBusy = true;
+            const box = document.getElementById('tutorResponse');
+            box.style.display = 'block';
+            box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
+                             <div class="tutor-thinking"><div class="spinner"></div> Thinking...</div>`;
+
+            try {
+                const response = await getTutorResponse(question);
+                if (response && response.trim()) {
+                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
+                                     <div class="tutor-answer">${esc(response)}</div>`;
+                    if (!presetQuestion) input.value = '';
+                } else if (response === '') {
+                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
+                                     <div class="tutor-answer">No answer came back. Try asking again.</div>`;
+                } else {
+                    box.style.display = 'none';   // callAI already showed the error
+                }
+            } finally {
+                tutorBusy = false;
+            }
+        }
+
+        function celebrate() {
+            if (prefersReducedMotion()) return;
+            const colors = ['#60a5fa', '#a78bfa', '#4ade80', '#fbbf24', '#f472b6'];
+            for (let i = 0; i < 40; i++) {
+                const c = document.createElement('div');
+                c.className = 'confetti';
+                c.style.left = Math.random() * 100 + 'vw';
+                c.style.top = '-10px';
+                c.style.background = colors[i % colors.length];
+                c.style.animationDelay = Math.random() * 0.4 + 's';
+                c.style.transform = `rotate(${Math.random() * 360}deg)`;
+                document.body.appendChild(c);
+                setTimeout(() => c.remove(), 3400);
+            }
+        }
+
+        function nextLesson() {
+            if (currentLessonIndex < courseData.concepts.length - 1) {
+                loadLesson(currentLessonIndex + 1);
+            }
+        }
+
+        function updateProgress() {
+            const completed = Object.keys(progress).filter(k => progress[k].completed).length;
+            const total = courseData.concepts.length;
+            const percent = Math.round((completed / total) * 100);
+
+            document.getElementById('completedCount').textContent = completed;
+            document.getElementById('progressPercent').textContent = percent + '%';
+            document.getElementById('progressBar').style.width = percent + '%';
+        }
+
+        // ============= Event Listeners =============
+        document.getElementById('uploadSection').addEventListener('click', () => {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            // Clear the value so picking the same file again still fires 'change'
+            // (otherwise a retry after a failure silently does nothing).
+            e.target.value = '';
+            if (file) handleFileUpload(file);
+        });
+
+        document.getElementById('uploadSection').addEventListener('dragover', (e) => {
+            e.preventDefault();
+            document.getElementById('uploadSection').style.borderColor = '#60a5fa';
+        });
+
+        document.getElementById('uploadSection').addEventListener('dragleave', () => {
+            document.getElementById('uploadSection').style.borderColor = '#475569';
+        });
+
+        document.getElementById('uploadSection').addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files[0]) {
+                handleFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+
+        function selectSource(mode) {
+            const file = mode === 'file';
+            document.getElementById('uploadSection').hidden = !file;
+            document.getElementById('textPasteSection').hidden = file;
+            document.getElementById('tabFile').classList.toggle('active', file);
+            document.getElementById('tabPaste').classList.toggle('active', !file);
+            document.getElementById('tabFile').setAttribute('aria-selected', String(file));
+            document.getElementById('tabPaste').setAttribute('aria-selected', String(!file));
+        }
+
+        document.getElementById('libraryBtn').addEventListener('click', showLibrary);
+        document.getElementById('newCourseBtn').addEventListener('click', showNewCourse);
+        document.getElementById('backToLibraryBtn').addEventListener('click', showLibrary);
+
+        document.getElementById('tabFile').addEventListener('click', () => selectSource('file'));
+        document.getElementById('tabPaste').addEventListener('click', () => selectSource('paste'));
+
+        document.getElementById('submitTextBtn').addEventListener('click', async () => {
+            const text = document.getElementById('textInput').value;
+            if (text.trim()) {
+                await processLearningMaterial(text);
+            }
+        });
+
+        document.getElementById('startReviewBtn').addEventListener('click', startReviewSession);
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            if (!activeCourseId) return;
+            if (confirm('Reset your progress in this course? The course itself is kept.')) {
+                progress = {};
+                saveProgress();
+                displayLearningPath();
+            }
+        });
+
+        document.getElementById('changeKeyBtn').addEventListener('click', () => {
+            document.getElementById('apiKeyInput').value = apiKey || '';
+            document.getElementById('cancelApiKeyBtn').style.display = apiKey ? 'block' : 'none';
+            showApiKeyModal();
+        });
+
+        document.getElementById('cancelApiKeyBtn').addEventListener('click', () => {
+            hideApiKeyModal();
+        });
+
+        document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') document.getElementById('setApiKeyBtn').click();
+        });
+
+        document.getElementById('previewStart').addEventListener('click', () => {
+            const i = previewIndex;
+            closePreview();
+            if (i !== null) loadLesson(i);
+        });
+        document.getElementById('previewCancel').addEventListener('click', closePreview);
+        document.getElementById('previewOverlay').addEventListener('click', (e) => {
+            if (e.target.id === 'previewOverlay') closePreview();
+        });
+
+        document.getElementById('backBtn').addEventListener('click', exitLesson);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            if (document.getElementById('previewOverlay').classList.contains('show')) {
+                closePreview();
+            } else if (document.body.classList.contains('lesson-open')) {
+                exitLesson();
+            }
+        });
+
+        document.getElementById('tutorToggle').addEventListener('click', () => {
+            const panel = document.getElementById('tutorPanel');
+            panel.hidden = !panel.hidden;
+            if (!panel.hidden) {
+                renderTutorActions();
+                document.getElementById('tutorQuestion').focus();
+            }
+        });
+
+        document.getElementById('tutorAskBtn').addEventListener('click', () => askTutor());
+        document.getElementById('tutorQuestion').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') askTutor();
+        });
+
+        document.getElementById('setApiKeyBtn').addEventListener('click', () => {
+            console.log('Save button clicked');
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (!key) {
+                alert("Please enter an API key");
+                return;
+            }
+            apiKey = key;
+            localStorage.setItem(API_KEY_STORAGE, key);
+            console.log('Key saved, length:', key.length);
+            hideApiKeyModal();
+            document.getElementById('sourcePicker').hidden = false;
+        });
+
+        // Initialize
+        renderUsage();
+        loadLibrary();
+        migrateLegacyCourse();
+        loadLibrary();
+
+        if (!apiKey) {
+            showApiKeyModal();
+        } else {
+            hideApiKeyModal();
+            const lastId = localStorage.getItem(ACTIVE_STORAGE);
+            if (lastId && library.some(c => c.id === lastId)) {
+                openCourse(lastId);
+            } else if (library.length) {
+                showLibrary();
+            } else {
+                document.getElementById('sourcePicker').hidden = false;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -349,10 +349,13 @@
         }
         .lesson-node.locked { cursor: default; }
 
-        /* ---- Current: gold, breathing ---- */
+        /* ---- Current: gold, breathing, with the halo rings Duolingo marks
+           "start here" with. Layered box-shadow rings — coexist fine with the
+           border-bottom press edge, unlike clip-path. ---- */
         .lesson-node.current .lesson-circle {
             background: var(--duo-yellow);
             border-bottom-color: var(--duo-yellow-dark);
+            box-shadow: 0 0 0 6px rgba(255, 200, 0, 0.22), 0 0 0 13px rgba(255, 200, 0, 0.12);
             animation: nodePulse 1.8s ease-in-out infinite;
         }
 
@@ -2303,7 +2306,13 @@ ${languageRule()}`;
                 }
 
                 const dueNow = isDueForReview(index);
-                const icon = isCheckpoint ? '★' : (index + 1);
+                // Real Duolingo nodes don't show sequence numbers: locked shows a
+                // padlock, a finished regular lesson shows a check, everything else
+                // (the current node, and any checkpoint) shows a star.
+                let icon;
+                if (node.classList.contains('locked')) icon = '🔒';
+                else if (node.classList.contains('completed') && !isCheckpoint) icon = '✓';
+                else icon = '★';
 
                 node.innerHTML = `
                     <div class="lesson-circle">

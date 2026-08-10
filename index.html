@@ -70,6 +70,33 @@
             overflow: hidden;
         }
 
+        /* ---- Bottom nav: persistent app chrome, like Duolingo's tab bar ---- */
+        .bottom-nav {
+            flex: none;
+            display: flex;
+            border-top: 2px solid var(--duo-border);
+            background: var(--duo-card);
+            margin: 10px -20px -14px;
+            padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+        }
+        .bottom-nav-item {
+            flex: 1;
+            display: flex; flex-direction: column; align-items: center; gap: 2px;
+            background: none; border: none; padding: 6px 4px;
+            color: var(--duo-text-light);
+            font-family: 'Baloo 2', sans-serif; font-size: 0.68em; font-weight: 700;
+            cursor: pointer; position: relative; border-radius: 10px;
+            transition: color 0.15s ease;
+        }
+        .bottom-nav-item:hover { background: var(--duo-bg); }
+        .bottom-nav-icon { font-size: 1.4em; line-height: 1; }
+        .bottom-nav-item.active { color: var(--duo-green-dark); }
+        .bottom-nav-dot {
+            position: absolute; top: 2px; right: 26%;
+            width: 9px; height: 9px; border-radius: 50%;
+            background: var(--duo-red); border: 2px solid var(--duo-card);
+        }
+
         header {
             flex: none;
             text-align: center;
@@ -301,7 +328,18 @@
             transition: all 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
             will-change: transform;
         }
-        .lesson-node.checkpoint .lesson-circle { width: 72px; height: 72px; font-size: 1.5em; }
+        /* Checkpoint nodes get Duolingo's scalloped "exam" badge shape instead of
+           a plain circle. clip-path also clips box-shadow, so the press-shadow
+           moves to filter: drop-shadow(), which is applied after clipping. */
+        .lesson-node.checkpoint .lesson-circle {
+            width: 80px; height: 80px; font-size: 1.6em;
+            border-bottom: none;
+            clip-path: polygon(50.00% 0.00%, 59.84% 13.29%, 75.00% 6.70%, 76.87% 23.13%, 93.30% 25.00%, 86.71% 40.16%, 100.00% 50.00%, 86.71% 59.84%, 93.30% 75.00%, 76.87% 76.87%, 75.00% 93.30%, 59.84% 86.71%, 50.00% 100.00%, 40.16% 86.71%, 25.00% 93.30%, 23.13% 76.87%, 6.70% 75.00%, 13.29% 59.84%, 0.00% 50.00%, 13.29% 40.16%, 6.70% 25.00%, 23.13% 23.13%, 25.00% 6.70%, 40.16% 13.29%);
+            filter: drop-shadow(0 4px 0 rgba(0,0,0,0.2));
+        }
+        .lesson-node.checkpoint:not(.locked):active .lesson-circle {
+            filter: drop-shadow(0 1px 0 rgba(0,0,0,0.2));
+        }
 
         /* ---- Locked: flat grey, no press ---- */
         .lesson-node.locked .lesson-circle {
@@ -1449,6 +1487,23 @@
                 </div>
             </div>
         </div>
+
+        <!-- Persistent bottom tab bar, in the Duolingo app's own pattern -->
+        <nav class="bottom-nav" id="bottomNav">
+            <button class="bottom-nav-item active" id="navHome" aria-label="Home">
+                <span class="bottom-nav-icon">🏠</span><span class="bottom-nav-label">Home</span>
+            </button>
+            <button class="bottom-nav-item" id="navCourses" aria-label="My courses">
+                <span class="bottom-nav-icon">📚</span><span class="bottom-nav-label">Courses</span>
+            </button>
+            <button class="bottom-nav-item" id="navReview" aria-label="Review">
+                <span class="bottom-nav-icon">🔁</span><span class="bottom-nav-label">Review</span>
+                <span class="bottom-nav-dot" id="navReviewDot" hidden></span>
+            </button>
+            <button class="bottom-nav-item" id="navAccount" aria-label="Account">
+                <span class="bottom-nav-icon">👤</span><span class="bottom-nav-label">Account</span>
+            </button>
+        </nav>
     </div>
 
     <!-- Lesson preview: shown when tapping a node, before entering -->
@@ -2199,6 +2254,7 @@ ${languageRule()}`;
         function displayLearningPath() {
             document.getElementById('sourcePicker').hidden = true;
             document.getElementById('learningPath').classList.add('active');
+            setActiveNav('home');
 
             // Update stats
             document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
@@ -2323,6 +2379,8 @@ ${languageRule()}`;
                     ? '1 lesson is due for review'
                     : `${due.length} lessons are due for review`;
             }
+            const dot = document.getElementById('navReviewDot');
+            if (dot) dot.hidden = due.length === 0;
         }
 
         // Pull 1-2 cached quiz questions per due lesson. Reuses the questions the
@@ -2944,6 +3002,7 @@ ${languageRule()}`;
             document.getElementById('libraryScreen').hidden = false;
             document.getElementById('sourcePicker').hidden = true;
             document.getElementById('learningPath').classList.remove('active');
+            setActiveNav('courses');
         }
 
         function showNewCourse() {
@@ -2955,6 +3014,7 @@ ${languageRule()}`;
             document.getElementById('sourcePicker').hidden = false;
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
             document.getElementById('learningPath').classList.remove('active');
+            setActiveNav('home');
         }
 
         // ============= Lesson preview =============
@@ -3941,6 +4001,44 @@ ${languageRule()}`;
         document.getElementById('libraryBtn').addEventListener('click', showLibrary);
         document.getElementById('newCourseBtn').addEventListener('click', showNewCourse);
         document.getElementById('backToLibraryBtn').addEventListener('click', showLibrary);
+
+        // ============= Bottom nav =============
+        function setActiveNav(name) {
+            document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+            const map = { home: 'navHome', courses: 'navCourses', review: 'navReview', account: 'navAccount' };
+            document.getElementById(map[name])?.classList.add('active');
+        }
+
+        document.getElementById('navHome').addEventListener('click', async () => {
+            if (activeCourseId && courseData) {
+                document.getElementById('libraryScreen').hidden = true;
+                document.getElementById('sourcePicker').hidden = true;
+                displayLearningPath();
+            } else if (library.length) {
+                await showLibrary();
+            } else {
+                document.getElementById('libraryScreen').hidden = true;
+                document.getElementById('learningPath').classList.remove('active');
+                document.getElementById('sourcePicker').hidden = false;
+                setActiveNav('home');
+            }
+        });
+
+        document.getElementById('navCourses').addEventListener('click', showLibrary);
+
+        document.getElementById('navReview').addEventListener('click', () => {
+            if (!activeCourseId) { showError('Open a course first.'); return; }
+            if (!getDueLessons().length) { showError('Nothing is due for review right now.'); return; }
+            setActiveNav('review');
+            startReviewSession();
+        });
+
+        document.getElementById('navAccount').addEventListener('click', async () => {
+            if (!currentUser) return;
+            if (confirm(`Signed in as ${currentUser.email}. Sign out?`)) {
+                await supabase.auth.signOut();
+            }
+        });
 
         document.getElementById('tabFile').addEventListener('click', () => selectSource('file'));
         document.getElementById('tabPaste').addEventListener('click', () => selectSource('paste'));

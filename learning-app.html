@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -458,6 +459,20 @@
             font-size: 0.95em; resize: vertical; line-height: 1.6;
         }
         .paste-area:focus { outline: none; border-color: var(--duo-blue); }
+
+        /* ---- Auth ---- */
+        .auth-input {
+            width: 100%; padding: 12px 14px; margin-bottom: 12px;
+            background: var(--duo-card); border: 2px solid var(--duo-border);
+            border-radius: 12px; color: var(--duo-text);
+            font-family: 'Nunito', sans-serif; font-size: 0.98em;
+        }
+        .auth-input:focus { outline: none; border-color: var(--duo-blue); }
+        .user-badge {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            margin-top: 10px; font-size: 0.85em; color: var(--duo-text-light);
+        }
+        .user-badge .button-secondary { padding: 5px 14px; font-size: 0.85em; }
 
         /* ---- Interactive question types ---- */
         .blank-gap {
@@ -1343,7 +1358,10 @@
                 </div>
             </div>
 
-            <button id="changeKeyBtn" class="button button-secondary" style="margin-top: 10px; padding: 6px 16px; font-size: 0.75em;">Change API key</button>
+            <div class="user-badge" id="userBadge" hidden>
+                <span id="userEmail"></span>
+                <button id="signOutBtn" class="button button-secondary">Sign out</button>
+            </div>
             <div id="usageBadge" class="usage-badge" title=""></div>
         </header>
 
@@ -1501,64 +1519,49 @@
         </div>
     </div>
 
-    <!-- API Key Modal -->
-    <div id="apiKeyModal" class="modal active">
+    <!-- Auth Modal: sign in / sign up. No API key ever touches the browser. -->
+    <div id="authModal" class="modal active">
         <div class="modal-content">
-            <div class="modal-title">🔑 API key required</div>
-            <p style="margin-bottom: 15px; color: var(--duo-text-light);">
-                <span>This app uses the Claude API to generate lessons.</span>
-            </p>
-            <p style="margin-bottom: 20px; font-size: 0.9em; color: var(--duo-text-light);">
-                <span>Create a key at:</span> <a href="https://platform.claude.com" target="_blank" style="color: var(--duo-blue-dark); font-weight: 700;">platform.claude.com</a>
-            </p>
-            <input type="password" id="apiKeyInput" placeholder="sk-ant-..." style="
-                width: 100%;
-                background: var(--duo-card);
-                border: 2px solid var(--duo-border);
-                border-radius: 12px;
-                padding: 12px;
-                color: var(--duo-text);
-                font-family: monospace;
-                margin-bottom: 15px;
-            " />
-            <button class="button" id="setApiKeyBtn" style="width: 100%;">Save key</button>
-            <button class="button button-secondary" id="cancelApiKeyBtn" style="width: 100%; margin-top: 10px; display: none;">Cancel</button>
+            <div class="modal-title" id="authTitle">👋 Welcome back</div>
+            <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
+                <button class="source-tab active" id="authTabIn" role="tab" aria-selected="true">Sign in</button>
+                <button class="source-tab" id="authTabUp" role="tab" aria-selected="false">Sign up</button>
+            </div>
+            <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
+            <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
+            <div class="error-message" id="authError" hidden></div>
+            <button class="button" id="authSubmitBtn" style="width: 100%;">Sign in</button>
             <div class="info-message" style="margin-top: 15px; font-size: 0.9em;">
-                <span>ℹ️ Your key is stored only in this browser, and sent only to Anthropic.</span>
+                <span>ℹ️ Your account and progress are private and sync across your devices.</span>
             </div>
         </div>
     </div>
 
     <script>
         // Configuration
-        const API_KEY_STORAGE = 'anthropic_api_key';
-        // Multi-course storage. Each course owns its own progress and source text.
-        const LIBRARY_STORAGE = 'course_library';   // [{id, title, language, created, conceptCount}]
-        const ACTIVE_STORAGE  = 'active_course_id';
-        const MAX_COURSES = 8;                      // localStorage is ~5MB; sources are the bulk
+        // Courses now live in Supabase, one row per user — not localStorage.
+        // These are public by design (like a Firebase config): they identify
+        // the project and let a signed-in browser talk to it under RLS. The
+        // real secret (the Anthropic key) never leaves the ai-proxy Edge Function.
+        const SUPABASE_URL = 'https://kgkdkkqoebnpahvetwzk.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_qE7c9BFhruGYYi_QgP4i4w_1T86fift';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        const courseKey   = id => `course:${id}`;
-        const progressKey = id => `progress:${id}`;
-        const sourceKey   = id => `source:${id}`;
+        const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
+        const MAX_COURSES = 8;
 
-        // Legacy single-course keys, migrated on first load.
-        const COURSE_DATA_STORAGE = 'course_data';
-        const PROGRESS_STORAGE = 'learning_progress';
-
-
-        let apiKey = localStorage.getItem(API_KEY_STORAGE);
+        let currentUser = null;
         let courseData = null;
         let currentLessonIndex = 0;
         let progress = {};
         let activeCourseId = null;
+        let activeSourceText = '';
         let library = [];
 
         // PDF.js setup
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         // ============= API & AI Functions =============
-        const AI_MODEL = 'claude-haiku-4-5';
-
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
         // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
         // Too low a ceiling truncates the response mid-object and JSON.parse dies.
@@ -1566,73 +1569,62 @@
 
         let lastCallTruncated = false;
 
+        // Every generation call goes through the ai-proxy Edge Function instead of
+        // Anthropic directly: it holds the real API key server-side, checks the
+        // caller has an active subscription/trial, and enforces the daily cap.
         async function callAI(userMessage, systemPrompt = '', opts = {}) {
             lastCallTruncated = false;
-            if (!apiKey) {
-                showApiKeyModal();
+            if (!currentUser) {
+                showAuthModal('signin');
                 return null;
             }
 
-            const { retries = 2, maxTokens = 1000, task = 'other' } = opts;
-            const url = 'https://api.anthropic.com/v1/messages';
-
-            const body = {
-                model: AI_MODEL,
-                max_tokens: maxTokens,
-                messages: [{ role: 'user', content: userMessage }],
-            };
+            const { retries = 2, maxTokens = 1000 } = opts;
+            const body = { messages: [{ role: 'user', content: userMessage }], max_tokens: maxTokens };
             if (systemPrompt) body.system = systemPrompt;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 try {
-                    const response = await fetch(url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'x-api-key': apiKey,
-                            'anthropic-version': '2023-06-01',
-                            // Required to call the API straight from a browser.
-                            // The name is a warning: the key is exposed to anyone
-                            // who opens this page. Fine locally, not for sharing.
-                            'anthropic-dangerous-direct-browser-access': 'true',
-                        },
-                        body: JSON.stringify(body),
-                    });
+                    const { data, error } = await supabase.functions.invoke('ai-proxy', { body });
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        recordUsage(task, data.usage);
+                    if (!error) {
+                        refreshUsage();
                         if (data.stop_reason === 'max_tokens') {
-                            console.warn(`Response truncated at max_tokens for task "${task}"`);
+                            console.warn('Response truncated at max_tokens');
                         }
                         lastCallTruncated = data.stop_reason === 'max_tokens';
                         const parts = data.content || [];
                         return parts.filter(p => p.type === 'text').map(p => p.text).join('') || '';
                     }
 
-                    const error = await response.json().catch(() => ({}));
-                    const message = error.error?.message || `HTTP ${response.status}`;
-                    console.error('Anthropic error:', response.status, error);
+                    const status = error.context?.status;
+                    let payload = {};
+                    try { payload = await error.context.json(); } catch (_) {}
+                    console.error('ai-proxy error:', status, payload);
 
                     // Rate limited or overloaded — back off and retry
-                    if ((response.status === 429 || response.status >= 500) && attempt < retries) {
+                    if ((status === 429 || status >= 500) && attempt < retries) {
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
 
-                    if (response.status === 401) {
-                        showError("That API key is not valid. Check it and try again.");
-                        showApiKeyModal();
+                    if (status === 401) {
+                        showError("Your session expired. Please sign in again.");
+                        await supabase.auth.signOut();
+                        showAuthModal('signin');
                         return null;
                     }
-                    if (response.status === 429) { showError("Rate limited. Wait a moment and try again."); return null; }
-                    // Out of credits
-                    if (response.status === 400 && /credit|balance/i.test(message)) {
-                        showError("Your Claude account is out of credits. Add credits in the console.");
+                    if (status === 402) {
+                        showError(payload.message || "Your trial has ended. Subscribe to keep generating lessons.");
+                        showUpgradePrompt();
+                        return null;
+                    }
+                    if (status === 429) {
+                        showError(payload.message || "Daily limit reached. Try again tomorrow.");
                         return null;
                     }
 
-                    showError(message);
+                    showError(payload.message || payload.error || `HTTP ${status || 'error'}`);
                     return null;
 
                 } catch (error) {
@@ -2079,14 +2071,6 @@ ${languageRule()}`;
         }
 
         // ============= UI Functions =============
-        function showApiKeyModal() {
-            document.getElementById('apiKeyModal').classList.add('active');
-        }
-
-        function hideApiKeyModal() {
-            document.getElementById('apiKeyModal').classList.remove('active');
-        }
-
         // Shown over whatever screen is current. The old version wrote into
         // #uploadSection, which is hidden once a course exists — so nothing appeared.
         function showMessage(msg) {
@@ -2185,14 +2169,13 @@ ${languageRule()}`;
                     return;
                 }
 
-                const id = newCourseId();
                 if (!course.courseName) course.courseName = title;
-                // The source lives under its own key, not inside the course object,
-                // so loading a course doesn't drag the whole document into memory.
-                if (!saveCourse(id, course, text)) return;
+                const id = await saveCourse(course, text);
+                if (!id) return;
 
                 courseData = course;
                 activeCourseId = id;
+                activeSourceText = text;
                 progress = {};
                 localStorage.setItem(ACTIVE_STORAGE, id);
 
@@ -2463,30 +2446,29 @@ ${languageRule()}`;
         // Haiku 4.5 pricing: $1 per 1M input tokens, $5 per 1M output tokens.
         const PRICE_IN = 1 / 1_000_000;
         const PRICE_OUT = 5 / 1_000_000;
-        const USAGE_STORAGE = 'ai_usage';
 
-        let usage = JSON.parse(localStorage.getItem(USAGE_STORAGE) || 'null') || {
-            calls: 0, inputTokens: 0, outputTokens: 0, cached: 0, byTask: {}
-        };
+        // The Edge Function increments ai_usage server-side on every real call —
+        // the client just reflects it. "cached" (this app's own lesson cache, not
+        // an API call at all) is session-only, there's nothing server-side to sync.
+        let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0 };
 
-        function recordUsage(task, u) {
-            if (!u) return;
-            const inTok = u.input_tokens || 0;
-            const outTok = u.output_tokens || 0;
-            usage.calls++;
-            usage.inputTokens += inTok;
-            usage.outputTokens += outTok;
-            usage.byTask[task] = usage.byTask[task] || { calls: 0, in: 0, out: 0 };
-            usage.byTask[task].calls++;
-            usage.byTask[task].in += inTok;
-            usage.byTask[task].out += outTok;
-            localStorage.setItem(USAGE_STORAGE, JSON.stringify(usage));
+        async function refreshUsage() {
+            if (!currentUser) return;
+            const { data } = await supabase
+                .from('ai_usage')
+                .select('calls, input_tokens, output_tokens')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+            if (data) {
+                usage.calls = data.calls;
+                usage.inputTokens = data.input_tokens;
+                usage.outputTokens = data.output_tokens;
+            }
             renderUsage();
         }
 
         function recordCacheHit() {
             usage.cached++;
-            localStorage.setItem(USAGE_STORAGE, JSON.stringify(usage));
             renderUsage();
         }
 
@@ -2499,10 +2481,7 @@ ${languageRule()}`;
             if (!el) return;
             const cost = totalCost();
             el.textContent = `$${cost.toFixed(4)} · ${usage.calls} calls` +
-                (usage.cached ? ` · ${usage.cached} cached` : '');
-            el.title = Object.entries(usage.byTask)
-                .map(([k, v]) => `${k}: ${v.calls} calls, ${v.in}in/${v.out}out`)
-                .join('\n');
+                (usage.cached ? ` · ${usage.cached} cached this session` : '');
         }
 
         // Models wrap JSON in prose or markdown fences, and a truncated response
@@ -2792,84 +2771,116 @@ ${languageRule()}`;
         }
 
         function getSourceText() {
-            if (!activeCourseId) return '';
-            return localStorage.getItem(sourceKey(activeCourseId)) || '';
+            return activeSourceText;
         }
 
         // ============= Course library =============
-        function loadLibrary() {
-            try {
-                library = JSON.parse(localStorage.getItem(LIBRARY_STORAGE)) || [];
-            } catch (_) {
+        // Every read is scoped to the caller by RLS — there is no explicit
+        // "where user_id = me" needed, the database enforces it either way.
+        async function loadLibrary() {
+            const { data: courses, error } = await supabase
+                .from('courses')
+                .select('id, title, language, concepts, created_at')
+                .order('created_at', { ascending: false });
+            if (error) {
+                console.error('loadLibrary failed:', error);
                 library = [];
+                return library;
             }
+
+            const { data: doneRows } = await supabase
+                .from('progress')
+                .select('course_id')
+                .eq('completed', true);
+            const doneCounts = {};
+            (doneRows || []).forEach(r => { doneCounts[r.course_id] = (doneCounts[r.course_id] || 0) + 1; });
+
+            library = (courses || []).map(c => ({
+                id: c.id,
+                title: c.title,
+                language: c.language,
+                conceptCount: c.concepts.length,
+                completedCount: doneCounts[c.id] || 0,
+                created: new Date(c.created_at).getTime(),
+            }));
             return library;
         }
 
-        function saveLibrary() {
-            localStorage.setItem(LIBRARY_STORAGE, JSON.stringify(library));
+        // Fire-and-forget from every call site, same as the old localStorage
+        // version — nothing awaits it, it just needs to eventually land.
+        async function saveProgress() {
+            if (!activeCourseId || !currentUser) return;
+            const rows = Object.entries(progress).map(([lessonIndex, p]) => ({
+                course_id: activeCourseId,
+                lesson_index: Number(lessonIndex),
+                user_id: currentUser.id,
+                completed: !!p.completed,
+                accuracy: p.accuracy ?? null,
+                xp: p.xp ?? null,
+                lesson: p.lesson ?? null,
+                srs: p.srs ?? null,
+                updated_at: new Date().toISOString(),
+            }));
+            if (!rows.length) return;
+            const { error } = await supabase.from('progress').upsert(rows, { onConflict: 'course_id,lesson_index' });
+            if (error) console.error('saveProgress failed:', error);
         }
 
-        function saveProgress() {
-            if (!activeCourseId) return;
-            localStorage.setItem(progressKey(activeCourseId), JSON.stringify(progress));
-        }
-
-        // localStorage throws when full. Tell the user what to do about it.
-        function safeSet(key, value) {
-            try {
-                localStorage.setItem(key, value);
-                return true;
-            } catch (err) {
-                console.error('Storage write failed:', key, err);
-                showError('Out of browser storage. Delete a course to make room.');
-                return false;
-            }
-        }
-
-        function newCourseId() {
-            return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-        }
-
-        function saveCourse(id, course, sourceText) {
-            if (!safeSet(courseKey(id), JSON.stringify(course))) return false;
-            if (sourceText) safeSet(sourceKey(id), sourceText);
-            localStorage.setItem(progressKey(id), JSON.stringify({}));
-
-            library = library.filter(c => c.id !== id);
-            library.unshift({
-                id,
+        async function saveCourse(course, sourceText) {
+            const { data, error } = await supabase.from('courses').insert({
+                user_id: currentUser.id,
                 title: course.courseName || 'Untitled course',
                 language: course.language || 'English',
-                conceptCount: course.concepts.length,
-                created: Date.now(),
-            });
-            saveLibrary();
-            return true;
+                concepts: course.concepts,
+                source_text: sourceText || null,
+            }).select('id').single();
+            if (error) {
+                console.error('saveCourse failed:', error);
+                showError('Could not save that course: ' + error.message);
+                return null;
+            }
+            await loadLibrary();
+            return data.id;
         }
 
-        function deleteCourse(id) {
-            [courseKey(id), progressKey(id), sourceKey(id)].forEach(k => localStorage.removeItem(k));
+        async function deleteCourse(id) {
+            const { error } = await supabase.from('courses').delete().eq('id', id);
+            if (error) {
+                console.error('deleteCourse failed:', error);
+                showError('Could not delete that course.');
+                return;
+            }
             library = library.filter(c => c.id !== id);
-            saveLibrary();
             if (activeCourseId === id) {
                 activeCourseId = null;
                 courseData = null;
                 progress = {};
+                activeSourceText = '';
                 localStorage.removeItem(ACTIVE_STORAGE);
             }
         }
 
-        function openCourse(id) {
-            const raw = localStorage.getItem(courseKey(id));
-            if (!raw) { showError('That course could not be found.'); return false; }
-            try {
-                courseData = JSON.parse(raw);
-            } catch (_) {
-                showError('That course is corrupted.');
-                return false;
-            }
-            progress = JSON.parse(localStorage.getItem(progressKey(id)) || '{}');
+        async function openCourse(id) {
+            const { data: courseRow, error } = await supabase
+                .from('courses').select('*').eq('id', id).maybeSingle();
+            if (error || !courseRow) { showError('That course could not be found.'); return false; }
+
+            courseData = {
+                courseName: courseRow.title,
+                language: courseRow.language,
+                concepts: courseRow.concepts,
+            };
+            activeSourceText = courseRow.source_text || '';
+
+            const { data: progRows } = await supabase.from('progress').select('*').eq('course_id', id);
+            progress = {};
+            (progRows || []).forEach(r => {
+                progress[r.lesson_index] = {
+                    completed: r.completed, accuracy: r.accuracy, xp: r.xp,
+                    lesson: r.lesson, srs: r.srs,
+                };
+            });
+
             activeCourseId = id;
             currentLessonIndex = 0;
             localStorage.setItem(ACTIVE_STORAGE, id);
@@ -2882,43 +2893,11 @@ ${languageRule()}`;
             return true;
         }
 
-        // One-time move from the old single-course keys.
-        function migrateLegacyCourse() {
-            const old = localStorage.getItem(COURSE_DATA_STORAGE);
-            if (!old || library.length) return;
-            try {
-                const course = JSON.parse(old);
-                if (!course?.concepts?.length) return;
-                const id = newCourseId();
-                localStorage.setItem(courseKey(id), old);
-                localStorage.setItem(progressKey(id), localStorage.getItem(PROGRESS_STORAGE) || '{}');
-                if (course.rawText) localStorage.setItem(sourceKey(id), course.rawText);
-                library = [{
-                    id,
-                    title: course.courseName || 'Untitled course',
-                    language: course.language || 'English',
-                    conceptCount: course.concepts.length,
-                    created: Date.now(),
-                }];
-                saveLibrary();
-                localStorage.setItem(ACTIVE_STORAGE, id);
-                localStorage.removeItem(COURSE_DATA_STORAGE);
-                localStorage.removeItem(PROGRESS_STORAGE);
-                console.log('Migrated legacy course into the library.');
-            } catch (err) {
-                console.warn('Legacy migration skipped:', err);
-            }
-        }
-
         // ---- Library UI ----
         function courseProgressPct(id) {
-            try {
-                const p = JSON.parse(localStorage.getItem(progressKey(id)) || '{}');
-                const meta = library.find(c => c.id === id);
-                if (!meta?.conceptCount) return 0;
-                const done = Object.values(p).filter(x => x && x.completed).length;
-                return Math.round((done / meta.conceptCount) * 100);
-            } catch (_) { return 0; }
+            const meta = library.find(c => c.id === id);
+            if (!meta?.conceptCount) return 0;
+            return Math.round((meta.completedCount / meta.conceptCount) * 100);
         }
 
         function renderLibrary() {
@@ -2942,25 +2921,25 @@ ${languageRule()}`;
             }).join('');
 
             grid.querySelectorAll('.course-card').forEach(card => {
-                card.onclick = (e) => {
+                card.onclick = async (e) => {
                     if (e.target.dataset.del) return;
-                    openCourse(card.dataset.id);
+                    await openCourse(card.dataset.id);
                 };
             });
             grid.querySelectorAll('[data-del]').forEach(btn => {
-                btn.onclick = (e) => {
+                btn.onclick = async (e) => {
                     e.stopPropagation();
                     const meta = library.find(c => c.id === btn.dataset.del);
                     if (confirm(`Delete "${meta?.title || 'this course'}"? This cannot be undone.`)) {
-                        deleteCourse(btn.dataset.del);
+                        await deleteCourse(btn.dataset.del);
                         renderLibrary();
                     }
                 };
             });
         }
 
-        function showLibrary() {
-            loadLibrary();
+        async function showLibrary() {
+            await loadLibrary();
             renderLibrary();
             document.getElementById('libraryScreen').hidden = false;
             document.getElementById('sourcePicker').hidden = true;
@@ -3984,20 +3963,6 @@ ${languageRule()}`;
             }
         });
 
-        document.getElementById('changeKeyBtn').addEventListener('click', () => {
-            document.getElementById('apiKeyInput').value = apiKey || '';
-            document.getElementById('cancelApiKeyBtn').style.display = apiKey ? 'block' : 'none';
-            showApiKeyModal();
-        });
-
-        document.getElementById('cancelApiKeyBtn').addEventListener('click', () => {
-            hideApiKeyModal();
-        });
-
-        document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') document.getElementById('setApiKeyBtn').click();
-        });
-
         document.getElementById('previewStart').addEventListener('click', () => {
             const i = previewIndex;
             closePreview();
@@ -4033,40 +3998,123 @@ ${languageRule()}`;
             if (e.key === 'Enter') askTutor();
         });
 
-        document.getElementById('setApiKeyBtn').addEventListener('click', () => {
-            console.log('Save button clicked');
-            const key = document.getElementById('apiKeyInput').value.trim();
-            if (!key) {
-                alert("Please enter an API key");
-                return;
-            }
-            apiKey = key;
-            localStorage.setItem(API_KEY_STORAGE, key);
-            console.log('Key saved, length:', key.length);
-            hideApiKeyModal();
-            document.getElementById('sourcePicker').hidden = false;
-        });
+        // ============= Auth =============
+        function showAuthModal(mode = 'signin') {
+            document.getElementById('authModal').classList.add('active');
+            setAuthMode(mode);
+        }
+        function hideAuthModal() {
+            document.getElementById('authModal').classList.remove('active');
+        }
+        function setAuthMode(mode) {
+            const isUp = mode === 'signup';
+            document.getElementById('authTabIn').classList.toggle('active', !isUp);
+            document.getElementById('authTabUp').classList.toggle('active', isUp);
+            document.getElementById('authTabIn').setAttribute('aria-selected', String(!isUp));
+            document.getElementById('authTabUp').setAttribute('aria-selected', String(isUp));
+            document.getElementById('authTitle').textContent = isUp ? '🚀 Create your account' : '👋 Welcome back';
+            document.getElementById('authSubmitBtn').textContent = isUp ? 'Sign up' : 'Sign in';
+            const err = document.getElementById('authError');
+            err.hidden = true;
+            err.className = 'error-message';
+        }
 
-        // Initialize
-        renderUsage();
-        renderHud();
-        loadLibrary();
-        migrateLegacyCourse();
-        loadLibrary();
+        // Placeholder until Stripe is wired in — the entitlement check server-side
+        // already works, this just needs a real checkout link.
+        function showUpgradePrompt() {
+            alert("Your free trial has ended. Paid subscriptions are coming soon — check back shortly!");
+        }
 
-        if (!apiKey) {
-            showApiKeyModal();
-        } else {
-            hideApiKeyModal();
+        async function onSignedIn(user) {
+            currentUser = user;
+            document.getElementById('userEmail').textContent = user.email;
+            document.getElementById('userBadge').hidden = false;
+            hideAuthModal();
+            await refreshUsage();
+            await loadLibrary();
             const lastId = localStorage.getItem(ACTIVE_STORAGE);
             if (lastId && library.some(c => c.id === lastId)) {
-                openCourse(lastId);
+                await openCourse(lastId);
             } else if (library.length) {
-                showLibrary();
+                await showLibrary();
             } else {
                 document.getElementById('sourcePicker').hidden = false;
             }
         }
+
+        function onSignedOut() {
+            currentUser = null;
+            courseData = null;
+            progress = {};
+            activeCourseId = null;
+            activeSourceText = '';
+            library = [];
+            document.getElementById('userBadge').hidden = true;
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('libraryScreen').hidden = true;
+            document.getElementById('learningPath').classList.remove('active');
+            showAuthModal('signin');
+        }
+
+        document.getElementById('authTabIn').addEventListener('click', () => setAuthMode('signin'));
+        document.getElementById('authTabUp').addEventListener('click', () => setAuthMode('signup'));
+
+        async function submitAuth() {
+            const email = document.getElementById('authEmail').value.trim();
+            const password = document.getElementById('authPassword').value;
+            const isUp = document.getElementById('authTabUp').classList.contains('active');
+            const err = document.getElementById('authError');
+            err.hidden = true;
+
+            if (!email || !password) {
+                err.textContent = 'Enter an email and password.';
+                err.hidden = false;
+                return;
+            }
+
+            const btn = document.getElementById('authSubmitBtn');
+            btn.disabled = true;
+            const { data, error } = isUp
+                ? await supabase.auth.signUp({ email, password })
+                : await supabase.auth.signInWithPassword({ email, password });
+            btn.disabled = false;
+
+            if (error) {
+                err.textContent = error.message;
+                err.hidden = false;
+                return;
+            }
+            if (isUp && !data.session) {
+                err.className = 'info-message';
+                err.textContent = 'Check your email to confirm your account, then sign in.';
+                err.hidden = false;
+                return;
+            }
+            await onSignedIn(data.session.user);
+        }
+
+        document.getElementById('authSubmitBtn').addEventListener('click', submitAuth);
+        document.getElementById('authPassword').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') submitAuth();
+        });
+
+        document.getElementById('signOutBtn').addEventListener('click', async () => {
+            await supabase.auth.signOut();
+        });
+
+        supabase.auth.onAuthStateChange((event) => {
+            if (event === 'SIGNED_OUT') onSignedOut();
+        });
+
+        // Initialize
+        (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                await onSignedIn(session.user);
+            } else {
+                showAuthModal('signin');
+            }
+        })();
     </script>
 </body>
 </html>

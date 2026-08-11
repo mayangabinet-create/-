@@ -33,6 +33,23 @@ Courses are multi-language: the app writes in whatever language the source mater
 in, and the UI adapts direction (RTL) for Hebrew/Arabic content while the chrome itself
 stays English.
 
+## The four tabs
+
+Every tab is a full screen, routed through one `setScreen()` call so nothing is
+ever left showing underneath something else.
+
+- **Home** — the upload/paste screen, or the learning path once a course is open.
+- **Courses** — your library. The count shows both limits that exist: how many
+  courses you may keep, and how many you may build this month.
+- **Review** — what's due across *every* course, not just the open one, with the
+  next review date when nothing is due and an early-practice run that deliberately
+  leaves the schedule alone.
+- **Account** — email, plan and trial status, this month's course/lesson quota as
+  meters, learning stats, AI spend, password reset, sign out, delete everything.
+
+Each screen's empty state carries the button that resolves it: no courses yet ends
+in "Create a course", signed out ends in "Sign in".
+
 ## Spaced repetition
 
 Completed lessons are scheduled for review using a simplified SM-2 algorithm based on
@@ -63,17 +80,20 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
 
 ## Cost model
 
-Model: `claude-haiku-4-5`, fixed server-side. One lesson ≈ $0.01. Lessons are cached
-after first generation, so replaying or exiting and coming back is free. A usage badge
-in the header shows the signed-in user's cumulative spend and call count, read from
-`ai_usage`.
+Model and limits are per plan, decided server-side (`trial`/`basic` on Haiku, `pro` on
+Sonnet, `max` plans with Opus and writes with Sonnet). One lesson ≈ $0.01. Lessons are
+cached after first generation, so replaying or exiting and coming back is free. The
+Account tab shows cumulative spend, call count, and this month's course/lesson quota,
+read from `ai_usage` and `subscriptions` — the same numbers `ai-proxy` meters against,
+so running out is visible before it happens rather than only at the moment a build fails.
 
 ## What's not done yet
 
 - **Payments.** `subscriptions.status` and the trial trigger exist and are enforced by
-  `ai-proxy`, but there's no Stripe integration yet — `showUpgradePrompt()` in the
-  frontend is a placeholder. Once a Stripe account and price exist, this needs a
-  checkout Edge Function and a webhook that updates `subscriptions` on
+  `ai-proxy`, but there's no Stripe integration yet. `showUpgradePrompt()` lists the
+  real tiers and what each one buys, and says plainly that checkout isn't live and
+  what still works without it — it just can't take money. Once a Stripe account and
+  price exist, this needs a checkout Edge Function and a webhook that updates `subscriptions` on
   `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.

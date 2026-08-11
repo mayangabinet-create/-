@@ -59,6 +59,10 @@
             info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
             pencil: svgIcon('<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 6.5l3 3"/>'),
+            logout: svgIcon('<path d="M15 4h3a2 2 0 012 2v12a2 2 0 01-2 2h-3"/><path d="M10 8l-4 4 4 4M6 12h9"/>'),
+            key: svgIcon('<circle cx="8" cy="12" r="4"/><path d="M12 12h9M17 12v3.5M20 12v2.5"/>'),
+            clock: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/>'),
+            trash: svgIcon('<path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/><path d="M6 7l1 13h10l1-13"/>'),
         };
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
@@ -666,7 +670,7 @@ ${languageRule()}`;
         // A dialog is open while its promise is pending; nothing else may open one.
         let dialogRelease = null;
 
-        function openDialog({ title, body = '', confirmText = 'OK', cancelText = null,
+        function openDialog({ title, body = '', bodyHtml = null, confirmText = 'OK', cancelText = null,
                               danger = false, input = null, validate = null }) {
             const backdrop = document.getElementById('dialogBackdrop');
             const card = document.getElementById('dialogCard');
@@ -676,7 +680,12 @@ ${languageRule()}`;
             const cancelBtn = document.getElementById('dialogCancel');
 
             document.getElementById('dialogTitle').textContent = title;
-            document.getElementById('dialogBody').textContent = body;
+            // textContent by default — a dialog usually carries a course name or an
+            // error string. bodyHtml is opt-in and only ever passed app-authored
+            // markup, never anything a user or a model wrote.
+            const bodyEl = document.getElementById('dialogBody');
+            if (bodyHtml !== null) bodyEl.innerHTML = bodyHtml;
+            else bodyEl.textContent = body;
             confirmBtn.textContent = confirmText;
             confirmBtn.classList.toggle('reset-button', danger);
             card.classList.toggle('dialog-danger', danger);
@@ -738,8 +747,8 @@ ${languageRule()}`;
             });
         }
 
-        const uiAlert = (body, title = 'Heads up') =>
-            openDialog({ title, body, confirmText: 'Got it' });
+        const uiAlert = (body, title = 'Heads up', { html = false } = {}) =>
+            openDialog({ title, confirmText: 'Got it', ...(html ? { bodyHtml: body } : { body }) });
 
         const uiConfirm = (title, body, { confirmText = 'Confirm', danger = false } = {}) =>
             openDialog({ title, body, confirmText, cancelText: 'Cancel', danger });
@@ -781,8 +790,7 @@ ${languageRule()}`;
             hideMessage();
             closeLessonScreen();
             closePreview();
-            document.getElementById('learningPath').classList.remove('active');
-            document.getElementById('sourcePicker').hidden = false;
+            setScreen('home');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
         }
 
@@ -876,9 +884,7 @@ ${languageRule()}`;
         const UNIT_COLORS = ['#58CC02', '#1CB0F6', '#CE82FF', '#FF9600', '#FF4B4B'];
 
         function displayLearningPath() {
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('learningPath').classList.add('active');
-            setActiveNav('home');
+            setScreen('path');
 
             // Update stats
             document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
@@ -999,25 +1005,41 @@ ${languageRule()}`;
                 .filter(i => isDueForReview(i) && progress[i]?.lesson);
         }
 
-        function renderReviewBanner() {
-            const banner = document.getElementById('reviewBanner');
-            if (!banner) return;
-            const due = getDueLessons();
-            banner.hidden = due.length === 0;
-            if (due.length) {
-                document.getElementById('reviewBannerText').textContent = due.length === 1
-                    ? '1 lesson is due for review'
-                    : `${due.length} lessons are due for review`;
-            }
-            const dot = document.getElementById('navReviewDot');
-            if (dot) dot.hidden = due.length === 0;
+        // Every lesson in the open course that has a cached lesson to build
+        // questions from — the pool a "practice anyway" session draws on when
+        // nothing is actually due yet.
+        function getPracticeLessons() {
+            if (!courseData) return [];
+            return courseData.concepts
+                .map((_, i) => i)
+                .filter(i => progress[i]?.completed && progress[i]?.lesson);
         }
 
-        // Pull 1-2 cached quiz questions per due lesson. Reuses the questions the
+        function renderReviewBanner() {
+            const due = getDueLessons();
+            const banner = document.getElementById('reviewBanner');
+            if (banner) {
+                banner.hidden = due.length === 0;
+                if (due.length) {
+                    document.getElementById('reviewBannerText').textContent = due.length === 1
+                        ? '1 lesson is due for review'
+                        : `${due.length} lessons are due for review`;
+                }
+            }
+            // The dot means "there is something to review", not "in this course" —
+            // otherwise the Review tab looks idle while another course is overdue.
+            const elsewhere = (dueOverview || [])
+                .filter(c => c.id !== activeCourseId)
+                .reduce((n, c) => n + c.due, 0);
+            const dot = document.getElementById('navReviewDot');
+            if (dot) dot.hidden = due.length + elsewhere === 0;
+        }
+
+        // Pull 1-2 cached quiz questions per lesson. Reuses the questions the
         // learner already generated and paid for — a review session costs nothing.
-        function buildReviewSteps() {
+        function buildReviewSteps(indices = getDueLessons()) {
             const items = [];
-            getDueLessons().forEach(idx => {
+            indices.forEach(idx => {
                 const lesson = progress[idx].lesson;
                 const pool = [...(lesson.quiz || [])];
                 if (lesson.challenge) pool.push(lesson.challenge);
@@ -1027,9 +1049,17 @@ ${languageRule()}`;
             return shuffle(items);
         }
 
-        function startReviewSession() {
-            const items = buildReviewSteps();
-            if (!items.length) return;
+        // `practice` sessions are the same questions without the bookkeeping: they
+        // never move a lesson's schedule, so drilling something early can't push
+        // its real review out to next month.
+        function startReviewSession({ indices = null, practice = false } = {}) {
+            const items = buildReviewSteps(indices || getDueLessons());
+            if (!items.length) {
+                showError(practice
+                    ? 'No finished lessons in this course to practise yet.'
+                    : 'Nothing is due for review in this course right now.');
+                return;
+            }
 
             const steps = items.map((_, i) => ({ type: 'reviewq', i }));
             steps.push({ type: 'reviewComplete' });
@@ -1040,13 +1070,14 @@ ${languageRule()}`;
                 correct: 0, total: 0,
                 heartsLeft: 5,
                 startedAt: Date.now(),
-                review: { items, byLesson: {} },
+                review: { items, byLesson: {}, practice },
                 result: null,
             };
 
-            document.getElementById('sourcePicker').hidden = true;
             document.getElementById('lessonXpBadge').textContent = `${items.length} questions`;
-            document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">${ICONS.refresh} Spaced repetition</span>`;
+            document.getElementById('lessonMeta').innerHTML = practice
+                ? `<span class="meta-chip">${ICONS.refresh} Extra practice</span>`
+                : `<span class="meta-chip">${ICONS.refresh} Spaced repetition</span>`;
             applyContentDirection();
             buildStepSegments(steps.length);
             renderHearts();
@@ -1055,15 +1086,213 @@ ${languageRule()}`;
         }
 
         function commitReviewResult() {
-            const { byLesson } = lessonState.review;
-            Object.entries(byLesson).forEach(([idx, stat]) => {
-                const accuracy = stat.total ? Math.round((stat.correct / stat.total) * 100) : 100;
-                scheduleReview(Number(idx), accuracy);
-            });
-            saveProgress();
+            const { byLesson, practice } = lessonState.review;
+            if (!practice) {
+                Object.entries(byLesson).forEach(([idx, stat]) => {
+                    const accuracy = stat.total ? Math.round((stat.correct / stat.total) * 100) : 100;
+                    scheduleReview(Number(idx), accuracy);
+                });
+                saveProgress();
+                // The counts on the Review tab are now stale — refresh them in the
+                // background so going back there doesn't show what you just cleared.
+                loadDueOverview().then(renderReviewBanner);
+            }
             bumpStreak();
             renderHud();
-            return { lessonsReviewed: Object.keys(byLesson).length, correct: lessonState.correct, total: lessonState.total };
+            return {
+                lessonsReviewed: Object.keys(byLesson).length,
+                correct: lessonState.correct,
+                total: lessonState.total,
+                practice: !!practice,
+            };
+        }
+
+        // ============= Review screen =============
+        // The Review tab used to be a shortcut that refused to work: with no course
+        // open it threw an error and left you where you were. It's a screen now,
+        // and it answers the same question for every course at once — what's due,
+        // where, and what to do about it if nothing is.
+        let dueOverview = null;   // [{ ...libraryEntry, due, scheduled, nextDueAt }]
+
+        // Only `srs` is selected, never `lesson` — the cached lesson JSON is large
+        // and there are up to eight courses' worth of them. A row can only have an
+        // srs schedule if it was completed, and completing a lesson caches it, so
+        // counting schedules is enough to know what a review session would contain.
+        async function loadDueOverview() {
+            if (!currentUser) { dueOverview = null; return null; }
+            const { data, error } = await supabaseClient
+                .from('progress')
+                .select('course_id, srs')
+                .eq('completed', true);
+            if (error) {
+                console.error('loadDueOverview failed:', error);
+                dueOverview = null;
+                return null;
+            }
+
+            const now = Date.now();
+            const byCourse = {};
+            (data || []).forEach(r => {
+                const dueAt = r.srs?.dueAt;
+                if (!dueAt) return;
+                const b = byCourse[r.course_id] || (byCourse[r.course_id] = { due: 0, scheduled: 0, nextDueAt: null });
+                b.scheduled++;
+                if (dueAt <= now) b.due++;
+                else if (b.nextDueAt === null || dueAt < b.nextDueAt) b.nextDueAt = dueAt;
+            });
+
+            dueOverview = library.map(c => ({
+                ...c,
+                ...(byCourse[c.id] || { due: 0, scheduled: 0, nextDueAt: null }),
+            }));
+            return dueOverview;
+        }
+
+        // "in 3 days" / "tomorrow" reads better than a date for anything close,
+        // which is where reviews nearly always land.
+        function relativeDay(ts) {
+            const days = Math.ceil((ts - Date.now()) / 86400000);
+            if (days <= 0) return 'today';
+            if (days === 1) return 'tomorrow';
+            if (days < 7) return `in ${days} days`;
+            if (days < 60) return `in ${Math.round(days / 7)} weeks`;
+            return `on ${new Date(ts).toLocaleDateString()}`;
+        }
+
+        async function showReview() {
+            setScreen('review');
+            renderReview();               // paint what we already know, then refresh
+            if (!currentUser) return;
+            await loadLibrary();
+            await loadDueOverview();
+            renderReview();
+            renderReviewBanner();
+        }
+
+        function emptyState({ icon, title, body, actionId, actionLabel, secondary }) {
+            return `
+                <div class="screen-empty">
+                    <div class="screen-empty-icon">${icon}</div>
+                    <h3 class="screen-empty-title">${title}</h3>
+                    <p class="screen-empty-body">${body}</p>
+                    <div class="screen-empty-actions">
+                        <button class="button" id="${actionId}">${actionLabel}</button>
+                        ${secondary ? `<button class="button button-secondary" id="${secondary.id}">${secondary.label}</button>` : ''}
+                    </div>
+                </div>`;
+        }
+
+        function renderReview() {
+            const body = document.getElementById('reviewBody');
+            const sub = document.getElementById('reviewSubtitle');
+            if (!body) return;
+
+            if (!currentUser) {
+                sub.textContent = 'Spaced repetition, once you have an account';
+                body.innerHTML = emptyState({
+                    icon: ICONS.refresh,
+                    title: 'Reviews live in your account',
+                    body: 'Finished lessons come back on a schedule — a day later, then six, then further out each time you get them right. Sign in and your reviews follow you to any device.',
+                    actionId: 'reviewSignIn', actionLabel: 'Sign in',
+                });
+                document.getElementById('reviewSignIn').onclick = () => showAuthModal('signin');
+                return;
+            }
+
+            const courses = dueOverview || [];
+
+            if (!courses.length) {
+                sub.textContent = 'Nothing to review yet';
+                body.innerHTML = emptyState({
+                    icon: ICONS.book,
+                    title: 'Build a course first',
+                    body: 'Reviews are built from lessons you have finished, so there is nothing to schedule until you have a course. Upload a PDF or paste your notes and the first one takes about a minute.',
+                    actionId: 'reviewNewCourse', actionLabel: 'Create a course',
+                });
+                document.getElementById('reviewNewCourse').onclick = () => showNewCourse();
+                return;
+            }
+
+            const totalDue = courses.reduce((n, c) => n + c.due, 0);
+            const anyCompleted = courses.some(c => c.completedCount > 0);
+
+            if (!anyCompleted) {
+                sub.textContent = 'Nothing scheduled yet';
+                body.innerHTML = emptyState({
+                    icon: ICONS.star,
+                    title: 'Finish a lesson to start the clock',
+                    body: 'A lesson is scheduled for review the moment you complete it. Open a course, finish the first lesson, and it will be waiting here tomorrow.',
+                    actionId: 'reviewOpenCourses', actionLabel: 'Open my courses',
+                });
+                document.getElementById('reviewOpenCourses').onclick = () => showLibrary();
+                return;
+            }
+
+            const soonest = courses
+                .map(c => c.nextDueAt)
+                .filter(Boolean)
+                .sort((a, b) => a - b)[0];
+
+            sub.textContent = totalDue
+                ? `${totalDue} lesson${totalDue === 1 ? '' : 's'} ready across your courses`
+                : soonest ? `All caught up — next review ${relativeDay(soonest)}`
+                : 'All caught up';
+
+            // Due courses first, then whatever is scheduled soonest.
+            const ordered = [...courses].sort((a, b) =>
+                (b.due - a.due) || ((a.nextDueAt || Infinity) - (b.nextDueAt || Infinity)));
+
+            body.innerHTML = `
+                <div class="review-summary ${totalDue ? 'is-due' : ''}">
+                    <div class="review-summary-num">${totalDue}</div>
+                    <div class="review-summary-text">
+                        <strong>${totalDue ? 'ready to review now' : 'due right now'}</strong>
+                        <span>${totalDue
+                            ? 'Reviews reuse questions you already generated, so they cost nothing.'
+                            : soonest ? `Your next review comes back ${relativeDay(soonest)}. You can still practise early below — it won't change the schedule.`
+                            : 'Finish a few more lessons and they will start coming back here.'}</span>
+                    </div>
+                </div>
+                <div class="review-list">
+                    ${ordered.map(c => {
+                        const canPractise = c.completedCount > 0;
+                        const status = c.due
+                            ? `<span class="review-chip is-due">${c.due} due now</span>`
+                            : c.nextDueAt
+                                ? `<span class="review-chip">${ICONS.clock} Next ${relativeDay(c.nextDueAt)}</span>`
+                                : `<span class="review-chip">No reviews scheduled</span>`;
+                        return `
+                        <div class="review-course">
+                            <div class="review-course-main">
+                                <div class="review-course-title">${esc(c.title)}</div>
+                                <div class="review-course-meta">${c.completedCount} of ${c.conceptCount} lessons finished ${status}</div>
+                            </div>
+                            <div class="review-course-actions">
+                                ${c.due ? `<button class="button" data-review="${esc(c.id)}">Review now</button>` : ''}
+                                ${!c.due && canPractise ? `<button class="button button-secondary" data-practise="${esc(c.id)}">Practise early</button>` : ''}
+                                ${!canPractise ? `<button class="button button-secondary" data-open="${esc(c.id)}">Open course</button>` : ''}
+                            </div>
+                        </div>`;
+                    }).join('')}
+                </div>`;
+
+            // Each of these opens the course first: a session is built from that
+            // course's cached lessons, which only exist in memory once it's open.
+            body.querySelectorAll('[data-review]').forEach(btn => {
+                btn.onclick = async () => {
+                    if (await openCourse(btn.dataset.review)) startReviewSession();
+                };
+            });
+            body.querySelectorAll('[data-practise]').forEach(btn => {
+                btn.onclick = async () => {
+                    if (await openCourse(btn.dataset.practise)) {
+                        startReviewSession({ indices: shuffle(getPracticeLessons()).slice(0, 5), practice: true });
+                    }
+                };
+            });
+            body.querySelectorAll('[data-open]').forEach(btn => {
+                btn.onclick = () => openCourse(btn.dataset.open);
+            });
         }
 
         // ============= Duolingo-style HUD: streak, gems, hearts =============
@@ -1138,19 +1367,25 @@ ${languageRule()}`;
         // The Edge Function increments ai_usage server-side on every real call —
         // the client just reflects it. "cached" (this app's own lesson cache, not
         // an API call at all) is session-only, there's nothing server-side to sync.
-        let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0 };
+        let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0,
+                      coursesMonth: 0, lessonsMonth: 0, monthResetAt: null };
 
         async function refreshUsage() {
             if (!currentUser) return;
             const { data } = await supabaseClient
                 .from('ai_usage')
-                .select('calls, input_tokens, output_tokens')
+                .select('calls, input_tokens, output_tokens, courses_month, lessons_month, month_reset_at')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
             if (data) {
                 usage.calls = data.calls;
                 usage.inputTokens = data.input_tokens;
                 usage.outputTokens = data.output_tokens;
+                // The month counters are what the Edge Function actually meters
+                // against your plan — the ones worth showing you before you hit them.
+                usage.coursesMonth = data.courses_month || 0;
+                usage.lessonsMonth = data.lessons_month || 0;
+                usage.monthResetAt = data.month_reset_at || null;
             }
             renderUsage();
         }
@@ -1164,12 +1399,247 @@ ${languageRule()}`;
             return usage.inputTokens * PRICE_IN + usage.outputTokens * PRICE_OUT;
         }
 
+        // Spend used to sit in the header on every screen. It belongs on the
+        // Account page with the rest of the account facts — so the only thing this
+        // does now is refresh that page if it happens to be open.
         function renderUsage() {
-            const el = document.getElementById('usageBadge');
-            if (!el) return;
-            const cost = totalCost();
-            el.textContent = `$${cost.toFixed(4)} · ${usage.calls} calls` +
-                (usage.cached ? ` · ${usage.cached} cached this session` : '');
+            if (document.getElementById('accountScreen')?.hidden === false) renderAccount();
+        }
+
+        // ============= Account screen =============
+        // A mirror of the plan table the ai-proxy Edge Function enforces. It is
+        // display only — the server decides — but it is the difference between
+        // "why did that stop working" and knowing what you have left before you
+        // spend it.
+        const PLAN_LIMITS = {
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku' },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku' },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet' },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet' },
+        };
+
+        let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
+
+        async function loadEntitlement() {
+            if (!currentUser) { entitlement = null; return null; }
+            const { data, error } = await supabaseClient
+                .from('subscriptions')
+                .select('status, plan, interval, current_period_end')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+            if (error) {
+                console.error('loadEntitlement failed:', error);
+                entitlement = null;
+                return null;
+            }
+            const periodEnd = data?.current_period_end ? new Date(data.current_period_end).getTime() : null;
+            const trialing = data?.status === 'trialing' && !!periodEnd && periodEnd > Date.now();
+            const active = data?.status === 'active';
+            entitlement = {
+                status: data?.status || 'none',
+                plan: data?.plan || 'basic',
+                interval: data?.interval || 'month',
+                periodEnd, trialing, active,
+                // Same fallback the Edge Function uses: an unknown plan is the
+                // smallest tier, never the largest.
+                planKey: trialing ? 'trial' : (data?.plan && PLAN_LIMITS[data.plan] ? data.plan : 'basic'),
+            };
+            return entitlement;
+        }
+
+        async function showAccount() {
+            setScreen('account');
+            renderAccount();
+            if (!currentUser) return;
+            await Promise.all([loadEntitlement(), refreshUsage(), loadLibrary()]);
+            renderAccount();
+        }
+
+        function meter(used, limit) {
+            const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+            const tone = pct >= 100 ? 'is-full' : pct >= 75 ? 'is-high' : '';
+            return `<div class="meter"><div class="meter-fill ${tone}" style="width:${pct}%"></div></div>`;
+        }
+
+        function renderAccount() {
+            const body = document.getElementById('accountBody');
+            if (!body) return;
+
+            // Signed out is a state of this page, not a reason to throw a modal
+            // over whatever you were looking at.
+            if (!currentUser) {
+                body.innerHTML = emptyState({
+                    icon: ICONS.account,
+                    title: "You're not signed in",
+                    body: 'An account is what holds your courses, your progress and your review schedule — and it syncs them to any device you open this on. New accounts get a free trial course straight away.',
+                    actionId: 'acctSignIn', actionLabel: 'Sign in',
+                    secondary: { id: 'acctSignUp', label: 'Create an account' },
+                });
+                document.getElementById('acctSignIn').onclick = () => showAuthModal('signin');
+                document.getElementById('acctSignUp').onclick = () => showAuthModal('signup');
+                return;
+            }
+
+            const email = currentUser.email || 'Signed in';
+            const initial = (email[0] || '?').toUpperCase();
+            const joined = currentUser.created_at
+                ? new Date(currentUser.created_at).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+                : null;
+
+            const ent = entitlement;
+            const limits = PLAN_LIMITS[ent?.planKey || 'trial'];
+            const lessonAllowance = limits.courses * limits.lessonsPerCourse;
+
+            let planLine, planTone;
+            if (!ent) { planLine = 'Checking your plan…'; planTone = ''; }
+            else if (ent.trialing) {
+                const days = Math.max(0, Math.ceil((ent.periodEnd - Date.now()) / 86400000));
+                planLine = days === 0 ? 'Ends today' : `${days} day${days === 1 ? '' : 's'} left`;
+                planTone = days <= 3 ? 'is-warn' : '';
+            } else if (ent.active) {
+                planLine = ent.periodEnd
+                    ? `Renews ${new Date(ent.periodEnd).toLocaleDateString()}`
+                    : `Billed ${ent.interval === 'year' ? 'yearly' : 'monthly'}`;
+                planTone = '';
+            } else {
+                planLine = 'Ended — new lessons are paused';
+                planTone = 'is-warn';
+            }
+
+            const totalXp = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
+            const lessonsDone = library.reduce((n, c) => n + c.completedCount, 0);
+            const dueNow = (dueOverview || []).reduce((n, c) => n + c.due, 0);
+            const resets = usage.monthResetAt
+                ? new Date(new Date(usage.monthResetAt).getFullYear(), new Date(usage.monthResetAt).getMonth() + 1, 1)
+                    .toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                : null;
+
+            body.innerHTML = `
+                <div class="account-identity">
+                    <div class="account-avatar">${esc(initial)}</div>
+                    <div class="account-identity-text">
+                        <div class="account-email">${esc(email)}</div>
+                        <div class="account-sub">${joined ? `Learning here since ${esc(joined)}` : 'Signed in'}</div>
+                    </div>
+                </div>
+
+                <section class="account-card">
+                    <div class="account-card-head">
+                        <h3>${esc(limits.label)}</h3>
+                        <span class="plan-status ${planTone}">${esc(planLine)}</span>
+                    </div>
+                    <p class="account-card-note">
+                        ${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
+                        up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.
+                    </p>
+                    <div class="quota">
+                        <div class="quota-row">
+                            <span>Courses built this month</span>
+                            <span class="quota-num">${usage.coursesMonth} / ${limits.courses}</span>
+                        </div>
+                        ${meter(usage.coursesMonth, limits.courses)}
+                    </div>
+                    <div class="quota">
+                        <div class="quota-row">
+                            <span>Lessons generated this month</span>
+                            <span class="quota-num">${usage.lessonsMonth} / ${lessonAllowance}</span>
+                        </div>
+                        ${meter(usage.lessonsMonth, lessonAllowance)}
+                    </div>
+                    <p class="account-card-note">
+                        ${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free — only new generation counts.
+                    </p>
+                    <button class="button" id="acctPlans">${ent?.active ? 'Change plan' : 'See plans'}</button>
+                </section>
+
+                <section class="account-card">
+                    <div class="account-card-head"><h3>Your learning</h3></div>
+                    <div class="account-stats">
+                        <div class="astat"><div class="astat-val">${getStreak()}</div><div class="astat-lbl">Day streak</div></div>
+                        <div class="astat"><div class="astat-val">${totalXp}</div><div class="astat-lbl">XP (this course)</div></div>
+                        <div class="astat"><div class="astat-val">${library.length}</div><div class="astat-lbl">Courses</div></div>
+                        <div class="astat"><div class="astat-val">${lessonsDone}</div><div class="astat-lbl">Lessons done</div></div>
+                    </div>
+                    ${dueNow ? `<button class="button button-secondary" id="acctReview">${dueNow} lesson${dueNow === 1 ? '' : 's'} due — review now</button>` : ''}
+                </section>
+
+                <section class="account-card">
+                    <div class="account-card-head"><h3>AI spend</h3></div>
+                    <p class="account-card-note">
+                        What your generations have cost so far. Included in your plan — shown because
+                        every lesson here is a real model call, not a canned one.
+                    </p>
+                    <div class="account-stats">
+                        <div class="astat"><div class="astat-val">$${totalCost().toFixed(4)}</div><div class="astat-lbl">Total</div></div>
+                        <div class="astat"><div class="astat-val">${usage.calls}</div><div class="astat-lbl">Model calls</div></div>
+                        <div class="astat"><div class="astat-val">${usage.cached}</div><div class="astat-lbl">Cached this session</div></div>
+                    </div>
+                </section>
+
+                <section class="account-card">
+                    <div class="account-card-head"><h3>Settings</h3></div>
+                    <button class="account-row" id="acctPassword">
+                        <span class="account-row-icon">${ICONS.key}</span>
+                        <span class="account-row-text">
+                            <strong>Change password</strong>
+                            <span>We'll email a reset link to ${esc(email)}</span>
+                        </span>
+                    </button>
+                    <button class="account-row" id="acctSignOut">
+                        <span class="account-row-icon">${ICONS.logout}</span>
+                        <span class="account-row-text">
+                            <strong>Sign out</strong>
+                            <span>Your courses stay on this account</span>
+                        </span>
+                    </button>
+                    <button class="account-row is-danger" id="acctWipe">
+                        <span class="account-row-icon">${ICONS.trash}</span>
+                        <span class="account-row-text">
+                            <strong>Delete all courses</strong>
+                            <span>Removes every course and all progress. Can't be undone.</span>
+                        </span>
+                    </button>
+                </section>`;
+
+            document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
+            const reviewBtn = document.getElementById('acctReview');
+            if (reviewBtn) reviewBtn.onclick = () => showReview();
+
+            document.getElementById('acctPassword').onclick = async () => {
+                const { error } = await supabaseClient.auth.resetPasswordForEmail(currentUser.email);
+                if (error) showError(error.message);
+                else toast(`Reset link sent to ${currentUser.email}`);
+            };
+
+            document.getElementById('acctSignOut').onclick = async () => {
+                const ok = await uiConfirm('Sign out?', `You're signed in as ${currentUser.email}. Your courses and progress stay on the account.`,
+                    { confirmText: 'Sign out', danger: true });
+                if (ok) await supabaseClient.auth.signOut();
+            };
+
+            document.getElementById('acctWipe').onclick = async () => {
+                if (!library.length) { toast('There are no courses to delete', 'info'); return; }
+                const ok = await uiConfirm(
+                    `Delete all ${library.length} courses?`,
+                    'Every course, every lesson you generated and all your progress are removed for good. Your account itself stays.',
+                    { confirmText: 'Delete everything', danger: true });
+                if (!ok) return;
+                const { error } = await supabaseClient
+                    .from('courses').delete().in('id', library.map(c => c.id));
+                if (error) {
+                    console.error('wipe failed:', error);
+                    showError('Could not delete your courses. Nothing was removed.');
+                    return;
+                }
+                library = [];
+                activeCourseId = null; courseData = null; progress = {}; activeSourceText = '';
+                localStorage.removeItem(ACTIVE_STORAGE);
+                dueOverview = [];
+                renderHud();
+                renderReviewBanner();
+                renderAccount();
+                toast('All courses deleted');
+            };
         }
 
         // Models wrap JSON in prose or markdown fences, and a truncated response
@@ -1610,9 +2080,6 @@ ${languageRule()}`;
             localStorage.setItem(ACTIVE_STORAGE, id);
 
             applyContentDirection();
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('learningPath').classList.add('active');
             displayLearningPath();
             return true;
         }
@@ -1629,7 +2096,12 @@ ${languageRule()}`;
             const empty = document.getElementById('libraryEmpty');
             const count = document.getElementById('libraryCount');
 
-            count.textContent = `${library.length} of ${MAX_COURSES}`;
+            // Two different limits, and only one of them was ever shown: how many
+            // courses you may keep, and how many you may build this month. Hitting
+            // the second one used to be a surprise mid-upload.
+            const monthly = entitlement ? PLAN_LIMITS[entitlement.planKey] : null;
+            count.textContent = `${library.length} of ${MAX_COURSES} kept`
+                + (monthly ? ` · ${usage.coursesMonth} of ${monthly.courses} built this month` : '');
             empty.hidden = library.length > 0;
             grid.innerHTML = library.map(c => {
                 const pct = courseProgressPct(c.id);
@@ -1687,22 +2159,27 @@ ${languageRule()}`;
             }
             await loadLibrary();
             renderLibrary();
-            document.getElementById('libraryScreen').hidden = false;
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('learningPath').classList.remove('active');
-            setActiveNav('courses');
+            setScreen('courses');
         }
 
-        function showNewCourse() {
+        async function showNewCourse() {
             if (library.length >= MAX_COURSES) {
                 showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
                 return;
             }
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('sourcePicker').hidden = false;
+            // The server is the authority on quota and this copy of the count can
+            // be a few minutes stale, so this warns rather than blocks — but it
+            // warns before you pick a file, not after the upload finishes.
+            const limits = entitlement ? PLAN_LIMITS[entitlement.planKey] : null;
+            if (limits && usage.coursesMonth >= limits.courses) {
+                const go = await uiConfirm(
+                    'Out of courses this month',
+                    `Your ${limits.label} plan builds ${limits.courses} course${limits.courses === 1 ? '' : 's'} a month and you've used ${usage.coursesMonth}. Building another will be refused until it resets. Everything you already have still works — you can open, replay and review any of it.`,
+                    { confirmText: 'See plans' });
+                if (go) { showUpgradePrompt(); return; }
+            }
+            setScreen('home');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
-            document.getElementById('learningPath').classList.remove('active');
-            setActiveNav('home');
         }
 
         // ============= Lesson preview =============
@@ -2406,18 +2883,20 @@ ${languageRule()}`;
         }
 
         function stepReviewComplete() {
-            const { lessonsReviewed, correct, total } = lessonState.result;
+            const { lessonsReviewed, correct, total, practice } = lessonState.result;
             const accuracy = total ? Math.round((correct / total) * 100) : 100;
             return `
                 <div class="complete-screen">
                     <div class="complete-badge">${ICONS.refresh}</div>
-                    <h3 class="complete-title">Review complete</h3>
+                    <h3 class="complete-title">${practice ? 'Practice complete' : 'Review complete'}</h3>
                     <div class="complete-stats">
                         <div class="cstat"><div class="cstat-val">${lessonsReviewed}</div><div class="cstat-lbl">Lessons reviewed</div></div>
                         <div class="cstat"><div class="cstat-val">${accuracy}%</div><div class="cstat-lbl">Accuracy</div></div>
                         <div class="cstat"><div class="cstat-val">${correct}/${total}</div><div class="cstat-lbl">Correct</div></div>
                     </div>
-                    <div class="step-note">Lessons you remembered well come back later. Shaky ones come back tomorrow.</div>
+                    <div class="step-note">${practice
+                        ? 'Extra practice doesn\'t change your review schedule — your due dates are exactly where they were.'
+                        : 'Lessons you remembered well come back later. Shaky ones come back tomorrow.'}</div>
                     <button class="button button-secondary" id="backToPath">Back to path</button>
                 </div>`;
         }
@@ -2690,7 +3169,39 @@ ${languageRule()}`;
         document.getElementById('newCourseBtn').addEventListener('click', showNewCourse);
         document.getElementById('backToLibraryBtn').addEventListener('click', showLibrary);
 
-        // ============= Bottom nav =============
+        // ============= Screens & bottom nav =============
+        // Every full-page view in the app is listed here, and setScreen() is the
+        // only thing that switches between them. That single choke point is what
+        // makes each tab a real page: whatever was showing before is closed, so a
+        // screen is never left visible underneath the one you just opened.
+        const SCREENS = {
+            home:    'sourcePicker',
+            courses: 'libraryScreen',
+            review:  'reviewScreen',
+            account: 'accountScreen',
+        };
+
+        function setScreen(name) {
+            Object.entries(SCREENS).forEach(([key, id]) => {
+                const el = document.getElementById(id);
+                if (el) el.hidden = key !== name;
+            });
+            // The path is the one view driven by a class rather than [hidden]: its
+            // layout is a flex column that only holds together at `display:flex`.
+            document.getElementById('learningPath').classList.toggle('active', name === 'path');
+            // The path lives under the Home tab — it's what Home shows once a
+            // course is open, not a fifth tab.
+            setActiveNav(name === 'path' ? 'home' : name);
+            // The tagline is onboarding copy — it explains the app to someone who
+            // has never used it. Once you're signed in and past the upload screen
+            // it is just chrome eating the top third of a phone.
+            const tagline = document.getElementById('t_subtitle');
+            if (tagline) tagline.hidden = !!currentUser && name !== 'home';
+
+            const main = document.querySelector('.main-content');
+            if (main) main.scrollTop = 0;
+        }
+
         function setActiveNav(name) {
             document.querySelectorAll('.bottom-nav-item').forEach(b => {
                 b.classList.remove('active');
@@ -2705,37 +3216,17 @@ ${languageRule()}`;
 
         document.getElementById('navHome').addEventListener('click', async () => {
             if (activeCourseId && courseData) {
-                document.getElementById('libraryScreen').hidden = true;
-                document.getElementById('sourcePicker').hidden = true;
                 displayLearningPath();
             } else if (library.length) {
                 await showLibrary();
             } else {
-                document.getElementById('libraryScreen').hidden = true;
-                document.getElementById('learningPath').classList.remove('active');
-                document.getElementById('sourcePicker').hidden = false;
-                setActiveNav('home');
+                setScreen('home');
             }
         });
 
         document.getElementById('navCourses').addEventListener('click', showLibrary);
-
-        document.getElementById('navReview').addEventListener('click', () => {
-            if (!currentUser) { showAuthModal('signin'); return; }
-            if (!activeCourseId) { showError('Open a course first.'); return; }
-            if (!getDueLessons().length) { showError('Nothing is due for review right now.'); return; }
-            setActiveNav('review');
-            startReviewSession();
-        });
-
-        document.getElementById('navAccount').addEventListener('click', async () => {
-            if (!currentUser) { showAuthModal('signin'); return; }
-            const out = await uiConfirm('Account', `Signed in as ${currentUser.email}.`,
-                { confirmText: 'Sign out', danger: true });
-            if (out) {
-                await supabaseClient.auth.signOut();
-            }
-        });
+        document.getElementById('navReview').addEventListener('click', showReview);
+        document.getElementById('navAccount').addEventListener('click', showAccount);
 
         document.getElementById('signInPromptBtn').addEventListener('click', () => showAuthModal('signin'));
 
@@ -2768,7 +3259,9 @@ ${languageRule()}`;
             await promptRename(activeCourseId, courseData.courseName);
         });
 
-        document.getElementById('startReviewBtn').addEventListener('click', startReviewSession);
+        // Wrapped, not passed by reference: the handler would otherwise hand the
+        // click event straight into the options object.
+        document.getElementById('startReviewBtn').addEventListener('click', () => startReviewSession());
 
         document.getElementById('resetBtn').addEventListener('click', async () => {
             if (!activeCourseId) return;
@@ -2880,11 +3373,28 @@ ${languageRule()}`;
             document.getElementById('authForgotBtn').closest('div').hidden = isUp;
         }
 
-        // Placeholder until Stripe is wired in — the entitlement check server-side
-        // already works, this just needs a real checkout link.
+        // Checkout isn't wired up yet (no Stripe), but the tiers are real — the
+        // Edge Function already enforces them. Showing what each one is beats a
+        // one-line "coming soon" that leaves you with nothing to do: the things
+        // that still work without paying are spelled out at the bottom.
         function showUpgradePrompt() {
-            uiAlert('Paid subscriptions are coming soon — check back shortly. Your courses and progress are all still here in the meantime.',
-                'Your free trial has ended');
+            const rows = Object.entries(PLAN_LIMITS)
+                .filter(([key]) => key !== 'trial')
+                .map(([key, p]) => {
+                    const here = entitlement && !entitlement.trialing && entitlement.planKey === key;
+                    return `<li${here ? ' class="is-current"' : ''}><strong>${p.label}</strong>${here ? ' — your plan' : ''}<br>
+                        ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}</li>`;
+                }).join('');
+
+            uiAlert(
+                `<ul class="plan-list">${rows}</ul>
+                 <p>Checkout isn't live yet, so there's nothing to buy today. Until it is,
+                 everything you've already built keeps working: open any course, replay any
+                 lesson, and run reviews and extra practice as often as you like — replays
+                 and reviews reuse lessons you already generated and don't count against
+                 any limit.</p>`,
+                entitlement?.trialing ? 'Plans' : 'Your trial has ended',
+                { html: true });
         }
 
         // Set by any gated action (building a course, opening the library, etc.)
@@ -2902,8 +3412,6 @@ ${languageRule()}`;
 
         async function onSignedIn(user) {
             currentUser = user;
-            document.getElementById('userEmail').textContent = user.email;
-            document.getElementById('userBadge').hidden = false;
             document.getElementById('signInPromptBtn').hidden = true;
             hideAuthModal();
 
@@ -2924,14 +3432,16 @@ ${languageRule()}`;
                 } else if (library.length) {
                     await showLibrary();
                 } else {
-                    document.getElementById('sourcePicker').hidden = false;
+                    setScreen('home');
                 }
+                loadEntitlement();
+                loadDueOverview().then(renderReviewBanner);
             } catch (e) {
                 // Signed in successfully, but loading their data failed. Never
                 // leave them staring at a blank screen with no explanation.
                 console.error('Post-signin load failed:', e);
                 showError('Signed in, but something went wrong loading your courses. Try refreshing the page.');
-                document.getElementById('sourcePicker').hidden = false;
+                setScreen('home');
             }
         }
 
@@ -2946,13 +3456,12 @@ ${languageRule()}`;
             activeSourceText = '';
             library = [];
             pendingAction = null;
-            document.getElementById('userBadge').hidden = true;
+            entitlement = null;
+            dueOverview = null;
             document.getElementById('signInPromptBtn').hidden = false;
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('learningPath').classList.remove('active');
-            document.getElementById('sourcePicker').hidden = false;
             hideAuthModal();
-            setActiveNav('home');
+            setScreen('home');
+            renderReviewBanner();
         }
 
         function onSignedOut() {

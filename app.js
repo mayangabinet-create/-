@@ -1113,16 +1113,17 @@ ${languageRule()}`;
         // and it answers the same question for every course at once — what's due,
         // where, and what to do about it if nothing is.
         let dueOverview = null;   // [{ ...libraryEntry, due, scheduled, nextDueAt }]
+        let xpByCourse = {};      // { courseId: xp } — every course, for the HUD total
 
-        // Only `srs` is selected, never `lesson` — the cached lesson JSON is large
-        // and there are up to eight courses' worth of them. A row can only have an
-        // srs schedule if it was completed, and completing a lesson caches it, so
-        // counting schedules is enough to know what a review session would contain.
+        // Only `srs` and `xp` are selected, never `lesson` — the cached lesson JSON
+        // is large and there are up to eight courses' worth of them. A row can only
+        // have an srs schedule if it was completed, and completing a lesson caches
+        // it, so counting schedules is enough to know what a session would contain.
         async function loadDueOverview() {
-            if (!currentUser) { dueOverview = null; return null; }
+            if (!currentUser) { dueOverview = null; xpByCourse = {}; return null; }
             const { data, error } = await supabaseClient
                 .from('progress')
-                .select('course_id, srs')
+                .select('course_id, srs, xp')
                 .eq('completed', true);
             if (error) {
                 console.error('loadDueOverview failed:', error);
@@ -1132,7 +1133,9 @@ ${languageRule()}`;
 
             const now = Date.now();
             const byCourse = {};
+            xpByCourse = {};
             (data || []).forEach(r => {
+                xpByCourse[r.course_id] = (xpByCourse[r.course_id] || 0) + (r.xp || 0);
                 const dueAt = r.srs?.dueAt;
                 if (!dueAt) return;
                 const b = byCourse[r.course_id] || (byCourse[r.course_id] = { due: 0, scheduled: 0, nextDueAt: null });
@@ -1296,40 +1299,138 @@ ${languageRule()}`;
         }
 
         // ============= Duolingo-style HUD: streak, gems, hearts =============
-        const STREAK_STORAGE = 'streak_data';   // { count, lastActive: 'YYYY-MM-DD' }
+        // The streak lives in `user_stats` now, like everything else about an
+        // account. localStorage stays as a cache: it's what the HUD reads on the
+        // first paint before the row arrives, and what keeps a streak intact for
+        // someone who finishes a lesson while the network is down.
+        // Keyed per account. Two people sharing a browser each have their own
+        // cache, so signing in second doesn't inherit the first one's streak —
+        // and doesn't push it up to their row on the next sync either.
+        const STREAK_STORAGE = 'streak_data';   // legacy, unscoped: { count, lastActive }
+        const streakKey = () => currentUser ? `${STREAK_STORAGE}:${currentUser.id}` : STREAK_STORAGE;
+
+        let streak = { count: 0, lastActive: null };
 
         function todayStr(offsetDays = 0) {
             return new Date(Date.now() + offsetDays * 86400000).toISOString().slice(0, 10);
         }
 
+        function parseStreak(raw) {
+            try {
+                return JSON.parse(raw || 'null') || { count: 0, lastActive: null };
+            } catch (_) {
+                return { count: 0, lastActive: null };
+            }
+        }
+
+        function readLocalStreak() {
+            const scoped = localStorage.getItem(streakKey());
+            if (scoped) return parseStreak(scoped);
+            // First run after the key became per-account: adopt whatever the old
+            // shared key holds, then let writeLocalStreak() move it across. Only
+            // the first account to sign in on this browser inherits it, which is
+            // the only guess available and the right one on a personal device.
+            const legacy = localStorage.getItem(STREAK_STORAGE);
+            if (legacy) {
+                localStorage.removeItem(STREAK_STORAGE);
+                return parseStreak(legacy);
+            }
+            return { count: 0, lastActive: null };
+        }
+
+        function writeLocalStreak(data) {
+            try { localStorage.setItem(streakKey(), JSON.stringify(data)); } catch (_) {}
+        }
+
+        // Whichever record saw the learner more recently wins; on the same day the
+        // higher count does. That is also the migration path — an existing local
+        // streak is newer than the empty row it syncs against, so it survives the
+        // move to the server instead of being reset to zero by it.
+        function mergeStreak(a, b) {
+            if (!a?.lastActive) return b;
+            if (!b?.lastActive) return a;
+            if (a.lastActive === b.lastActive) return a.count >= b.count ? a : b;
+            return a.lastActive > b.lastActive ? a : b;
+        }
+
+        async function loadStreak() {
+            const local = readLocalStreak();
+            streak = local;
+            renderHud();
+            if (!currentUser) return streak;
+
+            const { data, error } = await supabaseClient
+                .from('user_stats')
+                .select('streak_count, streak_last_active')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+            if (error) {
+                console.error('loadStreak failed:', error);
+                return streak;   // the cached one still shows something true-ish
+            }
+
+            const remote = data
+                ? { count: data.streak_count, lastActive: data.streak_last_active }
+                : { count: 0, lastActive: null };
+            streak = mergeStreak(local, remote);
+            writeLocalStreak(streak);
+            // Only write back when the local copy was the one that won, so opening
+            // the app on a second device doesn't churn the row for nothing.
+            if (streak.lastActive && streak.lastActive !== remote.lastActive) saveStreak();
+            renderHud();
+            return streak;
+        }
+
+        // Fire-and-forget, like saveProgress — the local copy is already correct.
+        async function saveStreak() {
+            if (!currentUser) return;
+            const { error } = await supabaseClient.from('user_stats').upsert({
+                user_id: currentUser.id,
+                streak_count: streak.count,
+                streak_last_active: streak.lastActive,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+            if (error) console.error('saveStreak failed:', error);
+        }
+
         function getStreak() {
-            const data = JSON.parse(localStorage.getItem(STREAK_STORAGE) || 'null');
-            if (!data) return 0;
             // The streak is only "alive" if the learner showed up today or yesterday.
-            if (data.lastActive !== todayStr() && data.lastActive !== todayStr(-1)) return 0;
-            return data.count;
+            if (streak.lastActive !== todayStr() && streak.lastActive !== todayStr(-1)) return 0;
+            return streak.count;
         }
 
         // Call once per completed lesson/review. Consecutive calendar days extend
         // the streak; a gap resets it; the same day twice is a no-op.
         function bumpStreak() {
             const today = todayStr();
-            const data = JSON.parse(localStorage.getItem(STREAK_STORAGE) || 'null') || { count: 0, lastActive: null };
-            if (data.lastActive !== today) {
-                data.count = (data.lastActive === todayStr(-1)) ? data.count + 1 : 1;
-                data.lastActive = today;
-                localStorage.setItem(STREAK_STORAGE, JSON.stringify(data));
-            }
+            if (streak.lastActive === today) return;
+            streak = {
+                count: (streak.lastActive === todayStr(-1)) ? streak.count + 1 : 1,
+                lastActive: today,
+            };
+            writeLocalStreak(streak);
+            saveStreak();
+        }
+
+        // XP earned in every course, not just the open one. The open course is
+        // summed live from `progress` so the number moves the instant a lesson
+        // ends, and the rest comes from the overview query.
+        function totalXp() {
+            const others = Object.entries(xpByCourse)
+                .filter(([id]) => id !== activeCourseId)
+                .reduce((sum, [, xp]) => sum + xp, 0);
+            const open = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
+            return others + open;
         }
 
         // Gems are a cosmetic currency derived from XP — no separate ledger to keep in sync.
         function renderHud() {
             const streakEl = document.getElementById('hudStreak');
             if (!streakEl) return;
-            const totalXp = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
+            const xp = totalXp();
             streakEl.textContent = getStreak();
-            document.getElementById('hudXp').textContent = totalXp;
-            document.getElementById('hudGems').textContent = Math.floor(totalXp / 20);
+            document.getElementById('hudXp').textContent = xp;
+            document.getElementById('hudGems').textContent = Math.floor(xp / 20);
         }
 
         // Build the segmented step-progress pills once we know how many steps a
@@ -1506,7 +1607,6 @@ ${languageRule()}`;
                 planTone = 'is-warn';
             }
 
-            const totalXp = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
             const lessonsDone = library.reduce((n, c) => n + c.completedCount, 0);
             const dueNow = (dueOverview || []).reduce((n, c) => n + c.due, 0);
             const resets = usage.monthResetAt
@@ -1556,7 +1656,7 @@ ${languageRule()}`;
                     <div class="account-card-head"><h3>Your learning</h3></div>
                     <div class="account-stats">
                         <div class="astat"><div class="astat-val">${getStreak()}</div><div class="astat-lbl">Day streak</div></div>
-                        <div class="astat"><div class="astat-val">${totalXp}</div><div class="astat-lbl">XP (this course)</div></div>
+                        <div class="astat"><div class="astat-val">${totalXp()}</div><div class="astat-lbl">Total XP</div></div>
                         <div class="astat"><div class="astat-val">${library.length}</div><div class="astat-lbl">Courses</div></div>
                         <div class="astat"><div class="astat-val">${lessonsDone}</div><div class="astat-lbl">Lessons done</div></div>
                     </div>
@@ -3415,11 +3515,19 @@ ${languageRule()}`;
             document.getElementById('signInPromptBtn').hidden = true;
             hideAuthModal();
 
+            // Account-wide state, needed on every path: the streak and XP feed the
+            // HUD that is on screen whatever you do next, and the plan feeds the
+            // quota warning that has to be right before the first upload. These
+            // used to be skipped entirely when a pending action resumed.
+            loadEntitlement();
+            loadStreak();
+
             if (pendingAction) {
                 const action = pendingAction;
                 pendingAction = null;
                 await refreshUsage();
                 await runPendingAction(action);
+                loadDueOverview().then(() => { renderReviewBanner(); renderHud(); });
                 return;
             }
 
@@ -3434,8 +3542,7 @@ ${languageRule()}`;
                 } else {
                     setScreen('home');
                 }
-                loadEntitlement();
-                loadDueOverview().then(renderReviewBanner);
+                loadDueOverview().then(() => { renderReviewBanner(); renderHud(); });
             } catch (e) {
                 // Signed in successfully, but loading their data failed. Never
                 // leave them staring at a blank screen with no explanation.
@@ -3458,6 +3565,10 @@ ${languageRule()}`;
             pendingAction = null;
             entitlement = null;
             dueOverview = null;
+            xpByCourse = {};
+            // The streak is the signed-out person's, not the one who just left —
+            // it reloads from their own row (and their own cache) at next sign-in.
+            streak = { count: 0, lastActive: null };
             document.getElementById('signInPromptBtn').hidden = false;
             hideAuthModal();
             setScreen('home');

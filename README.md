@@ -66,11 +66,16 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
 `kgkdkkqoebnpahvetwzk`):
 
 - **Auth** — Supabase Auth (email + password). No API key ever reaches the browser.
-- **Database** — `courses`, `progress`, `subscriptions`, `ai_usage`, all RLS-enabled
-  and scoped to `auth.uid()`, so one user can never see or touch another's rows. Courses
-  and progress used to live in `localStorage`; the in-memory shapes the lesson engine,
-  spaced repetition, and path rendering all read/write are unchanged — only the
-  persistence layer underneath them moved.
+- **Database** — `courses`, `progress`, `subscriptions`, `ai_usage`, `user_stats`, all
+  RLS-enabled and scoped to `auth.uid()`, so one user can never see or touch another's
+  rows. Courses and progress used to live in `localStorage`; the in-memory shapes the
+  lesson engine, spaced repetition, and path rendering all read/write are unchanged —
+  only the persistence layer underneath them moved.
+- **The day streak** lives in `user_stats`, so it follows the account rather than the
+  browser. `localStorage` is kept as a per-account cache (`streak_data:<user-id>`): it
+  paints the HUD before the row arrives and keeps a streak earned offline. On sign-in
+  the two are merged by whichever saw you more recently, higher count breaking a tie —
+  which is also how an existing local streak survives the move to the server.
 - **`ai-proxy` Edge Function** — holds the real Anthropic key as a project secret,
   checks the caller has an active subscription or trial, then applies that account's
   tier before forwarding to Anthropic. Every limit is a server-side clamp, not a

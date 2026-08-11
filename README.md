@@ -51,6 +51,20 @@ starts a short session built from the quiz questions already generated for those
 lessons — no new AI calls, so reviewing is free. Doing well pushes the lesson further
 out; doing poorly resets it to a daily review.
 
+## Design rules
+
+`index.html` opens with a token block that is the design system: an 8px spacing scale,
+a fixed px type scale (stacked `em` sizing meant the same class rendered at different
+sizes depending on nesting), four radius steps, two line-heights, a 68ch reading
+measure, a 44px tap-target floor and a 52px height for a screen's one main action.
+
+Green is the only primary — every primary action is green and nothing else is. Blue is
+secondary/links, red destructive, purple the tutor, and the five unit colours identify
+units. Every value that carries text was solved for WCAG AA against the surface it
+actually sits on rather than picked by eye; the vivid `--duo-*` tokens are fills only
+and the `--duo-*-strong` variants are the ones white text is allowed on. Nine app
+states are audited at zero failures.
+
 ## Architecture
 
 The frontend is `index.html` (`<style>` + markup) plus `app.js` (vanilla JS, no

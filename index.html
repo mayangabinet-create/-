@@ -53,28 +53,76 @@
         }
 
         :root {
-            --duo-green: #58CC02;
-            --duo-green-dark: #58A700;
-            --duo-blue: #1CB0F6;
-            --duo-blue-dark: #1899D6;
-            --duo-red: #FF4B4B;
-            --duo-red-dark: #EA2B2B;
-            --duo-yellow: #FFC800;
-            --duo-yellow-dark: #E5A600;
-            --duo-purple: #CE82FF;
-            --duo-purple-dark: #A568C9;
-            --duo-orange: #FF9600;
-            --duo-orange-dark: #E08600;
+            /* ---- Colour ----
+               Green is the one primary: every primary action is green, and nothing
+               that isn't a primary action is. Blue = secondary/link, red =
+               destructive, purple = the tutor, and the unit colours identify units.
+               Nothing else may introduce an accent.
+
+               Every value carrying text was solved for WCAG AA (4.5:1) against the
+               surface it actually sits on, not picked by eye. The vivid tokens are
+               fills only — decoration, progress bars, glows — and never take text.
+               The -strong tokens are the ones white text is allowed on. */
+            --duo-green: #58CC02;          /* fill only */
+            --duo-green-strong: #3A8501;   /* white text: 4.63 */
+            --duo-green-dark: #437F00;     /* green text on light: 4.57 */
+            --duo-blue: #1CB0F6;           /* fill only */
+            --duo-blue-strong: #147DAE;    /* white text: 4.59 */
+            --duo-blue-dark: #1377A7;      /* blue text on light: 4.63 */
+            --duo-red: #FF4B4B;            /* fill only */
+            --duo-red-strong: #D43E3E;     /* white text: 4.61 */
+            --duo-red-dark: #D82828;       /* red text on light: 4.60 */
+            --duo-yellow: #FFC800;         /* fill only */
+            --duo-yellow-dark: #8A6400;    /* yellow-ish text on light */
+            --duo-purple: #CE82FF;         /* fill only */
+            --duo-purple-strong: #955EB8;  /* white text: 4.59 */
+            --duo-purple-dark: #8F5AAE;    /* purple text on light: 4.61 */
+            --duo-orange: #FF9600;         /* fill only */
+            --duo-orange-strong: #AA6400;  /* white text: 4.63 */
+            --duo-orange-dark: #AA6400;
             --duo-bg: #F5F7F9;
             --duo-card: #FFFFFF;
-            --duo-shadow: 0 1px 2px rgba(23, 43, 58, 0.04), 0 4px 12px rgba(23, 43, 58, 0.06);
-            --duo-shadow-lift: 0 2px 4px rgba(23, 43, 58, 0.05), 0 8px 24px rgba(23, 43, 58, 0.09);
             --duo-border: #E5E5E5;
             --duo-border-dark: #CFCFCF;
-            --duo-text: #3C3C3C;
-            --duo-text-light: #777777;
+            --duo-text: #3C3C3C;           /* primary text: 10.4 on the page bg */
+            --duo-text-light: #707070;     /* secondary text: 4.61 on the page bg */
             --duo-locked-bg: #E5E5E5;
-            --duo-locked-icon: #AFAFAF;
+            --duo-locked-icon: #707070;
+
+            --duo-shadow: 0 1px 2px rgba(23, 43, 58, 0.04), 0 4px 12px rgba(23, 43, 58, 0.06);
+            --duo-shadow-lift: 0 2px 4px rgba(23, 43, 58, 0.05), 0 8px 24px rgba(23, 43, 58, 0.09);
+
+            /* ---- Spacing: one 8px scale, no off-grid values ---- */
+            --s-1: 4px;   --s-2: 8px;   --s-3: 16px;  --s-4: 24px;
+            --s-5: 32px;  --s-6: 40px;  --s-7: 48px;  --s-8: 64px;
+
+            /* ---- Type: fixed px, not stacked ems ----
+               Stacked em sizing meant a value's real size depended on where it was
+               nested, so the same class rendered differently in two places. */
+            --t-xs: 12px;   /* metadata */
+            --t-sm: 14px;   /* secondary */
+            --t-md: 16px;   /* body — also the iOS no-zoom floor for inputs */
+            --t-lg: 20px;   /* small heading */
+            --t-xl: 24px;   /* section heading */
+            --t-2xl: 30px;  /* screen heading */
+            --t-hero: 34px;
+
+            /* ---- Line height ---- */
+            --lh-tight: 1.2;   /* headings */
+            --lh-body: 1.55;   /* prose */
+
+            /* ---- Radius: four steps, one per role ---- */
+            --r-sm: 10px;   /* inputs, buttons */
+            --r-md: 16px;   /* cards, panels */
+            --r-lg: 20px;   /* modals */
+            --r-pill: 999px;
+
+            /* ---- Reading measure: prose never spans a desktop width ---- */
+            --measure: 68ch;
+
+            /* ---- Controls ---- */
+            --tap-min: 44px;      /* nothing tappable smaller than this */
+            --btn-primary-h: 52px;
         }
 
         html { height: 100%; }
@@ -87,6 +135,8 @@
             font-family: 'Nunito', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             background: var(--duo-bg);
             color: var(--duo-text);
+            font-size: var(--t-md);
+            line-height: var(--lh-body);
             height: 100vh;
             height: 100dvh;
             overflow: hidden;
@@ -139,23 +189,24 @@
 
         h1 {
             font-family: 'Baloo 2', 'Nunito', sans-serif;
-            font-size: 1.45em;
+            font-size: var(--t-2xl);
+            line-height: var(--lh-tight);
             font-weight: 800;
             color: var(--duo-green-dark);
-            margin-bottom: 2px;
+            margin-bottom: var(--s-1);
             letter-spacing: -0.01em;
         }
 
         /* On the path screen the tagline and the big title are dead weight — the
            path itself needs the vertical space far more. */
         body.on-path .subtitle { display: none; }
-        body.on-path h1 { font-size: 1.15em; }
+        body.on-path h1 { font-size: var(--t-lg); }
         body.on-path header { margin-bottom: 10px; }
         body.on-path .usage-badge { margin-top: 8px; }
 
         .subtitle {
             color: var(--duo-text-light);
-            font-size: 0.88em;
+            font-size: var(--t-sm);
             font-weight: 600;
         }
 
@@ -411,12 +462,12 @@
 
         /* ---- Completed: green ---- */
         .lesson-node.completed .lesson-circle {
-            background: var(--duo-green);
+            background: var(--duo-green-strong);
             border-bottom-color: var(--duo-green-dark);
         }
         .lesson-node.checkpoint.completed .lesson-circle,
         .lesson-node.checkpoint.current .lesson-circle {
-            background: var(--duo-orange);
+            background: var(--duo-orange-strong);
             border-bottom-color: var(--duo-orange-dark);
         }
 
@@ -437,7 +488,7 @@
             max-width: 110px;
             line-height: 1.35;
         }
-        .lesson-node.locked .lesson-label { color: #B0B0B0; }
+        .lesson-node.locked .lesson-label { color: var(--duo-text-light); }
         .lesson-node:not(.locked) .lesson-label { color: var(--duo-text); }
 
         .due-dot {
@@ -524,14 +575,35 @@
 
         .source-picker { animation: slideUp 0.6s ease 0.1s both; }
 
+        /* ---- Skeletons ----
+           The library used to render nothing at all while its two queries ran, so a
+           slow connection showed an empty screen that was indistinguishable from
+           having no courses. */
+        .skeleton {
+            background: linear-gradient(90deg, var(--duo-border) 25%, #EFEFEF 37%, var(--duo-border) 63%);
+            background-size: 400% 100%;
+            animation: shimmer 1.3s ease-in-out infinite;
+            border-radius: var(--r-sm);
+        }
+        @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+        .skeleton-card {
+            padding: var(--s-4) var(--s-3);
+            background: var(--duo-card);
+            border: 1px solid var(--duo-border);
+            border-radius: var(--r-md);
+            box-shadow: var(--duo-shadow);
+        }
+        .skeleton-line { height: 14px; margin-bottom: var(--s-2); }
+        .skeleton-line:last-child { margin-bottom: 0; }
+
         /* ---- Ready to build ---- */
         .ready-screen { animation: slideUp 0.4s ease both; }
         .ready-source {
-            display: flex; align-items: center; gap: 14px;
-            padding: 18px;
+            display: flex; align-items: center; gap: var(--s-2);
+            padding: var(--s-3);
             background: var(--duo-card);
             border: 1px solid var(--duo-border);
-            border-radius: 16px;
+            border-radius: var(--r-md);
             box-shadow: var(--duo-shadow);
             margin-bottom: 20px;
         }
@@ -576,13 +648,17 @@
             -webkit-appearance: none; appearance: none;
         }
         .source-tab:hover { color: var(--duo-text); }
+        /* Solved against the #E5E5E5 tab track; --duo-text-light is only AA on
+           white and the card background. */
+        .source-tab:not(.active) { color: #5C5C5C; }
         .source-tab.active {
             background: var(--duo-card); color: var(--duo-blue-dark);
             border-color: var(--duo-blue);
             box-shadow: 0 2px 0 rgba(0,0,0,0.08);
         }
         .paste-area {
-            width: 100%; min-height: 220px; padding: 20px;
+            width: 100%; min-height: 220px; padding: var(--s-3);
+            line-height: var(--lh-body);
             background: var(--duo-card); border: 2px solid var(--duo-border);
             border-radius: 16px; color: var(--duo-text);
             font-family: 'Nunito', sans-serif;
@@ -592,9 +668,10 @@
 
         /* ---- Auth ---- */
         .auth-input {
-            width: 100%; padding: 12px 14px; margin-bottom: 12px;
+            width: 100%; padding: 13px var(--s-2); margin-bottom: var(--s-2);
+            min-height: var(--tap-min);
             background: var(--duo-card); border: 2px solid var(--duo-border);
-            border-radius: 12px; color: var(--duo-text);
+            border-radius: var(--r-sm); color: var(--duo-text);
             font-family: 'Nunito', sans-serif;
             /* Below 16px, iOS Safari zooms the whole page in on focus — jarring,
                and can eat the next tap. Keep every input at 16px or more. */
@@ -718,10 +795,10 @@
             display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px;
         }
         .course-card {
-            position: relative; cursor: pointer; padding: 22px 20px;
+            position: relative; cursor: pointer; padding: var(--s-4) var(--s-3);
             background: var(--duo-card);
             border: 1px solid var(--duo-border);
-            border-radius: 16px;
+            border-radius: var(--r-md);
             box-shadow: var(--duo-shadow);
             transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1),
                         border-color 0.15s ease, box-shadow 0.15s ease;
@@ -730,16 +807,16 @@
         .course-card:active { transform: translateY(2px); border-bottom-width: 2px; }
         .course-delete {
             position: absolute; top: 2px; right: 2px;
-            width: 44px; height: 44px; border-radius: 50%;
-            background: transparent; border: none; color: var(--duo-border-dark);
+            width: var(--tap-min); height: var(--tap-min); border-radius: 50%;
+            background: transparent; border: none; color: var(--duo-text-light);
             font-size: 1.2em; line-height: 1; cursor: pointer;
             transition: all 0.16s ease;
         }
         .course-delete:hover { background: #FFDFE0; color: var(--duo-red); }
         .course-rename {
-            position: absolute; top: 2px; right: 44px;
-            width: 44px; height: 44px; border-radius: 50%;
-            background: transparent; border: none; color: var(--duo-border-dark);
+            position: absolute; top: 2px; right: var(--tap-min);
+            width: var(--tap-min); height: var(--tap-min); border-radius: 50%;
+            background: transparent; border: none; color: var(--duo-text-light);
             cursor: pointer; display: grid; place-items: center;
             transition: all 0.16s ease;
         }
@@ -840,8 +917,8 @@
             bottom: calc(84px + env(safe-area-inset-bottom, 0px));
             display: flex; align-items: center; justify-content: space-between; gap: 12px;
             padding: 12px 14px; border-radius: 14px;
-            background: var(--duo-red); color: #fff;
-            font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.86em;
+            background: var(--duo-red-strong); color: #fff;
+            font-family: 'Nunito', sans-serif; font-weight: 700; font-size: var(--t-sm);
             box-shadow: 0 4px 14px rgba(0,0,0,0.18);
         }
         .boot-failure button {
@@ -1006,10 +1083,10 @@
         .feedback-bar .feedback-body { color: var(--duo-text); margin-bottom: 14px; line-height: 1.5; }
         .feedback-bar .button { width: 100%; }
         .feedback-bar.feedback-ok .button {
-            background: var(--duo-green); border-bottom-color: var(--duo-green-dark);
+            background: var(--duo-green-strong); border-bottom-color: var(--duo-green-dark);
         }
         .feedback-bar.feedback-bad .button {
-            background: var(--duo-red); border-bottom-color: var(--duo-red-dark);
+            background: var(--duo-red-strong); border-bottom-color: var(--duo-red-dark);
         }
         @media (max-width: 480px) {
             .feedback-bar.show { max-height: 320px; }
@@ -1024,11 +1101,12 @@
         }
         .tutor-dock > * { max-width: 720px; margin-inline: auto; }
         .tutor-toggle {
-            width: 100%; padding: 12px;
+            width: 100%; padding: var(--s-2); min-height: var(--tap-min);
             background: #F3E4FF;
             border: 2px solid var(--duo-purple);
-            color: var(--duo-purple-dark); border-radius: 14px;
-            font-family: 'Baloo 2', sans-serif; font-size: 0.94em; font-weight: 700;
+            /* Solved against the #F3E4FF chip, not against white. */
+            color: #8453A4; border-radius: var(--r-sm);
+            font-family: 'Baloo 2', sans-serif; font-size: var(--t-sm); font-weight: 700;
             cursor: pointer; transition: all 0.15s ease;
         }
         .tutor-toggle:hover { background: #ECD5FF; }
@@ -1243,10 +1321,10 @@
         .worked-reveal.revealed { border-color: var(--duo-green); }
         .worked-num {
             flex: none; width: 26px; height: 26px; border-radius: 50%;
-            background: var(--duo-blue); color: #fff; font-weight: 800; font-size: 0.85em;
+            background: var(--duo-blue-strong); color: #fff; font-weight: 800; font-size: 0.85em;
             display: grid; place-items: center;
         }
-        .worked-reveal.revealed .worked-num { background: var(--duo-green); }
+        .worked-reveal.revealed .worked-num { background: var(--duo-green-strong); }
         .worked-why {
             padding: 14px 18px; margin-top: 6px; color: var(--duo-text); line-height: 1.6;
             background: #E3FFC7; border-radius: 10px;
@@ -1289,7 +1367,7 @@
         .complete-badge {
             width: 84px; height: 84px; margin: 0 auto 20px; border-radius: 50%;
             display: grid; place-items: center; font-size: 2.4em; color: #fff;
-            background: var(--duo-green);
+            background: var(--duo-green-strong);
             border-bottom: 6px solid var(--duo-green-dark);
             animation: unlockPop 0.6s cubic-bezier(0.34,1.56,0.64,1);
         }
@@ -1384,14 +1462,15 @@
 
         /* Button Styles: flat colour + a solid bottom edge that presses flush on click */
         .button {
-            background: var(--duo-green);
+            background: var(--duo-green-strong);
             color: white;
             border: none;
             border-bottom: 4px solid var(--duo-green-dark);
-            padding: 13px 30px;
-            border-radius: 14px;
+            min-height: var(--tap-min);
+            padding: var(--s-2) var(--s-4);
+            border-radius: var(--r-sm);
             font-family: 'Baloo 2', sans-serif;
-            font-size: 1em;
+            font-size: var(--t-md);
             font-weight: 700;
             letter-spacing: 0.03em;
             text-transform: uppercase;
@@ -1400,7 +1479,14 @@
             display: inline-block;
         }
 
-        .button:hover { background: #61E002; }
+        .button:hover { background: #44A001; }
+
+        /* The one main action of a screen gets the taller target; inline buttons
+           like the header's "Sign in" stay at the 44px floor so they don't dominate
+           the chrome. */
+        #readyBuildBtn, #submitTextBtn, #authSubmitBtn, #newCourseBtn, #startReviewBtn {
+            min-height: var(--btn-primary-h);
+        }
 
         .button:active:not(:disabled) {
             border-bottom-width: 0;
@@ -1413,7 +1499,7 @@
             opacity: 0.55;
             cursor: not-allowed;
         }
-        .button:disabled:hover { background: var(--duo-green); }
+        .button:disabled:hover { background: var(--duo-green-strong); }
 
         .button:disabled {
             background: var(--duo-border);
@@ -1467,8 +1553,8 @@
         .stats { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0; }
         .stat-card {
             background: var(--duo-card);
-            padding: 9px 10px;
-            border-radius: 14px;
+            padding: var(--s-2) var(--s-2);
+            border-radius: var(--r-md);
             text-align: center;
             border: 1px solid var(--duo-border);
             box-shadow: var(--duo-shadow);
@@ -1512,7 +1598,7 @@
         .modal { padding: 16px; }
         .modal-content {
             background: var(--duo-card);
-            border-radius: 20px;
+            border-radius: var(--r-lg);
             padding: 32px 24px;
             width: 100%;
             max-width: 500px;
@@ -1559,7 +1645,7 @@
         .dialog-card {
             background: var(--duo-card);
             border: 1px solid var(--duo-border);
-            border-radius: 20px;
+            border-radius: var(--r-lg);
             padding: 26px 24px 22px;
             width: 100%; max-width: 400px;
             max-height: 85vh; overflow-y: auto;
@@ -1624,14 +1710,13 @@
             background: var(--duo-card);
             border: 2px solid var(--duo-red);
             border-bottom: 4px solid var(--duo-red-dark);
-            color: var(--duo-red);
+            color: var(--duo-red-dark);
         }
         .reset-button:hover { background: #FFDFE0; }
 
         @media (max-width: 768px) {
-            h1 { font-size: 1.8em; }
-            .upload-section { padding: 20px; }
-            .lesson-title { font-size: 1.5em; }
+            .upload-section { padding: var(--s-3); }
+            .lesson-title { font-size: var(--t-xl); }
         }
     </style>
 </head>
@@ -1692,7 +1777,7 @@
                 <div id="textPasteSection" hidden>
                     <label class="field-label" for="textInput">Study material</label>
                     <textarea id="textInput" class="paste-area" placeholder="Paste your study material here..."></textarea>
-                    <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Continue</button>
+                    <button class="button" id="submitTextBtn" style="margin-top: var(--s-3); width: 100%;">Name it &amp; build</button>
                 </div>
 
                 <button class="button button-secondary" id="backToLibraryBtn" style="width:100%; margin-top:12px;" hidden>Back to my courses</button>

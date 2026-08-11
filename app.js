@@ -933,7 +933,9 @@ ${languageRule()}`;
         // rhythm (a banner every N nodes, a star node ending each unit) — the
         // underlying course/progress data has no notion of units.
         const UNIT_SIZE = 5;
-        const UNIT_COLORS = ['#58CC02', '#1CB0F6', '#CE82FF', '#FF9600', '#FF4B4B'];
+        // White text sits on these, so they are the -strong variants from the token
+        // block, not the vivid fills. The vivid set measured 2.09-2.44 against white.
+        const UNIT_COLORS = ['#3A8501', '#147DAE', '#955EB8', '#AA6400', '#D43E3E'];
         // Horizontal offsets for the winding path, one six-node cycle.
         const PATH_CURVE = [0, 64, 88, 64, -64, -88];
 
@@ -1752,10 +1754,25 @@ ${languageRule()}`;
                 setActiveNav('courses');
                 return;
             }
-            await loadLibrary();
-            renderLibrary();
+            // Placeholder cards while the two queries run — an empty grid reads as
+            // "you have no courses", which is a different and alarming message.
+            renderLibrarySkeleton();
             setMainScreen('library');
             setActiveNav('courses');
+            await loadLibrary();
+            renderLibrary();
+        }
+
+        function renderLibrarySkeleton() {
+            document.getElementById('libraryEmpty').hidden = true;
+            document.getElementById('libraryCount').textContent = '';
+            document.getElementById('newCourseBtn').hidden = true;
+            document.getElementById('libraryGrid').innerHTML = Array.from({ length: 3 }, () => `
+                <div class="skeleton-card" aria-hidden="true">
+                    <div class="skeleton skeleton-line" style="width:65%"></div>
+                    <div class="skeleton skeleton-line" style="width:40%;height:10px"></div>
+                    <div class="skeleton skeleton-line" style="width:100%;height:10px;margin-top:16px"></div>
+                </div>`).join('');
         }
 
         function renderSignedOutLibrary() {

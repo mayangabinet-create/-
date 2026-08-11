@@ -4,74 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
-    <script>
-        // TEMPORARY diagnostic: something is breaking on real devices that never
-        // reproduces in headless testing, and the browser is redacting the actual
-        // error ("Script error.", no file/line — the standard cross-origin
-        // redaction) even with crossorigin set on the CDN <script> tags, which
-        // points at something in the user's own environment (content blocker,
-        // MDM/filter injecting scripts) rather than a plain missing CORS header.
-        // Since the exact exception may stay hidden, this instead drops same-
-        // origin breadcrumbs at each checkpoint — those can never be redacted —
-        // so we can see exactly how far execution gets even if we can't see why
-        // it stops. Remove once the real cause is found and fixed.
-        window.__diag = [];
-        window.__diagPush = function (label) { window.__diag.push(label); };
-        window.__diagPush('head:start ua=' + navigator.userAgent);
-        (function () {
-            var banner = null;
-            function show(msg, isError) {
-                if (!banner) {
-                    banner = document.createElement('div');
-                    banner.id = '__diagBanner';
-                    // pointer-events:none on the banner itself so it never blocks taps on
-                    // the real app underneath it — only the close button re-enables them.
-                    // (An earlier version without this blocked clicks on anything it
-                    // overlapped, which would have made the exact "buttons don't work"
-                    // symptom worse, not better.)
-                    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;' +
-                        'padding:12px 40px 12px 14px;pointer-events:none;' +
-                        'font:600 12px/1.5 monospace;white-space:pre-wrap;word-break:break-word;' +
-                        'max-height:35vh;overflow:auto;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-                    var closeBtn = document.createElement('button');
-                    closeBtn.textContent = '×';
-                    closeBtn.setAttribute('aria-label', 'Close');
-                    closeBtn.style.cssText = 'position:absolute;top:6px;right:10px;background:none;' +
-                        'border:none;color:inherit;font-size:20px;cursor:pointer;line-height:1;pointer-events:auto;';
-                    closeBtn.onclick = function () { banner.remove(); banner = null; };
-                    banner.appendChild(closeBtn);
-                    var text = document.createElement('div');
-                    text.id = '__diagBannerText';
-                    banner.appendChild(text);
-                    (document.body || document.documentElement).appendChild(banner);
-                }
-                banner.style.background = isError ? '#FF4B4B' : '#1CB0F6';
-                banner.style.color = '#fff';
-                var textEl = document.getElementById('__diagBannerText');
-                textEl.textContent += (textEl.textContent ? '\n\n' : 'DEBUG — please screenshot/copy this and send it back:\n\n') + msg;
-            }
-            window.addEventListener('error', function (e) {
-                var msg = (e.target && e.target !== window && e.target.tagName)
-                    ? 'Failed to load resource: <' + e.target.tagName.toLowerCase() + '> ' + (e.target.src || e.target.href)
-                    : 'JS error: ' + e.message + '\n  at ' + (e.filename || '?').split('/').pop() + ':' + e.lineno + ':' + e.colno;
-                show(msg, true);
-            }, true);
-            window.addEventListener('unhandledrejection', function (e) {
-                show('Unhandled promise rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason), true);
-            });
-            // Always show the breadcrumb trail after things settle, error or not —
-            // this is the part that can't be redacted or hidden.
-            window.addEventListener('load', function () {
-                setTimeout(function () {
-                    show('Breadcrumb trail:\n' + window.__diag.map(function (s, i) { return i + '. ' + s; }).join('\n'), false);
-                }, 800);
-            });
-        })();
-    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
-    <script>window.__diagPush('after pdf.js tag: window.pdfjsLib=' + typeof window.pdfjsLib);</script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
-    <script>window.__diagPush('after supabase-js tag: window.supabase=' + typeof window.supabase);</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -86,6 +20,37 @@
            otherwise silently defeat the `hidden` attribute — author CSS always wins
            over the UA default `[hidden]{display:none}`, tie or no tie. */
         [hidden] { display: none !important; }
+
+        /* Keyboard users had no focus indicator anywhere: buttons never had one, and
+           the four input rules replace `outline` with a border colour that is easy to
+           miss. :focus-visible only fires for keyboard/AT navigation, so pointer users
+           don't get a ring on every tap. */
+        :focus-visible {
+            outline: 3px solid var(--duo-blue);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        .button:focus-visible, .bottom-nav-item:focus-visible, .source-tab:focus-visible {
+            outline-offset: 3px;
+        }
+
+        /* Touch: kill the 300ms double-tap delay and the grey flash Android paints
+           over every tap, and let the existing :active transforms be the feedback. */
+        button, .lesson-node, .option, .course-card, [role="tab"] {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* A blanket fallback so any animation added later is covered without having
+           to remember prefersReducedMotion() at each call site. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
 
         :root {
             --duo-green: #58CC02;
@@ -545,6 +510,17 @@
         }
 
         .source-picker { animation: slideUp 0.6s ease 0.1s both; }
+
+        /* ---- Course name ---- */
+        .field-label {
+            display: block; margin-bottom: 7px;
+            font-family: 'Baloo 2', sans-serif; font-weight: 700;
+            font-size: 0.9em; color: var(--duo-text-light);
+        }
+        .field-hint { font-size: 0.8em; color: var(--duo-text-light); margin: -4px 0 18px; font-weight: 600; }
+        .course-name-field { margin-bottom: 4px; }
+        .course-name-field .auth-input { margin-bottom: 6px; }
+
         .source-tabs {
             display: flex; gap: 6px; margin-bottom: 18px;
             background: var(--duo-border); padding: 5px;
@@ -716,10 +692,21 @@
             transition: all 0.16s ease;
         }
         .course-delete:hover { background: #FFDFE0; color: var(--duo-red); }
+        .course-rename {
+            position: absolute; top: 2px; right: 44px;
+            width: 44px; height: 44px; border-radius: 50%;
+            background: transparent; border: none; color: var(--duo-border-dark);
+            cursor: pointer; display: grid; place-items: center;
+            transition: all 0.16s ease;
+        }
+        .course-rename:hover { background: #DFF1FF; color: var(--duo-blue-dark); }
         .course-title {
             font-family: 'Baloo 2', sans-serif;
             font-weight: 700; color: var(--duo-text); font-size: 1.02em;
-            margin-bottom: 6px; padding-right: 24px; line-height: 1.35;
+            margin-bottom: 6px; padding-right: 88px; line-height: 1.35;
+            overflow-wrap: anywhere;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .course-meta { font-size: 0.79em; color: var(--duo-text-light); margin-bottom: 16px; font-weight: 600; }
         .course-bar { height: 10px; background: var(--duo-border); border-radius: 6px; overflow: hidden; }
@@ -801,6 +788,22 @@
             .preview-overlay { transition: opacity 0.01ms, visibility 0.01ms; }
             .preview-card { transform: none; transition: none; }
             .preview-overlay.show .preview-card { transform: none; }
+        }
+
+        /* Anchored to the bottom, above the tab bar, so it never covers the app. */
+        .boot-failure {
+            position: fixed; left: 12px; right: 12px; z-index: 950;
+            bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 12px 14px; border-radius: 14px;
+            background: var(--duo-red); color: #fff;
+            font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.86em;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+        }
+        .boot-failure button {
+            flex: none; padding: 8px 16px; border: none; border-radius: 10px;
+            background: #fff; color: var(--duo-red);
+            font-family: 'Nunito', sans-serif; font-weight: 800; font-size: 1em; cursor: pointer;
         }
 
         .loading-overlay {
@@ -1355,10 +1358,18 @@
 
         .button:hover { background: #61E002; }
 
-        .button:active {
+        .button:active:not(:disabled) {
             border-bottom-width: 0;
             transform: translateY(4px);
         }
+
+        /* A disabled button that still looks pressable gets pressed, and the press
+           does nothing — the exact "button doesn't work" report. */
+        .button:disabled, button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+        .button:disabled:hover { background: var(--duo-green); }
 
         .button:disabled {
             background: var(--duo-border);
@@ -1419,6 +1430,18 @@
         }
         .stat-value { font-family: 'Baloo 2', sans-serif; font-size: 1.3em; font-weight: 800; color: var(--duo-green-dark); line-height: 1.2; }
         .stat-label { color: var(--duo-text-light); font-size: 0.78em; margin-top: 2px; font-weight: 600; }
+        /* Same declarations as .stat-value — both classes sit on the same element,
+           so the later rule wins and `inherit` here would resolve against the card,
+           not against .stat-value. */
+        .stat-value-button {
+            display: block; width: 100%; padding: 0;
+            overflow-wrap: anywhere;
+            background: none; border: none; cursor: pointer; text-align: center;
+            font-family: 'Baloo 2', sans-serif; font-size: 1.3em; font-weight: 800;
+            color: var(--duo-green-dark); line-height: 1.2;
+            -webkit-appearance: none; appearance: none;
+        }
+        .stat-value-button:hover { text-decoration: underline; }
 
         /* Animations */
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -1436,12 +1459,14 @@
             animation: fadeIn 0.3s ease;
         }
         .modal.active { display: flex; }
+        .modal { padding: 16px; }
         .modal-content {
             background: var(--duo-card);
             border-radius: 20px;
-            padding: 40px;
+            padding: 32px 24px;
+            width: 100%;
             max-width: 500px;
-            max-height: 80vh;
+            max-height: min(80vh, 100% - 32px);
             overflow-y: auto;
             border: 2px solid var(--duo-border);
             position: relative;
@@ -1454,6 +1479,62 @@
         }
         .modal-close:hover { background: var(--duo-bg); color: var(--duo-text); }
         .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 20px; color: var(--duo-green-dark); }
+
+        /* ---- In-app dialog: replaces alert() / confirm() / prompt() ----
+           Native dialogs can't be styled, ignore the content's direction, and read
+           as a browser warning rather than part of the app. z-index 1100 so a
+           confirm can sit above the auth modal (1000). */
+        .dialog-backdrop {
+            display: none;
+            position: fixed; inset: 0; z-index: 1100;
+            background: rgba(60, 60, 60, 0.55);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .dialog-backdrop.active { display: flex; animation: fadeIn 0.2s ease; }
+        .dialog-card {
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-radius: 20px;
+            padding: 26px 24px 22px;
+            width: 100%; max-width: 400px;
+            max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+        }
+        .dialog-title {
+            font-family: 'Baloo 2', sans-serif; font-size: 1.25em; font-weight: 700;
+            color: var(--duo-text); margin-bottom: 8px; line-height: 1.3;
+        }
+        .dialog-body { color: var(--duo-text-light); font-weight: 600; line-height: 1.5; margin-bottom: 18px; }
+        .dialog-body:empty { display: none; }
+        .dialog-error {
+            color: var(--duo-red-dark); font-size: 0.85em; font-weight: 700;
+            margin: -10px 0 12px;
+        }
+        .dialog-actions { display: flex; gap: 10px; }
+        .dialog-actions .button { flex: 1; padding: 13px 16px; font-size: 0.94em; margin: 0; }
+        .dialog-danger .dialog-title { color: var(--duo-red-dark); }
+
+        /* ---- Toast: confirmation that doesn't interrupt ----
+           Bottom-anchored above the tab bar, never over the header. */
+        .toast-stack {
+            position: fixed; left: 12px; right: 12px; z-index: 1200;
+            bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            max-width: 420px; width: fit-content;
+            padding: 12px 18px; border-radius: 14px;
+            background: var(--duo-text); color: #fff;
+            font-weight: 700; font-size: 0.88em; line-height: 1.4;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+            animation: toastIn 0.22s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .toast.leaving { animation: toastOut 0.18s ease forwards; }
+        .toast-success { background: var(--duo-green-dark); }
+        .toast-error { background: var(--duo-red-dark); }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+        @keyframes toastOut { to { opacity: 0; transform: translateY(8px); } }
 
         .error-message {
             background: #FFDFE0; border: 2px solid var(--duo-red);
@@ -1527,6 +1608,13 @@
 
             <!-- Source picker: two tabs, both reachable at any time -->
             <div id="sourcePicker" class="source-picker">
+                <div class="course-name-field">
+                    <label class="field-label" for="courseNameInput">Course name</label>
+                    <input type="text" id="courseNameInput" class="auth-input" maxlength="80"
+                           placeholder="e.g. Biology — Chapter 4" autocomplete="off" />
+                    <p class="field-hint">Optional. Leave it blank and one is written for you — you can rename it later.</p>
+                </div>
+
                 <div class="source-tabs" role="tablist">
                     <button class="source-tab active" id="tabFile" role="tab" aria-selected="true">Upload a file</button>
                     <button class="source-tab" id="tabPaste" role="tab" aria-selected="false">Paste text</button>
@@ -1540,6 +1628,7 @@
                 </div>
 
                 <div id="textPasteSection" hidden>
+                    <label class="field-label" for="textInput">Study material</label>
                     <textarea id="textInput" class="paste-area" placeholder="Paste your study material here..."></textarea>
                     <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Build learning path</button>
                 </div>
@@ -1552,8 +1641,9 @@
                 <!-- Stats -->
                 <div class="stats">
                     <div class="stat-card">
-                        <div class="stat-value" id="courseTitle">Loading...</div>
-                        <div class="stat-label">Course</div>
+                        <button type="button" class="stat-value stat-value-button" id="courseTitle"
+                                title="Tap to rename this course">Loading...</button>
+                        <div class="stat-label">Course · tap to rename</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-value" id="totalLessons">0</div>
@@ -1597,7 +1687,7 @@
 
         <!-- Persistent bottom tab bar, in the Duolingo app's own pattern -->
         <nav class="bottom-nav" id="bottomNav">
-            <button class="bottom-nav-item active" id="navHome" aria-label="Home">
+            <button class="bottom-nav-item active" id="navHome" aria-label="Home" aria-current="page">
                 <span class="bottom-nav-icon" id="navIconHome"></span><span class="bottom-nav-label">Home</span>
             </button>
             <button class="bottom-nav-item" id="navCourses" aria-label="My courses">
@@ -1630,8 +1720,8 @@
 
     <!-- Loading overlay: works regardless of which screen is showing -->
     <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
-        <div class="loading-card">
-            <div class="spinner spinner-lg"></div>
+        <div class="loading-card" role="status" aria-live="polite">
+            <div class="spinner spinner-lg" aria-hidden="true"></div>
             <div id="loadingText"></div>
         </div>
     </div>
@@ -1667,13 +1757,13 @@
 
         <!-- Ask AI: available throughout the lesson -->
         <div class="tutor-dock" id="tutorDock">
-            <button class="tutor-toggle" id="tutorToggle">
+            <button class="tutor-toggle" id="tutorToggle" aria-expanded="false" aria-controls="tutorPanel">
                 <span id="tutorToggleIcon"></span><span>Ask the tutor</span>
             </button>
             <div class="tutor-panel" id="tutorPanel" hidden>
                 <div class="tutor-actions" id="tutorActions"></div>
                 <div class="tutor-input">
-                    <input type="text" id="tutorQuestion" placeholder="Or ask anything about this lesson..." />
+                    <input type="text" id="tutorQuestion" aria-label="Ask the tutor about this lesson" enterkeyhint="send" placeholder="Or ask anything about this lesson..." />
                     <button class="button" id="tutorAskBtn">Ask</button>
                 </div>
                 <div id="tutorResponse" class="tutor-response" style="display: none;"></div>
@@ -1683,8 +1773,8 @@
 
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.
          Starts closed — login happens at the point of need, not as a gate. -->
-    <div id="authModal" class="modal">
-        <div class="modal-content">
+    <div id="authModal" class="modal" aria-hidden="true">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="authTitle">
             <button type="button" class="modal-close" id="authCloseBtn" aria-label="Close"></button>
             <div class="modal-title" id="authTitle">Welcome back</div>
             <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
@@ -1701,15 +1791,19 @@
                 <span>Continue with Google</span>
             </button>
             <div class="auth-divider"><span>or continue with email</span></div>
-            <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
+            <label class="field-label" for="authEmail">Email</label>
+            <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com"
+                   autocomplete="email" inputmode="email" enterkeyhint="next" />
+            <label class="field-label" for="authPassword">Password</label>
             <div class="auth-password-row" style="margin-bottom: 6px;">
-                <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
+                <input type="password" id="authPassword" class="auth-input" placeholder="Password"
+                       autocomplete="current-password" enterkeyhint="go" />
                 <button type="button" class="auth-password-toggle" id="authPasswordToggle" aria-label="Show password"></button>
             </div>
             <div style="text-align: right; margin-bottom: 12px;">
                 <button type="button" id="authForgotBtn" style="background: none; border: none; color: var(--duo-blue-dark); font-family: 'Nunito', sans-serif; font-size: 0.85em; font-weight: 700; cursor: pointer; padding: 4px 0;">Forgot password?</button>
             </div>
-            <div class="error-message" id="authError" hidden></div>
+            <div class="error-message" id="authError" role="alert" aria-live="assertive" hidden></div>
             <button class="button" id="authSubmitBtn" style="width: 100%;">Sign in</button>
             <div class="info-message" style="margin-top: 15px; font-size: 0.9em; display: flex; align-items: center; gap: 8px;">
                 <span id="authInfoIcon" style="flex: none;"></span>
@@ -1718,6 +1812,45 @@
         </div>
     </div>
 
-    <script src="app.js?v=2" onerror="window.__diagPush && window.__diagPush(&#39;app.js FAILED TO LOAD as a resource&#39;)"></script>
+    <!-- In-app dialog. One element reused for alert / confirm / prompt; app.js
+         shows and hides the pieces it needs per call. -->
+    <div id="dialogBackdrop" class="dialog-backdrop">
+        <div class="dialog-card" id="dialogCard" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+            <h2 class="dialog-title" id="dialogTitle"></h2>
+            <p class="dialog-body" id="dialogBody"></p>
+            <input type="text" id="dialogInput" class="auth-input" maxlength="80" hidden
+                   autocomplete="off" enterkeyhint="done" aria-labelledby="dialogTitle" />
+            <div class="dialog-error" id="dialogError" hidden></div>
+            <div class="dialog-actions">
+                <button type="button" class="button button-secondary" id="dialogCancel">Cancel</button>
+                <button type="button" class="button" id="dialogConfirm">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toasts: brief confirmation that never blocks or covers the header. -->
+    <div class="toast-stack" id="toastStack" role="status" aria-live="polite" aria-atomic="false"></div>
+
+    <!-- Shown only if app.js never finished booting (blocked script, offline, JS
+         error). Without it a failed boot looks like a normal page whose buttons
+         and icons simply do nothing, with no way to tell why. -->
+    <div id="bootFailure" class="boot-failure" hidden>
+        <span>The app didn't finish loading — some buttons won't work.</span>
+        <button type="button" onclick="location.reload()">Reload</button>
+    </div>
+
+    <script src="app.js?v=3"></script>
+    <script>
+        // app.js sets window.__appBooted on its last line. If it isn't set by the
+        // time the page settles, something stopped the script partway through.
+        window.addEventListener('load', function () {
+            setTimeout(function () {
+                // The CDN-failure path in app.js replaces <body> wholesale and puts
+                // its own message up, so this element may legitimately be gone.
+                var el = document.getElementById('bootFailure');
+                if (!window.__appBooted && el) el.hidden = false;
+            }, 1500);
+        });
+    </script>
 </body>
 </html>

@@ -1,4 +1,3 @@
-        window.__diagPush('main script: start');
         // Configuration
         // Courses now live in Supabase, one row per user — not localStorage.
         // These are public by design (like a Firebase config): they identify
@@ -22,7 +21,6 @@
             throw new Error('supabase-js failed to load from CDN');
         }
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        window.__diagPush('main script: supabase client created');
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
         const MAX_COURSES = 8;
@@ -60,8 +58,8 @@
             file: svgIcon('<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>'),
             info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
+            pencil: svgIcon('<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 6.5l3 3"/>'),
         };
-        window.__diagPush('main script: ICONS defined');
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
         // works without it); a blocked/slow CDN load should only disable that one
@@ -69,7 +67,6 @@
         if (window.pdfjsLib) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
-        window.__diagPush('main script: pdfjs guard passed');
 
         // ============= API & AI Functions =============
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
@@ -637,9 +634,146 @@ ${languageRule()}`;
             });
         }
 
+        // ============= Dialogs & toasts =============
+        // In-app replacements for alert/confirm/prompt. The native ones can't be
+        // styled, ignore the content's direction, block the whole tab, and read as a
+        // browser warning rather than as part of the app.
+
+        const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+        // Keeps focus inside `container` while it's open, and hands focus back to
+        // whatever opened it on close — otherwise a keyboard user tabs into the page
+        // behind the dialog and can never get out.
+        function trapFocus(container, firstFocus) {
+            const restoreTo = document.activeElement;
+            const onKey = (e) => {
+                if (e.key !== 'Tab') return;
+                const items = [...container.querySelectorAll(FOCUSABLE)]
+                    .filter(el => !el.hidden && !el.disabled && el.offsetParent !== null);
+                if (!items.length) return;
+                const first = items[0], last = items[items.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            };
+            document.addEventListener('keydown', onKey, true);
+            (firstFocus || container.querySelector(FOCUSABLE))?.focus();
+            return () => {
+                document.removeEventListener('keydown', onKey, true);
+                if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
+            };
+        }
+
+        // A dialog is open while its promise is pending; nothing else may open one.
+        let dialogRelease = null;
+
+        function openDialog({ title, body = '', confirmText = 'OK', cancelText = null,
+                              danger = false, input = null, validate = null }) {
+            const backdrop = document.getElementById('dialogBackdrop');
+            const card = document.getElementById('dialogCard');
+            const field = document.getElementById('dialogInput');
+            const errorEl = document.getElementById('dialogError');
+            const confirmBtn = document.getElementById('dialogConfirm');
+            const cancelBtn = document.getElementById('dialogCancel');
+
+            document.getElementById('dialogTitle').textContent = title;
+            document.getElementById('dialogBody').textContent = body;
+            confirmBtn.textContent = confirmText;
+            confirmBtn.classList.toggle('reset-button', danger);
+            card.classList.toggle('dialog-danger', danger);
+            cancelBtn.hidden = cancelText === null;
+            cancelBtn.textContent = cancelText || 'Cancel';
+            errorEl.hidden = true;
+            errorEl.textContent = '';
+
+            const wantsInput = input !== null;
+            field.hidden = !wantsInput;
+            field.value = wantsInput ? input : '';
+            // The dialog carries user content, so it follows the content's direction
+            // rather than the app chrome's — a Hebrew course name must read correctly.
+            card.dir = RTL_LANGUAGES.includes(courseData?.language) ? 'rtl' : 'ltr';
+
+            backdrop.classList.add('active');
+            lockBodyScroll(true);
+
+            return new Promise((resolve) => {
+                const finish = (value) => {
+                    if (!dialogRelease) return;
+                    dialogRelease();
+                    dialogRelease = null;
+                    backdrop.classList.remove('active');
+                    lockBodyScroll(false);
+                    document.removeEventListener('keydown', onKey, true);
+                    confirmBtn.onclick = cancelBtn.onclick = backdrop.onclick = null;
+                    resolve(value);
+                };
+                const submit = () => {
+                    if (!wantsInput) return finish(true);
+                    const problem = validate ? validate(field.value) : null;
+                    if (problem) {
+                        errorEl.textContent = problem;
+                        errorEl.hidden = false;
+                        field.focus();
+                        return;
+                    }
+                    finish(field.value);
+                };
+                const cancel = () => finish(wantsInput ? null : false);
+
+                const onKey = (e) => {
+                    if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+                    else if (e.key === 'Enter' && (wantsInput || document.activeElement !== cancelBtn)) {
+                        e.preventDefault(); e.stopPropagation(); submit();
+                    }
+                };
+                document.addEventListener('keydown', onKey, true);
+
+                confirmBtn.onclick = submit;
+                cancelBtn.onclick = cancel;
+                // Tapping the dimmed area behind the card cancels, as every other
+                // overlay in this app already does.
+                backdrop.onclick = (e) => { if (e.target === backdrop) cancel(); };
+
+                dialogRelease = trapFocus(card, wantsInput ? field : confirmBtn);
+                if (wantsInput) field.select();
+            });
+        }
+
+        const uiAlert = (body, title = 'Heads up') =>
+            openDialog({ title, body, confirmText: 'Got it' });
+
+        const uiConfirm = (title, body, { confirmText = 'Confirm', danger = false } = {}) =>
+            openDialog({ title, body, confirmText, cancelText: 'Cancel', danger });
+
+        const uiPrompt = (title, value, { validate = null, confirmText = 'Save' } = {}) =>
+            openDialog({ title, input: value || '', confirmText, cancelText: 'Cancel', validate });
+
+        // A modal is open: stop the page behind it from scrolling under the finger.
+        // Counted, because a confirm dialog can open on top of the auth modal — the
+        // inner one closing must not unlock the page while the outer one is still up.
+        let scrollLocks = 0;
+        function lockBodyScroll(on) {
+            scrollLocks = Math.max(0, scrollLocks + (on ? 1 : -1));
+            document.body.style.overflow = scrollLocks > 0 ? 'hidden' : '';
+        }
+
+        // Brief confirmation for things that worked. Never blocks, never covers the
+        // header, disappears on its own.
+        function toast(message, kind = 'success') {
+            const stack = document.getElementById('toastStack');
+            if (!stack) return;
+            const el = document.createElement('div');
+            el.className = `toast toast-${kind}`;
+            el.textContent = message;
+            stack.appendChild(el);
+            setTimeout(() => {
+                el.classList.add('leaving');
+                setTimeout(() => el.remove(), 200);
+            }, 2600);
+        }
+
         function showError(msg) {
-            hideMessage();          // never leave the spinner up behind an alert
-            alert(msg);
+            hideMessage();          // never leave the spinner up behind the dialog
+            uiAlert(msg, 'Something went wrong');
         }
 
         // Return the app to a usable state after any failure.
@@ -653,7 +787,9 @@ ${languageRule()}`;
         }
 
         async function handleFileUpload(file) {
-            showMessage("Reading PDF...");
+            // Name the file being read. "Reading PDF..." after picking the wrong one
+            // from a list of near-identical names gives you nothing to check against.
+            showMessage(`Reading ${file.name}...`);
             let text;
             try {
                 text = await extractConceptsFromPDF(file);
@@ -673,11 +809,28 @@ ${languageRule()}`;
             await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''));
         }
 
-        async function processLearningMaterial(text, title = 'Learning Course') {
+        // A course name has to contain something readable. A filename like "-.pdf",
+        // or a model that answers with a stray dash, otherwise ends up as the course's
+        // whole title — a card labelled "-" with no way to fix it.
+        function cleanTitle(raw) {
+            const s = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+            // \p{L}\p{N} so Hebrew/Arabic/Cyrillic titles count as real text too.
+            return /[\p{L}\p{N}]/u.test(s) ? s.slice(0, 80) : '';
+        }
+
+        // Whatever the learner typed into the "Course name" box, if anything.
+        function requestedCourseName() {
+            const input = document.getElementById('courseNameInput');
+            return input ? cleanTitle(input.value) : '';
+        }
+
+        // `title` is the fallback (filename, or nothing for pasted text); a name the
+        // learner typed themselves always beats both that and the model's suggestion.
+        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName()) {
             // The point of need: building a course is the first thing that
             // actually requires an account. Resume automatically after sign-up.
             if (!currentUser) {
-                pendingAction = { type: 'buildCourse', text, title };
+                pendingAction = { type: 'buildCourse', text, title, chosenName };
                 showAuthModal('signup');
                 return;
             }
@@ -689,9 +842,15 @@ ${languageRule()}`;
                     return;
                 }
 
-                if (!course.courseName) course.courseName = title;
+                course.courseName = chosenName
+                    || cleanTitle(course.courseName)
+                    || cleanTitle(title)
+                    || 'Untitled course';
                 const id = await saveCourse(course, text);
                 if (!id) return;
+
+                const nameInput = document.getElementById('courseNameInput');
+                if (nameInput) nameInput.value = '';   // don't reuse it for the next course
 
                 courseData = course;
                 activeCourseId = id;
@@ -1358,7 +1517,7 @@ ${languageRule()}`;
         async function saveCourse(course, sourceText) {
             const { data, error } = await supabaseClient.from('courses').insert({
                 user_id: currentUser.id,
-                title: course.courseName || 'Untitled course',
+                title: cleanTitle(course.courseName) || 'Untitled course',
                 language: course.language || 'English',
                 concepts: course.concepts,
                 source_text: sourceText || null,
@@ -1370,6 +1529,42 @@ ${languageRule()}`;
             }
             await loadLibrary();
             return data.id;
+        }
+
+        // Renaming touches three places that each hold their own copy of the title:
+        // the row in Supabase, the library list, and the open course in memory.
+        async function renameCourse(id, rawTitle) {
+            const title = cleanTitle(rawTitle);
+            if (!title) {
+                showError('A course name needs at least one letter or number.');
+                return false;
+            }
+            const { error } = await supabaseClient.from('courses').update({ title }).eq('id', id);
+            if (error) {
+                console.error('renameCourse failed:', error);
+                showError('Could not rename that course: ' + error.message);
+                return false;
+            }
+            const meta = library.find(c => c.id === id);
+            if (meta) meta.title = title;
+            if (activeCourseId === id && courseData) {
+                courseData.courseName = title;
+                const titleEl = document.getElementById('courseTitle');
+                if (titleEl) titleEl.textContent = title;
+            }
+            return true;
+        }
+
+        // Shared by the library card's rename button and the course title on the path.
+        async function promptRename(id, currentTitle) {
+            const next = await uiPrompt('Rename this course', currentTitle, {
+                // Validated inside the dialog, so a bad name is corrected in place
+                // instead of throwing the user out to a second error dialog.
+                validate: (v) => cleanTitle(v) ? null : 'Enter a name with at least one letter or number.',
+            });
+            if (next === null) return;            // cancelled
+            if (cleanTitle(next) === cleanTitle(currentTitle)) return;
+            if (await renameCourse(id, next)) toast('Course renamed');
         }
 
         async function deleteCourse(id) {
@@ -1442,6 +1637,7 @@ ${languageRule()}`;
                 return `
                 <div class="course-card" data-id="${esc(c.id)}">
                     <button class="course-delete" data-del="${esc(c.id)}" aria-label="Delete course" title="Delete">×</button>
+                    <button class="course-rename" data-rename="${esc(c.id)}" aria-label="Rename course" title="Rename">${ICONS.pencil}</button>
                     <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
                     <div class="course-meta">${c.conceptCount} lessons · ${esc(c.language)}</div>
                     <div class="course-bar"><div class="course-bar-fill" style="width:${pct}%"></div></div>
@@ -1451,17 +1647,33 @@ ${languageRule()}`;
 
             grid.querySelectorAll('.course-card').forEach(card => {
                 card.onclick = async (e) => {
-                    if (e.target.dataset.del) return;
+                    // closest(), not e.target.dataset — a tap usually lands on the
+                    // icon's <svg>/<path>, not on the button carrying the data attribute.
+                    if (e.target.closest('[data-del], [data-rename]')) return;
                     await openCourse(card.dataset.id);
+                };
+            });
+            grid.querySelectorAll('[data-rename]').forEach(btn => {
+                btn.onclick = async (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.rename;
+                    await promptRename(id, library.find(c => c.id === id)?.title);
+                    renderLibrary();
                 };
             });
             grid.querySelectorAll('[data-del]').forEach(btn => {
                 btn.onclick = async (e) => {
                     e.stopPropagation();
                     const meta = library.find(c => c.id === btn.dataset.del);
-                    if (confirm(`Delete "${meta?.title || 'this course'}"? This cannot be undone.`)) {
+                    const name = meta?.title || 'this course';
+                    const ok = await uiConfirm(
+                        `Delete "${name}"?`,
+                        'The course and all your progress in it are removed. This cannot be undone.',
+                        { confirmText: 'Delete', danger: true });
+                    if (ok) {
                         await deleteCourse(btn.dataset.del);
                         renderLibrary();
+                        toast(`Deleted "${name}"`);
                     }
                 };
             });
@@ -2480,9 +2692,15 @@ ${languageRule()}`;
 
         // ============= Bottom nav =============
         function setActiveNav(name) {
-            document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.bottom-nav-item').forEach(b => {
+                b.classList.remove('active');
+                // The green tint alone carries the "you are here" state; without
+                // aria-current a screen reader hears four identical tabs.
+                b.removeAttribute('aria-current');
+            });
             const map = { home: 'navHome', courses: 'navCourses', review: 'navReview', account: 'navAccount' };
-            document.getElementById(map[name])?.classList.add('active');
+            const el = document.getElementById(map[name]);
+            if (el) { el.classList.add('active'); el.setAttribute('aria-current', 'page'); }
         }
 
         document.getElementById('navHome').addEventListener('click', async () => {
@@ -2512,7 +2730,9 @@ ${languageRule()}`;
 
         document.getElementById('navAccount').addEventListener('click', async () => {
             if (!currentUser) { showAuthModal('signin'); return; }
-            if (confirm(`Signed in as ${currentUser.email}. Sign out?`)) {
+            const out = await uiConfirm('Account', `Signed in as ${currentUser.email}.`,
+                { confirmText: 'Sign out', danger: true });
+            if (out) {
                 await supabaseClient.auth.signOut();
             }
         });
@@ -2524,19 +2744,45 @@ ${languageRule()}`;
 
         document.getElementById('submitTextBtn').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
-            if (text.trim()) {
-                await processLearningMaterial(text);
+            // Used to return silently on empty input, which read as a dead button.
+            if (!text.trim()) {
+                showError('Paste some study material first, then tap "Build learning path".');
+                return;
             }
+            // The loading overlay already blocks the screen, but the button keeps its
+            // own state so it is never left looking pressable while work is running.
+            const btn = document.getElementById('submitTextBtn');
+            const label = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Building…';
+            try {
+                await processLearningMaterial(text);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = label;
+            }
+        });
+
+        document.getElementById('courseTitle').addEventListener('click', async () => {
+            if (!activeCourseId || !courseData) return;
+            await promptRename(activeCourseId, courseData.courseName);
         });
 
         document.getElementById('startReviewBtn').addEventListener('click', startReviewSession);
 
-        document.getElementById('resetBtn').addEventListener('click', () => {
+        document.getElementById('resetBtn').addEventListener('click', async () => {
             if (!activeCourseId) return;
-            if (confirm('Reset your progress in this course? The course itself is kept.')) {
+            // Name the course — "are you sure?" with no subject is how people reset
+            // the wrong one.
+            const ok = await uiConfirm(
+                `Reset your progress in "${courseData?.courseName || 'this course'}"?`,
+                'Every lesson goes back to locked. The course and its lessons are kept, so nothing has to be generated again.',
+                { confirmText: 'Reset progress', danger: true });
+            if (ok) {
                 progress = {};
                 saveProgress();
                 displayLearningPath();
+                toast('Progress reset');
             }
         });
 
@@ -2571,9 +2817,10 @@ ${languageRule()}`;
             }
         });
 
-        document.getElementById('tutorToggle').addEventListener('click', () => {
+        document.getElementById('tutorToggle').addEventListener('click', (e) => {
             const panel = document.getElementById('tutorPanel');
             panel.hidden = !panel.hidden;
+            e.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
             if (!panel.hidden) {
                 renderTutorActions();
                 document.getElementById('tutorQuestion').focus();
@@ -2586,12 +2833,27 @@ ${languageRule()}`;
         });
 
         // ============= Auth =============
+        // Released on close: puts focus back on whatever opened the modal.
+        let authModalRelease = null;
+
         function showAuthModal(mode = 'signin') {
-            document.getElementById('authModal').classList.add('active');
+            const modal = document.getElementById('authModal');
+            if (modal.classList.contains('active')) { setAuthMode(mode); return; }
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
             setAuthMode(mode);
+            lockBodyScroll(true);
+            // Land on the email field, not on the close button — the first thing
+            // asked for should be the first thing focused.
+            authModalRelease = trapFocus(modal.querySelector('.modal-content'),
+                document.getElementById('authEmail'));
         }
         function hideAuthModal() {
-            document.getElementById('authModal').classList.remove('active');
+            const modal = document.getElementById('authModal');
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            lockBodyScroll(false);
+            if (authModalRelease) { authModalRelease(); authModalRelease = null; }
         }
         function setAuthMode(mode) {
             const isUp = mode === 'signup';
@@ -2608,6 +2870,9 @@ ${languageRule()}`;
             const pwInput = document.getElementById('authPassword');
             const pwToggle = document.getElementById('authPasswordToggle');
             pwInput.type = 'password';
+            // Signing up needs a *new* password: with current-password the manager
+            // offers the old one instead of generating a strong one.
+            pwInput.autocomplete = isUp ? 'new-password' : 'current-password';
             pwToggle.innerHTML = ICONS.eye;
             pwToggle.setAttribute('aria-label', 'Show password');
 
@@ -2618,7 +2883,8 @@ ${languageRule()}`;
         // Placeholder until Stripe is wired in — the entitlement check server-side
         // already works, this just needs a real checkout link.
         function showUpgradePrompt() {
-            alert("Your free trial has ended. Paid subscriptions are coming soon — check back shortly!");
+            uiAlert('Paid subscriptions are coming soon — check back shortly. Your courses and progress are all still here in the meantime.',
+                'Your free trial has ended');
         }
 
         // Set by any gated action (building a course, opening the library, etc.)
@@ -2630,7 +2896,7 @@ ${languageRule()}`;
         let pendingAction = null;
 
         async function runPendingAction(action) {
-            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title);
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName);
             if (action.type === 'showLibrary') return showLibrary();
         }
 
@@ -2777,6 +3043,12 @@ ${languageRule()}`;
             if (e.key === 'Enter') submitAuth();
         });
 
+        // Enter from the email field moved nowhere, so the form felt unfinishable
+        // from the keyboard. It now advances to the password.
+        document.getElementById('authEmail').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); document.getElementById('authPassword').focus(); }
+        });
+
         document.getElementById('authPasswordToggle').addEventListener('click', () => {
             const input = document.getElementById('authPassword');
             const btn = document.getElementById('authPasswordToggle');
@@ -2816,18 +3088,14 @@ ${languageRule()}`;
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
         };
-        window.__diagPush('main script: about to fill static icons, ICONS keys=' + Object.keys(ICONS).length);
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = ICONS[icon];
         });
-        window.__diagPush('main script: static icons filled');
 
         (async () => {
             try {
-                window.__diagPush('init: calling getSession');
                 const { data: { session } } = await supabaseClient.auth.getSession();
-                window.__diagPush('init: getSession resolved, hasSession=' + !!session);
                 if (session?.user) {
                     try {
                         const raw = sessionStorage.getItem('pending_action');
@@ -2837,12 +3105,15 @@ ${languageRule()}`;
                         }
                     } catch (_) {}
                     await onSignedIn(session.user);
-                    window.__diagPush('init: onSignedIn done');
                 } else {
                     showAnonymousHome();
-                    window.__diagPush('init: showAnonymousHome done');
                 }
             } catch (e) {
-                window.__diagPush('init: THREW -> ' + (e && (e.stack || e.message) || e));
+                console.error('init failed:', e);
             }
         })();
+
+        // Last statement in the file. index.html watches for this: every icon and
+        // every button listener is registered above, so if this never runs the page
+        // is half-wired and says so instead of looking fine and doing nothing.
+        window.__appBooted = true;

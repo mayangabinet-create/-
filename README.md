@@ -1,9 +1,11 @@
 # AI Learning Path
 
-A single self-contained `index.html` file, in Duolingo's visual language — no build
-step, no framework. Sign in, upload a PDF (or paste text), and the app turns it into a
-Duolingo-style learning path: 10-20 concepts extracted and ordered by prerequisite,
-each opening a multi-step interactive lesson grounded in your own document.
+Two files — `index.html` (markup + styles) and `app.js` — in Duolingo's visual
+language, with no build step and no framework. Sign in, name your course, upload a
+PDF (or paste text), and the app turns it into a Duolingo-style learning path: 10-20
+concepts extracted and ordered by prerequisite, each opening a multi-step interactive
+lesson grounded in your own document. Courses can be renamed any time, from the card
+in your library or by tapping the title above the path.
 
 ## Quick start
 
@@ -42,7 +44,7 @@ out; doing poorly resets it to a daily review.
 
 ## Architecture
 
-The frontend is one HTML file (`<style>`, `<body>`, `<script>` — vanilla JS, no
+The frontend is `index.html` (`<style>` + markup) plus `app.js` (vanilla JS, no
 framework or build step), backed by a real Supabase project ("Mayan ai app",
 `kgkdkkqoebnpahvetwzk`):
 

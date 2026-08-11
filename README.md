@@ -72,20 +72,34 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
   spaced repetition, and path rendering all read/write are unchanged — only the
   persistence layer underneath them moved.
 - **`ai-proxy` Edge Function** — holds the real Anthropic key as a project secret,
-  checks the caller has an active subscription or trial, enforces a per-user daily call
-  cap (50 trialing / 200 active — a cost backstop, since one dev-held key now pays for
-  every user's calls), then forwards the request to a fixed server-side model. The
-  client can never pick a pricier model or bypass the cap.
+  checks the caller has an active subscription or trial, then applies that account's
+  tier before forwarding to Anthropic. Every limit is a server-side clamp, not a
+  request the client makes: the model, the number of concepts a course gets, how much
+  of the document is read, and the monthly course/lesson quota are all rewritten from
+  the `subscriptions` row. A modified client can send anything it likes and still gets
+  its own tier's answer.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
+
+## Tiers
+
+Held in `PLANS` in the Edge Function; `subscriptions.plan` picks the row, and an
+unrecognised value falls back to `basic` rather than the largest tier.
+
+| | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | model |
+|---|---|---|---|---|---|
+| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | Haiku |
+| basic | 3 | 10 | 5,000 | 2,400 | Haiku |
+| pro | 5 | 12 | 40,000 | 8,000 | Sonnet |
+| max | 8 | 15 | 120,000 | 16,000 | Opus plans, Sonnet writes |
 
 ## Cost model
 
-Model and limits are per plan, decided server-side (`trial`/`basic` on Haiku, `pro` on
-Sonnet, `max` plans with Opus and writes with Sonnet). One lesson ≈ $0.01. Lessons are
-cached after first generation, so replaying or exiting and coming back is free. The
-Account tab shows cumulative spend, call count, and this month's course/lesson quota,
-read from `ai_usage` and `subscriptions` — the same numbers `ai-proxy` meters against,
-so running out is visible before it happens rather than only at the moment a build fails.
+One Haiku lesson ≈ $0.01; the higher tiers cost more per lesson because they run on
+larger models and read more of the document. Lessons are cached after first
+generation, so replaying or exiting and coming back is free. The Account tab shows
+cumulative spend, call count, and this month's course/lesson quota, read from
+`ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
+out is visible before it happens rather than only when a build is refused.
 
 ## What's not done yet
 
@@ -95,5 +109,18 @@ so running out is visible before it happens rather than only at the moment a bui
   what still works without it — it just can't take money. Once a Stripe account and
   price exist, this needs a checkout Edge Function and a webhook that updates `subscriptions` on
   `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
+- **The client sizes every request as if it were Basic.** `app.js` now reads
+  `subscriptions` at sign-in and mirrors the tier table in `PLAN_LIMITS`, but that copy
+  is display only — it drives the Account page's quota meters and the warning before an
+  upload, nothing about the request itself. A course call still sends a fixed 5,000
+  chars of the document and a lesson a fixed 2,400-char excerpt. The server clamps
+  *down* to the tier, so nobody can take more than they paid for — but nobody can take
+  more than Basic either, because the client already cut the document to Basic's size
+  before the request left the browser. Pro and Max currently buy a bigger model reading
+  a Basic-sized document. This has to be fixed before anyone is charged for those tiers:
+  size `readChars`/`EXCERPT_BUDGET`/`MAX_COURSES` from `PLAN_LIMITS` instead of hardcoding them.
+- **Tier verification against a live account.** `tests/tier-checks.js` covers the two
+  things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
+  and that each tier really returns 10/12/15 concepts. Run it before enabling payments.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.

@@ -17,6 +17,15 @@ in your library or by tapping the title above the path.
 There's no API key to paste in. Every account gets a 14-day free trial automatically;
 subscribing after that isn't wired up yet (see below).
 
+## Signing in happens last
+
+Nothing asks for an account until there is something to save. A visitor picks a PDF
+(read in the browser by pdf.js — no server involved), lands on a staging screen showing
+the source, its word count and a name field, and only then does "Create free account &
+build" appear, explaining what the account is for. The Courses tab shows an invitation
+rather than a login form, and the Review tab explains itself instead of interrupting.
+The staged material survives signing in from anywhere, so nothing is retyped.
+
 ## What a lesson contains
 
 Hook → prediction → concept cards → worked example → guided practice → a mixed-format
@@ -67,6 +76,14 @@ Model: `claude-haiku-4-5`, fixed server-side. One lesson ≈ $0.01. Lessons are 
 after first generation, so replaying or exiting and coming back is free. A usage badge
 in the header shows the signed-in user's cumulative spend and call count, read from
 `ai_usage`.
+
+## Sending the code out for review
+
+There is no public URL to hand over: GitHub Pages has never been enabled for this repo
+(see below), so a link to the site fetches nothing. Two files are the whole frontend —
+`index.html` and `app.js`, about 215 KB together — so attaching or pasting both is the
+reliable way to get a second opinion from another tool. Once Pages is on, the live URL
+still only shows the rendered page; a reviewer needs `app.js` to say anything useful.
 
 ## What's not done yet
 

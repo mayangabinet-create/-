@@ -594,6 +594,27 @@ ${languageRule()}`;
             overlay.setAttribute('aria-hidden', 'true');
         }
 
+        // One place decides which main screen is showing. Every caller used to
+        // toggle two or three elements by hand, so adding a screen meant finding all
+        // of them — which is how one ends up visible underneath another.
+        // Streak/gems/XP and the spend badge only mean something once there's an
+        // account behind them; signed out they are three zeros taking up the top of
+        // the screen.
+        function setHeaderStatsVisible(on) {
+            document.getElementById('duoHud').hidden = !on;
+            document.getElementById('usageBadge').hidden = !on;
+        }
+
+        function setMainScreen(name) {
+            // Lets CSS reclaim header space on the path screen, where the tagline is
+            // just repeating what the user already did.
+            document.body.classList.toggle('on-path', name === 'path');
+            document.getElementById('sourcePicker').hidden = name !== 'source';
+            document.getElementById('readyScreen').hidden = name !== 'ready';
+            document.getElementById('libraryScreen').hidden = name !== 'library';
+            document.getElementById('learningPath').classList.toggle('active', name === 'path');
+        }
+
         function prefersReducedMotion() {
             return window.matchMedia &&
                 window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -781,8 +802,7 @@ ${languageRule()}`;
             hideMessage();
             closeLessonScreen();
             closePreview();
-            document.getElementById('learningPath').classList.remove('active');
-            document.getElementById('sourcePicker').hidden = false;
+            setMainScreen('source');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
         }
 
@@ -806,7 +826,46 @@ ${languageRule()}`;
                 showError("No text found in that file. It may be a scanned PDF with no text layer.");
                 return;
             }
-            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''));
+            hideMessage();
+            stageMaterial(text, file.name.replace(/\.[^/.]+$/, ''), file.name);
+        }
+
+        // ---- Staging: the last step that still works signed out ----
+        // Reading the PDF happens in the browser, so a visitor can get all the way to
+        // a named, ready-to-build course before an account is mentioned. Slamming the
+        // sign-in modal up the instant someone taps "upload" asks them to commit
+        // before they have seen anything work.
+        let stagedMaterial = null;
+
+        function stageMaterial(text, title, sourceLabel) {
+            stagedMaterial = { text, title, sourceLabel };
+            const words = text.trim().split(/\s+/).length;
+
+            document.getElementById('readySourceIcon').innerHTML = ICONS.file;
+            document.getElementById('readySourceName').textContent = sourceLabel;
+            document.getElementById('readySourceMeta').textContent =
+                `${words.toLocaleString()} words · ready to build`;
+
+            const nameInput = document.getElementById('courseNameInput');
+            nameInput.placeholder = title ? title : 'e.g. Biology — Chapter 4';
+
+            refreshReadyCta();
+            setMainScreen('ready');
+            setActiveNav('home');
+        }
+
+        // The call to action changes with sign-in state, but the screen does not —
+        // the work already done stays on screen either way.
+        function refreshReadyCta() {
+            const btn = document.getElementById('readyBuildBtn');
+            const note = document.getElementById('readyNote');
+            if (currentUser) {
+                btn.textContent = 'Build my course';
+                note.textContent = 'Takes about a minute. You can rename it any time.';
+            } else {
+                btn.textContent = 'Create free account & build';
+                note.textContent = 'Free for 14 days, no card needed. Your material is already loaded — signing up just gives it somewhere to live.';
+            }
         }
 
         // A course name has to contain something readable. A filename like "-.pdf",
@@ -831,7 +890,10 @@ ${languageRule()}`;
             // actually requires an account. Resume automatically after sign-up.
             if (!currentUser) {
                 pendingAction = { type: 'buildCourse', text, title, chosenName };
-                showAuthModal('signup');
+                const named = chosenName || cleanTitle(title);
+                showAuthModal('signup', named
+                    ? `Your material is ready. Create a free account and "${named}" gets built and saved straight away.`
+                    : 'Your material is ready. Create a free account and your course gets built and saved straight away.');
                 return;
             }
             showMessage("Generating a personalised learning path...");
@@ -859,9 +921,7 @@ ${languageRule()}`;
                 localStorage.setItem(ACTIVE_STORAGE, id);
 
                 applyContentDirection();
-                document.getElementById('sourcePicker').hidden = true;
-                document.getElementById('libraryScreen').hidden = true;
-                document.getElementById('learningPath').classList.add('active');
+                setMainScreen('path');
                 displayLearningPath();
                 // Land on the path, not inside a lesson. The user picks where to start.
             } finally {
@@ -874,10 +934,11 @@ ${languageRule()}`;
         // underlying course/progress data has no notion of units.
         const UNIT_SIZE = 5;
         const UNIT_COLORS = ['#58CC02', '#1CB0F6', '#CE82FF', '#FF9600', '#FF4B4B'];
+        // Horizontal offsets for the winding path, one six-node cycle.
+        const PATH_CURVE = [0, 64, 88, 64, -64, -88];
 
         function displayLearningPath() {
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('learningPath').classList.add('active');
+            setMainScreen('path');
             setActiveNav('home');
 
             // Update stats
@@ -912,6 +973,9 @@ ${languageRule()}`;
 
                 const node = document.createElement('div');
                 node.className = 'lesson-node';
+                // Offset from the lesson's own index, so the unit banners sitting in
+                // this same column can't shift the curve out of phase.
+                node.style.setProperty('--node-dx', `${PATH_CURVE[index % PATH_CURVE.length]}px`);
                 node.classList.add('locked');
                 if (isCheckpoint) node.classList.add('checkpoint');
 
@@ -1044,7 +1108,7 @@ ${languageRule()}`;
                 result: null,
             };
 
-            document.getElementById('sourcePicker').hidden = true;
+            setMainScreen('path');
             document.getElementById('lessonXpBadge').textContent = `${items.length} questions`;
             document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">${ICONS.refresh} Spaced repetition</span>`;
             applyContentDirection();
@@ -1610,9 +1674,7 @@ ${languageRule()}`;
             localStorage.setItem(ACTIVE_STORAGE, id);
 
             applyContentDirection();
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('learningPath').classList.add('active');
+            setMainScreen('path');
             displayLearningPath();
             return true;
         }
@@ -1628,6 +1690,8 @@ ${languageRule()}`;
             const grid = document.getElementById('libraryGrid');
             const empty = document.getElementById('libraryEmpty');
             const count = document.getElementById('libraryCount');
+            // Undo whatever renderSignedOutLibrary() hid.
+            document.getElementById('newCourseBtn').hidden = false;
 
             count.textContent = `${library.length} of ${MAX_COURSES}`;
             empty.hidden = library.length > 0;
@@ -1681,16 +1745,32 @@ ${languageRule()}`;
 
         async function showLibrary() {
             if (!currentUser) {
-                pendingAction = { type: 'showLibrary' };
-                showAuthModal('signin');
+                // Show the screen with an invitation on it rather than throwing a
+                // login form in front of someone who only tapped a tab.
+                renderSignedOutLibrary();
+                setMainScreen('library');
+                setActiveNav('courses');
                 return;
             }
             await loadLibrary();
             renderLibrary();
-            document.getElementById('libraryScreen').hidden = false;
-            document.getElementById('sourcePicker').hidden = true;
-            document.getElementById('learningPath').classList.remove('active');
+            setMainScreen('library');
             setActiveNav('courses');
+        }
+
+        function renderSignedOutLibrary() {
+            document.getElementById('libraryCount').textContent = '';
+            document.getElementById('libraryEmpty').hidden = true;
+            document.getElementById('newCourseBtn').hidden = true;
+            document.getElementById('libraryGrid').innerHTML = `
+                <div class="signin-card">
+                    <div class="signin-card-icon">${ICONS.book}</div>
+                    <p>Your courses live here once you have an account. Building one is
+                       free for 14 days and takes about a minute.</p>
+                    <button class="button" id="librarySignInBtn">Sign in or sign up</button>
+                </div>`;
+            document.getElementById('librarySignInBtn').onclick = () =>
+                showAuthModal('signin', 'Sign in to see the courses saved to your account.');
         }
 
         function showNewCourse() {
@@ -1698,10 +1778,8 @@ ${languageRule()}`;
                 showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
                 return;
             }
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('sourcePicker').hidden = false;
+            setMainScreen('source');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
-            document.getElementById('learningPath').classList.remove('active');
             setActiveNav('home');
         }
 
@@ -2214,8 +2292,7 @@ ${languageRule()}`;
                     result: null
                 };
 
-                document.getElementById('sourcePicker').hidden = true;
-                document.getElementById('learningPath').classList.add('active');
+                setMainScreen('path');
 
                 // Max possible: base + 10 per gradeable question + perfect-run bonus.
                 const gradeable = (lesson.quiz?.length || 0)
@@ -2705,15 +2782,11 @@ ${languageRule()}`;
 
         document.getElementById('navHome').addEventListener('click', async () => {
             if (activeCourseId && courseData) {
-                document.getElementById('libraryScreen').hidden = true;
-                document.getElementById('sourcePicker').hidden = true;
                 displayLearningPath();
             } else if (library.length) {
                 await showLibrary();
             } else {
-                document.getElementById('libraryScreen').hidden = true;
-                document.getElementById('learningPath').classList.remove('active');
-                document.getElementById('sourcePicker').hidden = false;
+                setMainScreen('source');
                 setActiveNav('home');
             }
         });
@@ -2721,7 +2794,12 @@ ${languageRule()}`;
         document.getElementById('navCourses').addEventListener('click', showLibrary);
 
         document.getElementById('navReview').addEventListener('click', () => {
-            if (!currentUser) { showAuthModal('signin'); return; }
+            if (!currentUser) {
+                toast('Reviews come with an account — build a course first', 'error');
+                setMainScreen('source');
+                setActiveNav('home');
+                return;
+            }
             if (!activeCourseId) { showError('Open a course first.'); return; }
             if (!getDueLessons().length) { showError('Nothing is due for review right now.'); return; }
             setActiveNav('review');
@@ -2729,7 +2807,10 @@ ${languageRule()}`;
         });
 
         document.getElementById('navAccount').addEventListener('click', async () => {
-            if (!currentUser) { showAuthModal('signin'); return; }
+            if (!currentUser) {
+                showAuthModal('signin', 'Sign in to keep your courses and progress across devices.');
+                return;
+            }
             const out = await uiConfirm('Account', `Signed in as ${currentUser.email}.`,
                 { confirmText: 'Sign out', danger: true });
             if (out) {
@@ -2749,18 +2830,33 @@ ${languageRule()}`;
                 showError('Paste some study material first, then tap "Build learning path".');
                 return;
             }
-            // The loading overlay already blocks the screen, but the button keeps its
-            // own state so it is never left looking pressable while work is running.
-            const btn = document.getElementById('submitTextBtn');
+            stageMaterial(text, '', 'Pasted text');
+        });
+
+        document.getElementById('readyBuildBtn').addEventListener('click', async () => {
+            if (!stagedMaterial) { setMainScreen('source'); return; }
+            const btn = document.getElementById('readyBuildBtn');
             const label = btn.textContent;
             btn.disabled = true;
-            btn.textContent = 'Building…';
             try {
-                await processLearningMaterial(text);
+                await processLearningMaterial(stagedMaterial.text, stagedMaterial.title);
             } finally {
                 btn.disabled = false;
                 btn.textContent = label;
             }
+        });
+
+        document.getElementById('readyBackBtn').addEventListener('click', () => {
+            stagedMaterial = null;
+            document.getElementById('courseNameInput').value = '';
+            document.getElementById('textInput').value = '';
+            setMainScreen('source');
+            setActiveNav('home');
+        });
+
+        // Enter in the name field is the same as pressing Build.
+        document.getElementById('courseNameInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); document.getElementById('readyBuildBtn').click(); }
         });
 
         document.getElementById('courseTitle').addEventListener('click', async () => {
@@ -2836,8 +2932,11 @@ ${languageRule()}`;
         // Released on close: puts focus back on whatever opened the modal.
         let authModalRelease = null;
 
-        function showAuthModal(mode = 'signin') {
+        function showAuthModal(mode = 'signin', reason = '') {
             const modal = document.getElementById('authModal');
+            const reasonEl = document.getElementById('authReason');
+            reasonEl.textContent = reason;
+            reasonEl.hidden = !reason;
             if (modal.classList.contains('active')) { setAuthMode(mode); return; }
             modal.classList.add('active');
             modal.setAttribute('aria-hidden', 'false');
@@ -2905,6 +3004,7 @@ ${languageRule()}`;
             document.getElementById('userEmail').textContent = user.email;
             document.getElementById('userBadge').hidden = false;
             document.getElementById('signInPromptBtn').hidden = true;
+            setHeaderStatsVisible(true);
             hideAuthModal();
 
             if (pendingAction) {
@@ -2918,20 +3018,28 @@ ${languageRule()}`;
             try {
                 await refreshUsage();
                 await loadLibrary();
+                // Signed in from the header while material was staged: keep that
+                // screen, just swap the call to action. Sending them to their library
+                // now would throw away the file they already picked.
+                if (stagedMaterial) {
+                    refreshReadyCta();
+                    setMainScreen('ready');
+                    return;
+                }
                 const lastId = localStorage.getItem(ACTIVE_STORAGE);
                 if (lastId && library.some(c => c.id === lastId)) {
                     await openCourse(lastId);
                 } else if (library.length) {
                     await showLibrary();
                 } else {
-                    document.getElementById('sourcePicker').hidden = false;
+                    setMainScreen('source');
                 }
             } catch (e) {
                 // Signed in successfully, but loading their data failed. Never
                 // leave them staring at a blank screen with no explanation.
                 console.error('Post-signin load failed:', e);
                 showError('Signed in, but something went wrong loading your courses. Try refreshing the page.');
-                document.getElementById('sourcePicker').hidden = false;
+                setMainScreen('source');
             }
         }
 
@@ -2946,11 +3054,11 @@ ${languageRule()}`;
             activeSourceText = '';
             library = [];
             pendingAction = null;
+            stagedMaterial = null;
             document.getElementById('userBadge').hidden = true;
             document.getElementById('signInPromptBtn').hidden = false;
-            document.getElementById('libraryScreen').hidden = true;
-            document.getElementById('learningPath').classList.remove('active');
-            document.getElementById('sourcePicker').hidden = false;
+            setHeaderStatsVisible(false);
+            setMainScreen('source');
             hideAuthModal();
             setActiveNav('home');
         }

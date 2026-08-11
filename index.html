@@ -65,8 +65,10 @@
             --duo-purple-dark: #A568C9;
             --duo-orange: #FF9600;
             --duo-orange-dark: #E08600;
-            --duo-bg: #F7F7F7;
+            --duo-bg: #F5F7F9;
             --duo-card: #FFFFFF;
+            --duo-shadow: 0 1px 2px rgba(23, 43, 58, 0.04), 0 4px 12px rgba(23, 43, 58, 0.06);
+            --duo-shadow-lift: 0 2px 4px rgba(23, 43, 58, 0.05), 0 8px 24px rgba(23, 43, 58, 0.09);
             --duo-border: #E5E5E5;
             --duo-border-dark: #CFCFCF;
             --duo-text: #3C3C3C;
@@ -131,17 +133,25 @@
         header {
             flex: none;
             text-align: center;
-            margin: 0 0 12px;
+            margin: 0 0 16px;
             animation: fadeIn 0.6s ease;
         }
 
         h1 {
             font-family: 'Baloo 2', 'Nunito', sans-serif;
-            font-size: 1.6em;
+            font-size: 1.45em;
             font-weight: 800;
             color: var(--duo-green-dark);
             margin-bottom: 2px;
+            letter-spacing: -0.01em;
         }
+
+        /* On the path screen the tagline and the big title are dead weight — the
+           path itself needs the vertical space far more. */
+        body.on-path .subtitle { display: none; }
+        body.on-path h1 { font-size: 1.15em; }
+        body.on-path header { margin-bottom: 10px; }
+        body.on-path .usage-badge { margin-top: 8px; }
 
         .subtitle {
             color: var(--duo-text-light);
@@ -281,13 +291,19 @@
 
         /* Unit banners — colorful section headers dropped along the path */
         .unit-banner {
+            position: relative;
+            z-index: 1;
+            align-self: stretch;
             color: #fff;
             border-radius: 16px;
             padding: 16px 22px;
-            margin: 0 auto 34px;
+            margin: 0 auto 12px;
+            width: 100%;
             max-width: 380px;
             box-shadow: 0 4px 0 rgba(0,0,0,0.15);
         }
+        /* First banner sits flush with the top of the path. */
+        .lesson-path > .unit-banner:first-child { margin-top: 0; }
         .unit-banner-label {
             font-family: 'Baloo 2', sans-serif;
             font-size: 0.78em;
@@ -337,13 +353,13 @@
             align-items: center;
         }
 
-        /* A gentle S-curve: alternate horizontal offsets, six-node cycle */
-        .lesson-node:nth-child(6n+2) { transform: translateX(64px); }
-        .lesson-node:nth-child(6n+3) { transform: translateX(88px); }
-        .lesson-node:nth-child(6n+4) { transform: translateX(64px); }
-        .lesson-node:nth-child(6n+5) { transform: translateX(-64px); }
-        .lesson-node:nth-child(6n+6) { transform: translateX(-88px); }
-        .lesson-node:nth-child(6n+7) { transform: translateX(-64px); }
+        /* A gentle S-curve. The offset used to come from :nth-child(6n+k), but the
+           unit banners are siblings in this same column, so every banner shifted the
+           whole cycle and the curve drifted. app.js now sets --node-dx from the
+           lesson's own index, which banners can't disturb. --curve scales it down on
+           narrow screens. */
+        .lesson-path { --curve: 1; }
+        .lesson-node { transform: translateX(calc(var(--node-dx, 0px) * var(--curve))); }
 
         /* The physical button: flat colour + a solid "3D" bottom edge, no gradients */
         .lesson-circle {
@@ -493,10 +509,7 @@
         }
 
         @media (max-width: 768px) {
-            .lesson-node:nth-child(6n+2), .lesson-node:nth-child(6n+4) { transform: translateX(36px); }
-            .lesson-node:nth-child(6n+3) { transform: translateX(50px); }
-            .lesson-node:nth-child(6n+5), .lesson-node:nth-child(6n+7) { transform: translateX(-36px); }
-            .lesson-node:nth-child(6n+6) { transform: translateX(-50px); }
+            .lesson-path { --curve: 0.56; }
             .path-container { padding: 30px 8px 40px; }
         }
 
@@ -510,6 +523,35 @@
         }
 
         .source-picker { animation: slideUp 0.6s ease 0.1s both; }
+
+        /* ---- Ready to build ---- */
+        .ready-screen { animation: slideUp 0.4s ease both; }
+        .ready-source {
+            display: flex; align-items: center; gap: 14px;
+            padding: 18px;
+            background: var(--duo-card);
+            border: 1px solid var(--duo-border);
+            border-radius: 16px;
+            box-shadow: var(--duo-shadow);
+            margin-bottom: 20px;
+        }
+        .ready-source-icon {
+            flex: none; width: 46px; height: 46px; border-radius: 12px;
+            display: grid; place-items: center;
+            background: #EAF8FF; color: var(--duo-blue-dark); font-size: 1.4em;
+        }
+        .ready-source-text { min-width: 0; }
+        .ready-source-name {
+            font-family: 'Baloo 2', sans-serif; font-weight: 700;
+            color: var(--duo-text); font-size: 1.02em; line-height: 1.3;
+            overflow-wrap: anywhere;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        }
+        .ready-source-meta { color: var(--duo-text-light); font-size: 0.82em; font-weight: 600; margin-top: 3px; }
+        .ready-note {
+            text-align: center; color: var(--duo-text-light);
+            font-size: 0.82em; font-weight: 600; line-height: 1.5; margin-top: 12px;
+        }
 
         /* ---- Course name ---- */
         .field-label {
@@ -678,11 +720,13 @@
         .course-card {
             position: relative; cursor: pointer; padding: 22px 20px;
             background: var(--duo-card);
-            border: 2px solid var(--duo-border); border-bottom: 4px solid var(--duo-border-dark);
+            border: 1px solid var(--duo-border);
             border-radius: 16px;
-            transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1), border-color 0.15s ease;
+            box-shadow: var(--duo-shadow);
+            transition: transform 0.12s cubic-bezier(0.34,1.56,0.64,1),
+                        border-color 0.15s ease, box-shadow 0.15s ease;
         }
-        .course-card:hover { border-color: var(--duo-blue); }
+        .course-card:hover { border-color: var(--duo-blue); box-shadow: var(--duo-shadow-lift); }
         .course-card:active { transform: translateY(2px); border-bottom-width: 2px; }
         .course-delete {
             position: absolute; top: 2px; right: 2px;
@@ -1420,14 +1464,20 @@
         .progress-fill { height: 100%; border-radius: 8px; background: var(--duo-green); transition: width 0.3s ease; }
 
         /* Stats */
-        .stats { flex: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 0; }
+        .stats { flex: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 0; }
         .stat-card {
             background: var(--duo-card);
-            padding: 10px;
+            padding: 9px 10px;
             border-radius: 14px;
             text-align: center;
-            border: 2px solid var(--duo-border);
+            border: 1px solid var(--duo-border);
+            box-shadow: var(--duo-shadow);
         }
+        /* The course name is prose, not a number — it was being squeezed into a
+           quarter-width cell and wrapping to two lines. It gets its own full row. */
+        .stat-card-title { grid-column: 1 / -1; text-align: left; padding: 11px 16px; }
+        .stat-card-title .stat-value-button { text-align: left; font-size: 1.15em; }
+        .stat-card-title .stat-label { margin-top: 4px; }
         .stat-value { font-family: 'Baloo 2', sans-serif; font-size: 1.3em; font-weight: 800; color: var(--duo-green-dark); line-height: 1.2; }
         .stat-label { color: var(--duo-text-light); font-size: 0.78em; margin-top: 2px; font-weight: 600; }
         /* Same declarations as .stat-value — both classes sit on the same element,
@@ -1478,7 +1528,22 @@
             cursor: pointer; display: grid; place-items: center;
         }
         .modal-close:hover { background: var(--duo-bg); color: var(--duo-text); }
-        .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 20px; color: var(--duo-green-dark); }
+        .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 8px; color: var(--duo-green-dark); }
+        .auth-reason {
+            color: var(--duo-text-light); font-weight: 600; font-size: 0.9em;
+            line-height: 1.5; margin-bottom: 18px;
+        }
+        .auth-reason:not([hidden]) + .source-tabs { margin-top: 0; }
+
+        /* Signed-out library: an invitation, not a locked door. */
+        .signin-card {
+            text-align: center; padding: 34px 24px;
+            background: var(--duo-card);
+            border: 2px dashed var(--duo-border-dark);
+            border-radius: 18px;
+        }
+        .signin-card-icon { font-size: 2.2em; color: var(--duo-border-dark); margin-bottom: 12px; }
+        .signin-card p { color: var(--duo-text-light); font-weight: 600; line-height: 1.55; margin-bottom: 20px; }
 
         /* ---- In-app dialog: replaces alert() / confirm() / prompt() ----
            Native dialogs can't be styled, ignore the content's direction, and read
@@ -1493,7 +1558,7 @@
         .dialog-backdrop.active { display: flex; animation: fadeIn 0.2s ease; }
         .dialog-card {
             background: var(--duo-card);
-            border: 2px solid var(--duo-border);
+            border: 1px solid var(--duo-border);
             border-radius: 20px;
             padding: 26px 24px 22px;
             width: 100%; max-width: 400px;
@@ -1549,7 +1614,11 @@
             color: var(--duo-blue-dark); padding: 15px; border-radius: 12px; margin: 20px 0;
         }
 
-        .nav-buttons { flex: none; display: flex; gap: 10px; margin-top: 12px; justify-content: space-between; }
+        .nav-buttons { flex: none; display: flex; gap: 10px; margin-top: 12px; }
+        .nav-buttons .button {
+            flex: 1; padding: 12px 10px; font-size: 0.82em;
+            letter-spacing: 0.01em; white-space: nowrap;
+        }
 
         .reset-button {
             background: var(--duo-card);
@@ -1608,13 +1677,6 @@
 
             <!-- Source picker: two tabs, both reachable at any time -->
             <div id="sourcePicker" class="source-picker">
-                <div class="course-name-field">
-                    <label class="field-label" for="courseNameInput">Course name</label>
-                    <input type="text" id="courseNameInput" class="auth-input" maxlength="80"
-                           placeholder="e.g. Biology — Chapter 4" autocomplete="off" />
-                    <p class="field-hint">Optional. Leave it blank and one is written for you — you can rename it later.</p>
-                </div>
-
                 <div class="source-tabs" role="tablist">
                     <button class="source-tab active" id="tabFile" role="tab" aria-selected="true">Upload a file</button>
                     <button class="source-tab" id="tabPaste" role="tab" aria-selected="false">Paste text</button>
@@ -1630,17 +1692,41 @@
                 <div id="textPasteSection" hidden>
                     <label class="field-label" for="textInput">Study material</label>
                     <textarea id="textInput" class="paste-area" placeholder="Paste your study material here..."></textarea>
-                    <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Build learning path</button>
+                    <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Continue</button>
                 </div>
 
                 <button class="button button-secondary" id="backToLibraryBtn" style="width:100%; margin-top:12px;" hidden>Back to my courses</button>
+            </div>
+
+            <!-- Staging step. Everything up to here works signed out: the PDF is read
+                 in the browser, so a visitor gets all the way to a named, ready course
+                 before an account is ever mentioned. Only generation needs the server. -->
+            <div id="readyScreen" class="ready-screen" hidden>
+                <div class="ready-source">
+                    <span class="ready-source-icon" id="readySourceIcon" aria-hidden="true"></span>
+                    <div class="ready-source-text">
+                        <div class="ready-source-name" id="readySourceName"></div>
+                        <div class="ready-source-meta" id="readySourceMeta"></div>
+                    </div>
+                </div>
+
+                <div class="course-name-field">
+                    <label class="field-label" for="courseNameInput">Course name</label>
+                    <input type="text" id="courseNameInput" class="auth-input" maxlength="80"
+                           placeholder="e.g. Biology — Chapter 4" autocomplete="off" enterkeyhint="go" />
+                    <p class="field-hint">Optional. Leave it blank and one is written for you — you can rename it later.</p>
+                </div>
+
+                <button class="button" id="readyBuildBtn" style="width:100%;">Build my course</button>
+                <p class="ready-note" id="readyNote"></p>
+                <button class="button button-secondary" id="readyBackBtn" style="width:100%; margin-top:10px;">Use different material</button>
             </div>
 
             <!-- Learning Path Section -->
             <div id="learningPath" class="learning-path">
                 <!-- Stats -->
                 <div class="stats">
-                    <div class="stat-card">
+                    <div class="stat-card stat-card-title">
                         <button type="button" class="stat-value stat-value-button" id="courseTitle"
                                 title="Tap to rename this course">Loading...</button>
                         <div class="stat-label">Course · tap to rename</div>
@@ -1777,6 +1863,9 @@
         <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="authTitle">
             <button type="button" class="modal-close" id="authCloseBtn" aria-label="Close"></button>
             <div class="modal-title" id="authTitle">Welcome back</div>
+            <!-- Says what signing in is *for*, set by whatever triggered the modal.
+                 A bare login form gives no reason to fill it in. -->
+            <p class="auth-reason" id="authReason" hidden></p>
             <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
                 <button class="source-tab active" id="authTabIn" role="tab" aria-selected="true">Sign in</button>
                 <button class="source-tab" id="authTabUp" role="tab" aria-selected="false">Sign up</button>

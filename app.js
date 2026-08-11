@@ -634,9 +634,146 @@ ${languageRule()}`;
             });
         }
 
+        // ============= Dialogs & toasts =============
+        // In-app replacements for alert/confirm/prompt. The native ones can't be
+        // styled, ignore the content's direction, block the whole tab, and read as a
+        // browser warning rather than as part of the app.
+
+        const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+        // Keeps focus inside `container` while it's open, and hands focus back to
+        // whatever opened it on close — otherwise a keyboard user tabs into the page
+        // behind the dialog and can never get out.
+        function trapFocus(container, firstFocus) {
+            const restoreTo = document.activeElement;
+            const onKey = (e) => {
+                if (e.key !== 'Tab') return;
+                const items = [...container.querySelectorAll(FOCUSABLE)]
+                    .filter(el => !el.hidden && !el.disabled && el.offsetParent !== null);
+                if (!items.length) return;
+                const first = items[0], last = items[items.length - 1];
+                if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+            };
+            document.addEventListener('keydown', onKey, true);
+            (firstFocus || container.querySelector(FOCUSABLE))?.focus();
+            return () => {
+                document.removeEventListener('keydown', onKey, true);
+                if (restoreTo && document.contains(restoreTo)) restoreTo.focus();
+            };
+        }
+
+        // A dialog is open while its promise is pending; nothing else may open one.
+        let dialogRelease = null;
+
+        function openDialog({ title, body = '', confirmText = 'OK', cancelText = null,
+                              danger = false, input = null, validate = null }) {
+            const backdrop = document.getElementById('dialogBackdrop');
+            const card = document.getElementById('dialogCard');
+            const field = document.getElementById('dialogInput');
+            const errorEl = document.getElementById('dialogError');
+            const confirmBtn = document.getElementById('dialogConfirm');
+            const cancelBtn = document.getElementById('dialogCancel');
+
+            document.getElementById('dialogTitle').textContent = title;
+            document.getElementById('dialogBody').textContent = body;
+            confirmBtn.textContent = confirmText;
+            confirmBtn.classList.toggle('reset-button', danger);
+            card.classList.toggle('dialog-danger', danger);
+            cancelBtn.hidden = cancelText === null;
+            cancelBtn.textContent = cancelText || 'Cancel';
+            errorEl.hidden = true;
+            errorEl.textContent = '';
+
+            const wantsInput = input !== null;
+            field.hidden = !wantsInput;
+            field.value = wantsInput ? input : '';
+            // The dialog carries user content, so it follows the content's direction
+            // rather than the app chrome's — a Hebrew course name must read correctly.
+            card.dir = RTL_LANGUAGES.includes(courseData?.language) ? 'rtl' : 'ltr';
+
+            backdrop.classList.add('active');
+            lockBodyScroll(true);
+
+            return new Promise((resolve) => {
+                const finish = (value) => {
+                    if (!dialogRelease) return;
+                    dialogRelease();
+                    dialogRelease = null;
+                    backdrop.classList.remove('active');
+                    lockBodyScroll(false);
+                    document.removeEventListener('keydown', onKey, true);
+                    confirmBtn.onclick = cancelBtn.onclick = backdrop.onclick = null;
+                    resolve(value);
+                };
+                const submit = () => {
+                    if (!wantsInput) return finish(true);
+                    const problem = validate ? validate(field.value) : null;
+                    if (problem) {
+                        errorEl.textContent = problem;
+                        errorEl.hidden = false;
+                        field.focus();
+                        return;
+                    }
+                    finish(field.value);
+                };
+                const cancel = () => finish(wantsInput ? null : false);
+
+                const onKey = (e) => {
+                    if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
+                    else if (e.key === 'Enter' && (wantsInput || document.activeElement !== cancelBtn)) {
+                        e.preventDefault(); e.stopPropagation(); submit();
+                    }
+                };
+                document.addEventListener('keydown', onKey, true);
+
+                confirmBtn.onclick = submit;
+                cancelBtn.onclick = cancel;
+                // Tapping the dimmed area behind the card cancels, as every other
+                // overlay in this app already does.
+                backdrop.onclick = (e) => { if (e.target === backdrop) cancel(); };
+
+                dialogRelease = trapFocus(card, wantsInput ? field : confirmBtn);
+                if (wantsInput) field.select();
+            });
+        }
+
+        const uiAlert = (body, title = 'Heads up') =>
+            openDialog({ title, body, confirmText: 'Got it' });
+
+        const uiConfirm = (title, body, { confirmText = 'Confirm', danger = false } = {}) =>
+            openDialog({ title, body, confirmText, cancelText: 'Cancel', danger });
+
+        const uiPrompt = (title, value, { validate = null, confirmText = 'Save' } = {}) =>
+            openDialog({ title, input: value || '', confirmText, cancelText: 'Cancel', validate });
+
+        // A modal is open: stop the page behind it from scrolling under the finger.
+        // Counted, because a confirm dialog can open on top of the auth modal — the
+        // inner one closing must not unlock the page while the outer one is still up.
+        let scrollLocks = 0;
+        function lockBodyScroll(on) {
+            scrollLocks = Math.max(0, scrollLocks + (on ? 1 : -1));
+            document.body.style.overflow = scrollLocks > 0 ? 'hidden' : '';
+        }
+
+        // Brief confirmation for things that worked. Never blocks, never covers the
+        // header, disappears on its own.
+        function toast(message, kind = 'success') {
+            const stack = document.getElementById('toastStack');
+            if (!stack) return;
+            const el = document.createElement('div');
+            el.className = `toast toast-${kind}`;
+            el.textContent = message;
+            stack.appendChild(el);
+            setTimeout(() => {
+                el.classList.add('leaving');
+                setTimeout(() => el.remove(), 200);
+            }, 2600);
+        }
+
         function showError(msg) {
-            hideMessage();          // never leave the spinner up behind an alert
-            alert(msg);
+            hideMessage();          // never leave the spinner up behind the dialog
+            uiAlert(msg, 'Something went wrong');
         }
 
         // Return the app to a usable state after any failure.
@@ -650,7 +787,9 @@ ${languageRule()}`;
         }
 
         async function handleFileUpload(file) {
-            showMessage("Reading PDF...");
+            // Name the file being read. "Reading PDF..." after picking the wrong one
+            // from a list of near-identical names gives you nothing to check against.
+            showMessage(`Reading ${file.name}...`);
             let text;
             try {
                 text = await extractConceptsFromPDF(file);
@@ -1418,10 +1557,14 @@ ${languageRule()}`;
 
         // Shared by the library card's rename button and the course title on the path.
         async function promptRename(id, currentTitle) {
-            const next = prompt('Rename this course:', currentTitle || '');
+            const next = await uiPrompt('Rename this course', currentTitle, {
+                // Validated inside the dialog, so a bad name is corrected in place
+                // instead of throwing the user out to a second error dialog.
+                validate: (v) => cleanTitle(v) ? null : 'Enter a name with at least one letter or number.',
+            });
             if (next === null) return;            // cancelled
             if (cleanTitle(next) === cleanTitle(currentTitle)) return;
-            await renameCourse(id, next);
+            if (await renameCourse(id, next)) toast('Course renamed');
         }
 
         async function deleteCourse(id) {
@@ -1522,9 +1665,15 @@ ${languageRule()}`;
                 btn.onclick = async (e) => {
                     e.stopPropagation();
                     const meta = library.find(c => c.id === btn.dataset.del);
-                    if (confirm(`Delete "${meta?.title || 'this course'}"? This cannot be undone.`)) {
+                    const name = meta?.title || 'this course';
+                    const ok = await uiConfirm(
+                        `Delete "${name}"?`,
+                        'The course and all your progress in it are removed. This cannot be undone.',
+                        { confirmText: 'Delete', danger: true });
+                    if (ok) {
                         await deleteCourse(btn.dataset.del);
                         renderLibrary();
+                        toast(`Deleted "${name}"`);
                     }
                 };
             });
@@ -2543,9 +2692,15 @@ ${languageRule()}`;
 
         // ============= Bottom nav =============
         function setActiveNav(name) {
-            document.querySelectorAll('.bottom-nav-item').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.bottom-nav-item').forEach(b => {
+                b.classList.remove('active');
+                // The green tint alone carries the "you are here" state; without
+                // aria-current a screen reader hears four identical tabs.
+                b.removeAttribute('aria-current');
+            });
             const map = { home: 'navHome', courses: 'navCourses', review: 'navReview', account: 'navAccount' };
-            document.getElementById(map[name])?.classList.add('active');
+            const el = document.getElementById(map[name]);
+            if (el) { el.classList.add('active'); el.setAttribute('aria-current', 'page'); }
         }
 
         document.getElementById('navHome').addEventListener('click', async () => {
@@ -2575,7 +2730,9 @@ ${languageRule()}`;
 
         document.getElementById('navAccount').addEventListener('click', async () => {
             if (!currentUser) { showAuthModal('signin'); return; }
-            if (confirm(`Signed in as ${currentUser.email}. Sign out?`)) {
+            const out = await uiConfirm('Account', `Signed in as ${currentUser.email}.`,
+                { confirmText: 'Sign out', danger: true });
+            if (out) {
                 await supabaseClient.auth.signOut();
             }
         });
@@ -2592,7 +2749,18 @@ ${languageRule()}`;
                 showError('Paste some study material first, then tap "Build learning path".');
                 return;
             }
-            await processLearningMaterial(text);
+            // The loading overlay already blocks the screen, but the button keeps its
+            // own state so it is never left looking pressable while work is running.
+            const btn = document.getElementById('submitTextBtn');
+            const label = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Building…';
+            try {
+                await processLearningMaterial(text);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = label;
+            }
         });
 
         document.getElementById('courseTitle').addEventListener('click', async () => {
@@ -2602,12 +2770,19 @@ ${languageRule()}`;
 
         document.getElementById('startReviewBtn').addEventListener('click', startReviewSession);
 
-        document.getElementById('resetBtn').addEventListener('click', () => {
+        document.getElementById('resetBtn').addEventListener('click', async () => {
             if (!activeCourseId) return;
-            if (confirm('Reset your progress in this course? The course itself is kept.')) {
+            // Name the course — "are you sure?" with no subject is how people reset
+            // the wrong one.
+            const ok = await uiConfirm(
+                `Reset your progress in "${courseData?.courseName || 'this course'}"?`,
+                'Every lesson goes back to locked. The course and its lessons are kept, so nothing has to be generated again.',
+                { confirmText: 'Reset progress', danger: true });
+            if (ok) {
                 progress = {};
                 saveProgress();
                 displayLearningPath();
+                toast('Progress reset');
             }
         });
 
@@ -2642,9 +2817,10 @@ ${languageRule()}`;
             }
         });
 
-        document.getElementById('tutorToggle').addEventListener('click', () => {
+        document.getElementById('tutorToggle').addEventListener('click', (e) => {
             const panel = document.getElementById('tutorPanel');
             panel.hidden = !panel.hidden;
+            e.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
             if (!panel.hidden) {
                 renderTutorActions();
                 document.getElementById('tutorQuestion').focus();
@@ -2657,12 +2833,27 @@ ${languageRule()}`;
         });
 
         // ============= Auth =============
+        // Released on close: puts focus back on whatever opened the modal.
+        let authModalRelease = null;
+
         function showAuthModal(mode = 'signin') {
-            document.getElementById('authModal').classList.add('active');
+            const modal = document.getElementById('authModal');
+            if (modal.classList.contains('active')) { setAuthMode(mode); return; }
+            modal.classList.add('active');
+            modal.setAttribute('aria-hidden', 'false');
             setAuthMode(mode);
+            lockBodyScroll(true);
+            // Land on the email field, not on the close button — the first thing
+            // asked for should be the first thing focused.
+            authModalRelease = trapFocus(modal.querySelector('.modal-content'),
+                document.getElementById('authEmail'));
         }
         function hideAuthModal() {
-            document.getElementById('authModal').classList.remove('active');
+            const modal = document.getElementById('authModal');
+            modal.classList.remove('active');
+            modal.setAttribute('aria-hidden', 'true');
+            lockBodyScroll(false);
+            if (authModalRelease) { authModalRelease(); authModalRelease = null; }
         }
         function setAuthMode(mode) {
             const isUp = mode === 'signup';
@@ -2679,6 +2870,9 @@ ${languageRule()}`;
             const pwInput = document.getElementById('authPassword');
             const pwToggle = document.getElementById('authPasswordToggle');
             pwInput.type = 'password';
+            // Signing up needs a *new* password: with current-password the manager
+            // offers the old one instead of generating a strong one.
+            pwInput.autocomplete = isUp ? 'new-password' : 'current-password';
             pwToggle.innerHTML = ICONS.eye;
             pwToggle.setAttribute('aria-label', 'Show password');
 
@@ -2689,7 +2883,8 @@ ${languageRule()}`;
         // Placeholder until Stripe is wired in — the entitlement check server-side
         // already works, this just needs a real checkout link.
         function showUpgradePrompt() {
-            alert("Your free trial has ended. Paid subscriptions are coming soon — check back shortly!");
+            uiAlert('Paid subscriptions are coming soon — check back shortly. Your courses and progress are all still here in the meantime.',
+                'Your free trial has ended');
         }
 
         // Set by any gated action (building a course, opening the library, etc.)
@@ -2846,6 +3041,12 @@ ${languageRule()}`;
         document.getElementById('authSubmitBtn').addEventListener('click', submitAuth);
         document.getElementById('authPassword').addEventListener('keypress', (e) => {
             if (e.key === 'Enter') submitAuth();
+        });
+
+        // Enter from the email field moved nowhere, so the form felt unfinishable
+        // from the keyboard. It now advances to the password.
+        document.getElementById('authEmail').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); document.getElementById('authPassword').focus(); }
         });
 
         document.getElementById('authPasswordToggle').addEventListener('click', () => {

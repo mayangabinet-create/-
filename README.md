@@ -61,13 +61,6 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
   client can never pick a pricier model or bypass the cap.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
-## UX rules
-
-[`HANDOFF.md`](HANDOFF.md) holds 50 UX/UI rules this frontend is expected to follow,
-written from the bugs it actually shipped — overlays that cover the app, controls that
-return silently, generated names the user can't change. It ends with the violations
-still open. Read it before changing anything the user touches.
-
 ## Cost model
 
 Model: `claude-haiku-4-5`, fixed server-side. One lesson ≈ $0.01. Lessons are cached

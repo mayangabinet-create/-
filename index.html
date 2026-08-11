@@ -21,6 +21,37 @@
            over the UA default `[hidden]{display:none}`, tie or no tie. */
         [hidden] { display: none !important; }
 
+        /* Keyboard users had no focus indicator anywhere: buttons never had one, and
+           the four input rules replace `outline` with a border colour that is easy to
+           miss. :focus-visible only fires for keyboard/AT navigation, so pointer users
+           don't get a ring on every tap. */
+        :focus-visible {
+            outline: 3px solid var(--duo-blue);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+        .button:focus-visible, .bottom-nav-item:focus-visible, .source-tab:focus-visible {
+            outline-offset: 3px;
+        }
+
+        /* Touch: kill the 300ms double-tap delay and the grey flash Android paints
+           over every tap, and let the existing :active transforms be the feedback. */
+        button, .lesson-node, .option, .course-card, [role="tab"] {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* A blanket fallback so any animation added later is covered without having
+           to remember prefersReducedMotion() at each call site. */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
         :root {
             --duo-green: #58CC02;
             --duo-green-dark: #58A700;
@@ -673,6 +704,9 @@
             font-family: 'Baloo 2', sans-serif;
             font-weight: 700; color: var(--duo-text); font-size: 1.02em;
             margin-bottom: 6px; padding-right: 88px; line-height: 1.35;
+            overflow-wrap: anywhere;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         .course-meta { font-size: 0.79em; color: var(--duo-text-light); margin-bottom: 16px; font-weight: 600; }
         .course-bar { height: 10px; background: var(--duo-border); border-radius: 6px; overflow: hidden; }
@@ -758,7 +792,8 @@
 
         /* Anchored to the bottom, above the tab bar, so it never covers the app. */
         .boot-failure {
-            position: fixed; left: 12px; right: 12px; bottom: 84px; z-index: 950;
+            position: fixed; left: 12px; right: 12px; z-index: 950;
+            bottom: calc(84px + env(safe-area-inset-bottom, 0px));
             display: flex; align-items: center; justify-content: space-between; gap: 12px;
             padding: 12px 14px; border-radius: 14px;
             background: var(--duo-red); color: #fff;
@@ -1323,10 +1358,18 @@
 
         .button:hover { background: #61E002; }
 
-        .button:active {
+        .button:active:not(:disabled) {
             border-bottom-width: 0;
             transform: translateY(4px);
         }
+
+        /* A disabled button that still looks pressable gets pressed, and the press
+           does nothing — the exact "button doesn't work" report. */
+        .button:disabled, button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+        .button:disabled:hover { background: var(--duo-green); }
 
         .button:disabled {
             background: var(--duo-border);
@@ -1392,6 +1435,7 @@
            not against .stat-value. */
         .stat-value-button {
             display: block; width: 100%; padding: 0;
+            overflow-wrap: anywhere;
             background: none; border: none; cursor: pointer; text-align: center;
             font-family: 'Baloo 2', sans-serif; font-size: 1.3em; font-weight: 800;
             color: var(--duo-green-dark); line-height: 1.2;
@@ -1415,12 +1459,14 @@
             animation: fadeIn 0.3s ease;
         }
         .modal.active { display: flex; }
+        .modal { padding: 16px; }
         .modal-content {
             background: var(--duo-card);
             border-radius: 20px;
-            padding: 40px;
+            padding: 32px 24px;
+            width: 100%;
             max-width: 500px;
-            max-height: 80vh;
+            max-height: min(80vh, 100% - 32px);
             overflow-y: auto;
             border: 2px solid var(--duo-border);
             position: relative;
@@ -1433,6 +1479,62 @@
         }
         .modal-close:hover { background: var(--duo-bg); color: var(--duo-text); }
         .modal-title { font-family: 'Baloo 2', sans-serif; font-size: 1.5em; margin-bottom: 20px; color: var(--duo-green-dark); }
+
+        /* ---- In-app dialog: replaces alert() / confirm() / prompt() ----
+           Native dialogs can't be styled, ignore the content's direction, and read
+           as a browser warning rather than part of the app. z-index 1100 so a
+           confirm can sit above the auth modal (1000). */
+        .dialog-backdrop {
+            display: none;
+            position: fixed; inset: 0; z-index: 1100;
+            background: rgba(60, 60, 60, 0.55);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .dialog-backdrop.active { display: flex; animation: fadeIn 0.2s ease; }
+        .dialog-card {
+            background: var(--duo-card);
+            border: 2px solid var(--duo-border);
+            border-radius: 20px;
+            padding: 26px 24px 22px;
+            width: 100%; max-width: 400px;
+            max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.22);
+        }
+        .dialog-title {
+            font-family: 'Baloo 2', sans-serif; font-size: 1.25em; font-weight: 700;
+            color: var(--duo-text); margin-bottom: 8px; line-height: 1.3;
+        }
+        .dialog-body { color: var(--duo-text-light); font-weight: 600; line-height: 1.5; margin-bottom: 18px; }
+        .dialog-body:empty { display: none; }
+        .dialog-error {
+            color: var(--duo-red-dark); font-size: 0.85em; font-weight: 700;
+            margin: -10px 0 12px;
+        }
+        .dialog-actions { display: flex; gap: 10px; }
+        .dialog-actions .button { flex: 1; padding: 13px 16px; font-size: 0.94em; margin: 0; }
+        .dialog-danger .dialog-title { color: var(--duo-red-dark); }
+
+        /* ---- Toast: confirmation that doesn't interrupt ----
+           Bottom-anchored above the tab bar, never over the header. */
+        .toast-stack {
+            position: fixed; left: 12px; right: 12px; z-index: 1200;
+            bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            max-width: 420px; width: fit-content;
+            padding: 12px 18px; border-radius: 14px;
+            background: var(--duo-text); color: #fff;
+            font-weight: 700; font-size: 0.88em; line-height: 1.4;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+            animation: toastIn 0.22s cubic-bezier(0.34,1.56,0.64,1);
+        }
+        .toast.leaving { animation: toastOut 0.18s ease forwards; }
+        .toast-success { background: var(--duo-green-dark); }
+        .toast-error { background: var(--duo-red-dark); }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(12px) scale(0.96); } to { opacity: 1; transform: none; } }
+        @keyframes toastOut { to { opacity: 0; transform: translateY(8px); } }
 
         .error-message {
             background: #FFDFE0; border: 2px solid var(--duo-red);
@@ -1526,6 +1628,7 @@
                 </div>
 
                 <div id="textPasteSection" hidden>
+                    <label class="field-label" for="textInput">Study material</label>
                     <textarea id="textInput" class="paste-area" placeholder="Paste your study material here..."></textarea>
                     <button class="button" id="submitTextBtn" style="margin-top: 15px; width: 100%;">Build learning path</button>
                 </div>
@@ -1584,7 +1687,7 @@
 
         <!-- Persistent bottom tab bar, in the Duolingo app's own pattern -->
         <nav class="bottom-nav" id="bottomNav">
-            <button class="bottom-nav-item active" id="navHome" aria-label="Home">
+            <button class="bottom-nav-item active" id="navHome" aria-label="Home" aria-current="page">
                 <span class="bottom-nav-icon" id="navIconHome"></span><span class="bottom-nav-label">Home</span>
             </button>
             <button class="bottom-nav-item" id="navCourses" aria-label="My courses">
@@ -1617,8 +1720,8 @@
 
     <!-- Loading overlay: works regardless of which screen is showing -->
     <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
-        <div class="loading-card">
-            <div class="spinner spinner-lg"></div>
+        <div class="loading-card" role="status" aria-live="polite">
+            <div class="spinner spinner-lg" aria-hidden="true"></div>
             <div id="loadingText"></div>
         </div>
     </div>
@@ -1654,13 +1757,13 @@
 
         <!-- Ask AI: available throughout the lesson -->
         <div class="tutor-dock" id="tutorDock">
-            <button class="tutor-toggle" id="tutorToggle">
+            <button class="tutor-toggle" id="tutorToggle" aria-expanded="false" aria-controls="tutorPanel">
                 <span id="tutorToggleIcon"></span><span>Ask the tutor</span>
             </button>
             <div class="tutor-panel" id="tutorPanel" hidden>
                 <div class="tutor-actions" id="tutorActions"></div>
                 <div class="tutor-input">
-                    <input type="text" id="tutorQuestion" placeholder="Or ask anything about this lesson..." />
+                    <input type="text" id="tutorQuestion" aria-label="Ask the tutor about this lesson" enterkeyhint="send" placeholder="Or ask anything about this lesson..." />
                     <button class="button" id="tutorAskBtn">Ask</button>
                 </div>
                 <div id="tutorResponse" class="tutor-response" style="display: none;"></div>
@@ -1670,8 +1773,8 @@
 
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.
          Starts closed — login happens at the point of need, not as a gate. -->
-    <div id="authModal" class="modal">
-        <div class="modal-content">
+    <div id="authModal" class="modal" aria-hidden="true">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="authTitle">
             <button type="button" class="modal-close" id="authCloseBtn" aria-label="Close"></button>
             <div class="modal-title" id="authTitle">Welcome back</div>
             <div class="source-tabs" role="tablist" style="margin-bottom: 18px;">
@@ -1688,15 +1791,19 @@
                 <span>Continue with Google</span>
             </button>
             <div class="auth-divider"><span>or continue with email</span></div>
-            <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com" autocomplete="email" />
+            <label class="field-label" for="authEmail">Email</label>
+            <input type="email" id="authEmail" class="auth-input" placeholder="you@example.com"
+                   autocomplete="email" inputmode="email" enterkeyhint="next" />
+            <label class="field-label" for="authPassword">Password</label>
             <div class="auth-password-row" style="margin-bottom: 6px;">
-                <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" />
+                <input type="password" id="authPassword" class="auth-input" placeholder="Password"
+                       autocomplete="current-password" enterkeyhint="go" />
                 <button type="button" class="auth-password-toggle" id="authPasswordToggle" aria-label="Show password"></button>
             </div>
             <div style="text-align: right; margin-bottom: 12px;">
                 <button type="button" id="authForgotBtn" style="background: none; border: none; color: var(--duo-blue-dark); font-family: 'Nunito', sans-serif; font-size: 0.85em; font-weight: 700; cursor: pointer; padding: 4px 0;">Forgot password?</button>
             </div>
-            <div class="error-message" id="authError" hidden></div>
+            <div class="error-message" id="authError" role="alert" aria-live="assertive" hidden></div>
             <button class="button" id="authSubmitBtn" style="width: 100%;">Sign in</button>
             <div class="info-message" style="margin-top: 15px; font-size: 0.9em; display: flex; align-items: center; gap: 8px;">
                 <span id="authInfoIcon" style="flex: none;"></span>
@@ -1704,6 +1811,25 @@
             </div>
         </div>
     </div>
+
+    <!-- In-app dialog. One element reused for alert / confirm / prompt; app.js
+         shows and hides the pieces it needs per call. -->
+    <div id="dialogBackdrop" class="dialog-backdrop">
+        <div class="dialog-card" id="dialogCard" role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+            <h2 class="dialog-title" id="dialogTitle"></h2>
+            <p class="dialog-body" id="dialogBody"></p>
+            <input type="text" id="dialogInput" class="auth-input" maxlength="80" hidden
+                   autocomplete="off" enterkeyhint="done" aria-labelledby="dialogTitle" />
+            <div class="dialog-error" id="dialogError" hidden></div>
+            <div class="dialog-actions">
+                <button type="button" class="button button-secondary" id="dialogCancel">Cancel</button>
+                <button type="button" class="button" id="dialogConfirm">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toasts: brief confirmation that never blocks or covers the header. -->
+    <div class="toast-stack" id="toastStack" role="status" aria-live="polite" aria-atomic="false"></div>
 
     <!-- Shown only if app.js never finished booting (blocked script, offline, JS
          error). Without it a failed boot looks like a normal page whose buttons

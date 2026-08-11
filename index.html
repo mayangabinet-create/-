@@ -6,24 +6,38 @@
     <title>AI Learning Path</title>
     <script>
         // TEMPORARY diagnostic: something is breaking on real devices that never
-        // reproduces in headless testing. Instead of guessing further, surface
-        // whatever actually throws directly on the page so it can be read and
-        // reported back. Remove once the real cause is found and fixed.
+        // reproduces in headless testing, and the browser is redacting the actual
+        // error ("Script error.", no file/line — the standard cross-origin
+        // redaction) even with crossorigin set on the CDN <script> tags, which
+        // points at something in the user's own environment (content blocker,
+        // MDM/filter injecting scripts) rather than a plain missing CORS header.
+        // Since the exact exception may stay hidden, this instead drops same-
+        // origin breadcrumbs at each checkpoint — those can never be redacted —
+        // so we can see exactly how far execution gets even if we can't see why
+        // it stops. Remove once the real cause is found and fixed.
+        window.__diag = [];
+        window.__diagPush = function (label) { window.__diag.push(label); };
+        window.__diagPush('head:start ua=' + navigator.userAgent);
         (function () {
             var banner = null;
-            function show(msg) {
+            function show(msg, isError) {
                 if (!banner) {
                     banner = document.createElement('div');
                     banner.id = '__diagBanner';
+                    // pointer-events:none on the banner itself so it never blocks taps on
+                    // the real app underneath it — only the close button re-enables them.
+                    // (An earlier version without this blocked clicks on anything it
+                    // overlapped, which would have made the exact "buttons don't work"
+                    // symptom worse, not better.)
                     banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;' +
-                        'background:#FF4B4B;color:#fff;padding:12px 40px 12px 14px;' +
+                        'padding:12px 40px 12px 14px;pointer-events:none;' +
                         'font:600 12px/1.5 monospace;white-space:pre-wrap;word-break:break-word;' +
-                        'max-height:50vh;overflow:auto;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+                        'max-height:35vh;overflow:auto;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
                     var closeBtn = document.createElement('button');
                     closeBtn.textContent = '×';
                     closeBtn.setAttribute('aria-label', 'Close');
                     closeBtn.style.cssText = 'position:absolute;top:6px;right:10px;background:none;' +
-                        'border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;';
+                        'border:none;color:inherit;font-size:20px;cursor:pointer;line-height:1;pointer-events:auto;';
                     closeBtn.onclick = function () { banner.remove(); banner = null; };
                     banner.appendChild(closeBtn);
                     var text = document.createElement('div');
@@ -31,6 +45,8 @@
                     banner.appendChild(text);
                     (document.body || document.documentElement).appendChild(banner);
                 }
+                banner.style.background = isError ? '#FF4B4B' : '#1CB0F6';
+                banner.style.color = '#fff';
                 var textEl = document.getElementById('__diagBannerText');
                 textEl.textContent += (textEl.textContent ? '\n\n' : 'DEBUG — please screenshot/copy this and send it back:\n\n') + msg;
             }
@@ -38,15 +54,24 @@
                 var msg = (e.target && e.target !== window && e.target.tagName)
                     ? 'Failed to load resource: <' + e.target.tagName.toLowerCase() + '> ' + (e.target.src || e.target.href)
                     : 'JS error: ' + e.message + '\n  at ' + (e.filename || '?').split('/').pop() + ':' + e.lineno + ':' + e.colno;
-                show(msg);
+                show(msg, true);
             }, true);
             window.addEventListener('unhandledrejection', function (e) {
-                show('Unhandled promise rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+                show('Unhandled promise rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason), true);
+            });
+            // Always show the breadcrumb trail after things settle, error or not —
+            // this is the part that can't be redacted or hidden.
+            window.addEventListener('load', function () {
+                setTimeout(function () {
+                    show('Breadcrumb trail:\n' + window.__diag.map(function (s, i) { return i + '. ' + s; }).join('\n'), false);
+                }, 800);
             });
         })();
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+    <script>window.__diagPush('after pdf.js tag: window.pdfjsLib=' + typeof window.pdfjsLib);</script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+    <script>window.__diagPush('after supabase-js tag: window.supabase=' + typeof window.supabase);</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@500;600;700;800&display=swap" rel="stylesheet">
@@ -1694,6 +1719,7 @@
     </div>
 
     <script>
+        window.__diagPush('main script: start');
         // Configuration
         // Courses now live in Supabase, one row per user — not localStorage.
         // These are public by design (like a Firebase config): they identify
@@ -1717,6 +1743,7 @@
             throw new Error('supabase-js failed to load from CDN');
         }
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        window.__diagPush('main script: supabase client created');
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
         const MAX_COURSES = 8;
@@ -1755,6 +1782,7 @@
             info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
         };
+        window.__diagPush('main script: ICONS defined');
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
         // works without it); a blocked/slow CDN load should only disable that one
@@ -1762,6 +1790,7 @@
         if (window.pdfjsLib) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
+        window.__diagPush('main script: pdfjs guard passed');
 
         // ============= API & AI Functions =============
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
@@ -4508,24 +4537,34 @@ ${languageRule()}`;
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
         };
+        window.__diagPush('main script: about to fill static icons, ICONS keys=' + Object.keys(ICONS).length);
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = ICONS[icon];
         });
+        window.__diagPush('main script: static icons filled');
 
         (async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                try {
-                    const raw = sessionStorage.getItem('pending_action');
-                    if (raw) {
-                        pendingAction = JSON.parse(raw);
-                        sessionStorage.removeItem('pending_action');
-                    }
-                } catch (_) {}
-                await onSignedIn(session.user);
-            } else {
-                showAnonymousHome();
+            try {
+                window.__diagPush('init: calling getSession');
+                const { data: { session } } = await supabase.auth.getSession();
+                window.__diagPush('init: getSession resolved, hasSession=' + !!session);
+                if (session?.user) {
+                    try {
+                        const raw = sessionStorage.getItem('pending_action');
+                        if (raw) {
+                            pendingAction = JSON.parse(raw);
+                            sessionStorage.removeItem('pending_action');
+                        }
+                    } catch (_) {}
+                    await onSignedIn(session.user);
+                    window.__diagPush('init: onSignedIn done');
+                } else {
+                    showAnonymousHome();
+                    window.__diagPush('init: showAnonymousHome done');
+                }
+            } catch (e) {
+                window.__diagPush('init: THREW -> ' + (e && (e.stack || e.message) || e));
             }
         })();
     </script>

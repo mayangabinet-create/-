@@ -86,10 +86,20 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
 
 ## Cost model
 
-Model: `claude-haiku-4-5`, fixed server-side. One lesson ≈ $0.01. Lessons are cached
-after first generation, so replaying or exiting and coming back is free. A usage badge
-in the header shows the signed-in user's cumulative spend and call count, read from
-`ai_usage`.
+Model: `claude-haiku-4-5`, fixed server-side ($1 / $5 per million input / output
+tokens). Worked from the prompt sizes and token ceilings in `app.js`, one English
+lesson is **≈ $0.023** — a 1,807-token prompt template plus a 2,400-char source excerpt
+in, and up to the 5,000-token `MAX_TOKENS.lesson` ceiling out. Hebrew runs about twice
+that. A full 15-lesson course lands near $0.44. These are calculations, not
+measurements — `ai_usage` stores real `input_tokens` / `output_tokens` per user, so
+divide actual spend by actual lessons before pricing anything.
+
+Lessons are cached after first generation, so replaying or exiting and coming back is
+free, and the 8-course limit caps a non-churning user's lifetime generation at roughly
+$3.80. The per-user daily cap is what bounds the bad case: 200 calls/day of lessons is
+**≈ $139/month**, and the 14-day trial at 50/day is **≈ $16 of exposure per signup**
+before anyone pays. A usage badge in the header shows the signed-in user's cumulative
+spend and call count, read from `ai_usage`.
 
 ## Sending the code out for review
 

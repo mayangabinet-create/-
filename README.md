@@ -14,8 +14,8 @@ tapping the title above the path.
 - **Locally:** open `index.html` directly in a browser (double-click, or `file://`
   works fine) — it talks to the same hosted backend either way.
 
-There's no API key to paste in. Every account gets a 14-day free trial automatically;
-subscribing after that isn't wired up yet (see below).
+There's no API key to paste in. Every account gets a free trial automatically; subscribing
+after that isn't wired up yet (see below).
 
 ## Signing in happens last
 
@@ -61,9 +61,10 @@ measure, a 44px tap-target floor and a 52px height for a screen's one main actio
 Green is the only primary — every primary action is green and nothing else is. Blue is
 secondary/links, red destructive, purple the tutor, and the five unit colours identify
 units. Every value that carries text was solved for WCAG AA against the surface it
-actually sits on rather than picked by eye; the vivid `--duo-*` tokens are fills only
-and the `--duo-*-strong` variants are the ones white text is allowed on. Nine app
-states are audited at zero failures.
+actually sits on rather than picked by eye; the vivid `--duo-*` tokens are fills only,
+the `--duo-*-strong` variants are the ones white text is allowed on, and the
+`--duo-*-on-sunk` pair is for text on the `#E5E5E5` sunken surface, where the ordinary
+tokens fall below AA. Twelve app states are audited at zero failures.
 
 ## Architecture
 
@@ -78,28 +79,65 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
   spaced repetition, and path rendering all read/write are unchanged — only the
   persistence layer underneath them moved.
 - **`ai-proxy` Edge Function** — holds the real Anthropic key as a project secret,
-  checks the caller has an active subscription or trial, enforces a per-user daily call
-  cap (50 trialing / 200 active — a cost backstop, since one dev-held key now pays for
-  every user's calls), then forwards the request to a fixed server-side model. The
-  client can never pick a pricier model or bypass the cap.
-- New signups get a 14-day trial automatically via a trigger on `auth.users`.
+  checks the caller has an active subscription or trial, enforces a per-user cap (a cost
+  backstop, since one dev-held key pays for every user's calls), then forwards the
+  request to a fixed server-side model. The client can never pick a pricier model or
+  bypass the cap.
+- New signups get a trial automatically via a trigger on `auth.users`.
+
+`supabase/migrations/` holds the version-controlled copy of schema changes. The database
+is remote-only, so without it nothing in the repo describes its shape.
+
+## Plans
+
+Sold **per course**, because that's the unit someone actually wants — "turn my three
+textbooks into courses", not "give me 60 lessons".
+
+| | Basic | Pro | Max |
+|---|---|---|---|
+| Price | $6.99/mo · $69.90/yr | $19.99 · $199.90 | $39.99 · $399.90 |
+| Courses per month | 3 | 5 | 8 |
+| Lessons per course | 10 | 12 | 15 |
+| Reads of your document | 5,000 chars | 40,000 | 120,000 |
+| Model — lessons | Haiku 4.5 | Sonnet 5 | Sonnet 5 |
+| Model — course plan | Haiku 4.5 | Sonnet 5 | Opus 5 |
+
+Annual is twelve months at ten months' price. Max spends Opus only on planning the
+course — deciding which concepts exist and in what order is the one hard reasoning step,
+and it's a single call; writing a lesson from a chosen concept and a retrieved passage is
+routine work Sonnet does well.
+
+A course is only a priceable unit because the lesson count is fixed. `generateLessonPath`
+used to ask for "10-20 core concepts", so the same course cost anywhere from 10 to 20
+lessons; it now asks for exactly the tier's number and truncates the result.
+
+The `PLANS` table at the top of `app.js` is a **hint** — it shapes the excerpt the
+client's TF-IDF actually builds, and drives the UI. `ai-proxy` holds the same table and
+clamps against it, because a modified client can send whatever it likes.
 
 ## Cost model
 
-Model: `claude-haiku-4-5`, fixed server-side ($1 / $5 per million input / output
-tokens). Worked from the prompt sizes and token ceilings in `app.js`, one English
-lesson is **≈ $0.023** — a 1,807-token prompt template plus a 2,400-char source excerpt
-in, and up to the 5,000-token `MAX_TOKENS.lesson` ceiling out. Hebrew runs about twice
-that. A full 15-lesson course lands near $0.44. These are calculations, not
-measurements — `ai_usage` stores real `input_tokens` / `output_tokens` per user, so
-divide actual spend by actual lessons before pricing anything.
+Worked from the prompt sizes and token ceilings in `app.js`, one English lesson costs
+**≈ $0.029** on Haiku 4.5 ($1/$5 per MTok), **$0.095** on Sonnet 5 ($3/$15), and
+**$0.112** on the Max split — all-in, including each lesson's share of the course-plan
+call and roughly 20 tutor questions. Hebrew runs about twice that. A completed course is
+$0.29 / $1.14 / $1.68.
 
-Lessons are cached after first generation, so replaying or exiting and coming back is
-free, and the 8-course limit caps a non-churning user's lifetime generation at roughly
-$3.80. The per-user daily cap is what bounds the bad case: 200 calls/day of lessons is
-**≈ $139/month**, and the 14-day trial at 50/day is **≈ $16 of exposure per signup**
-before anyone pays. A usage badge in the header shows the signed-in user's cumulative
-spend and call count, read from `ai_usage`.
+Worst case is the entire monthly quota spent, every lesson opened, all in Hebrew: $1.74 /
+$11.40 / $26.88, leaving **$4.75 / $7.71 / $11.65** after Stripe. Every tier is profitable
+even then. Two things keep the typical case far below that — lessons are generated only
+when opened (`app.js` checks the cache first) and cached afterwards, so replaying is free
+and an abandoned course costs only what was read.
+
+These are calculations, not measurements. `ai_usage` stores real `input_tokens` /
+`output_tokens` per user; divide actual spend by actual courses before trusting any of it.
+
+> Sonnet 5's introductory $2/$10 pricing ends **2026-08-31**. The figures above already
+> use the standard $3/$15, so none of them depend on a rate that is about to expire.
+
+The header badge shows **"1 of 3 courses this month"**. It used to show a running dollar
+total of this app's own cost of goods, itemised for the person paying — a money meter that
+re-prices every tap and makes the product feel expensive to touch.
 
 ## Sending the code out for review
 
@@ -111,10 +149,21 @@ still only shows the rendered page; a reviewer needs `app.js` to say anything us
 
 ## What's not done yet
 
+- **The tiers are displayed, not enforced.** The account and pricing screens, the plan
+  table, the quota badge and the tier-driven read/excerpt budgets are all built and in
+  `app.js`. The server side is not: `supabase/migrations/` has the schema change but it
+  has not been applied, and `ai-proxy` still runs one fixed model with a daily call cap.
+  Until both land, a modified client is not actually clamped — the server has to hold the
+  plan table too.
+- **The free trial has no total ceiling.** It's 50 calls/day for 14 days, so one signup
+  can consume ~700 lessons and pay nothing. Capping it at one course (10 lessons), and
+  requiring a confirmed email before the counter opens, is the single highest-value change
+  left — it's the difference between the margins above and a loss.
 - **Payments.** `subscriptions.status` and the trial trigger exist and are enforced by
-  `ai-proxy`, but there's no Stripe integration yet — `showUpgradePrompt()` in the
-  frontend is a placeholder. Once a Stripe account and price exist, this needs a
-  checkout Edge Function and a webhook that updates `subscriptions` on
-  `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
+  `ai-proxy`, but there's no Stripe integration yet — `startCheckout()` in the frontend
+  shows the chosen plan and price and then explains that nothing was charged. Once a
+  Stripe account and prices exist, this needs a checkout Edge Function and a webhook that
+  updates `subscriptions` on `checkout.session.completed` /
+  `customer.subscription.updated`/`deleted`.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.

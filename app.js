@@ -21,7 +21,7 @@
                 </div>`;
             throw new Error('supabase-js failed to load from CDN');
         }
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         window.__diagPush('main script: supabase client created');
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
@@ -95,7 +95,7 @@
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 try {
-                    const { data, error } = await supabase.functions.invoke('ai-proxy', { body });
+                    const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { body });
 
                     if (!error) {
                         refreshUsage();
@@ -120,7 +120,7 @@
 
                     if (status === 401) {
                         showError("Your session expired. Please sign in again.");
-                        await supabase.auth.signOut();
+                        await supabaseClient.auth.signOut();
                         showAuthModal('signin');
                         return null;
                     }
@@ -983,7 +983,7 @@ ${languageRule()}`;
 
         async function refreshUsage() {
             if (!currentUser) return;
-            const { data } = await supabase
+            const { data } = await supabaseClient
                 .from('ai_usage')
                 .select('calls, input_tokens, output_tokens')
                 .eq('user_id', currentUser.id)
@@ -1307,7 +1307,7 @@ ${languageRule()}`;
         // Every read is scoped to the caller by RLS — there is no explicit
         // "where user_id = me" needed, the database enforces it either way.
         async function loadLibrary() {
-            const { data: courses, error } = await supabase
+            const { data: courses, error } = await supabaseClient
                 .from('courses')
                 .select('id, title, language, concepts, created_at')
                 .order('created_at', { ascending: false });
@@ -1317,7 +1317,7 @@ ${languageRule()}`;
                 return library;
             }
 
-            const { data: doneRows } = await supabase
+            const { data: doneRows } = await supabaseClient
                 .from('progress')
                 .select('course_id')
                 .eq('completed', true);
@@ -1351,12 +1351,12 @@ ${languageRule()}`;
                 updated_at: new Date().toISOString(),
             }));
             if (!rows.length) return;
-            const { error } = await supabase.from('progress').upsert(rows, { onConflict: 'course_id,lesson_index' });
+            const { error } = await supabaseClient.from('progress').upsert(rows, { onConflict: 'course_id,lesson_index' });
             if (error) console.error('saveProgress failed:', error);
         }
 
         async function saveCourse(course, sourceText) {
-            const { data, error } = await supabase.from('courses').insert({
+            const { data, error } = await supabaseClient.from('courses').insert({
                 user_id: currentUser.id,
                 title: course.courseName || 'Untitled course',
                 language: course.language || 'English',
@@ -1373,7 +1373,7 @@ ${languageRule()}`;
         }
 
         async function deleteCourse(id) {
-            const { error } = await supabase.from('courses').delete().eq('id', id);
+            const { error } = await supabaseClient.from('courses').delete().eq('id', id);
             if (error) {
                 console.error('deleteCourse failed:', error);
                 showError('Could not delete that course.');
@@ -1390,7 +1390,7 @@ ${languageRule()}`;
         }
 
         async function openCourse(id) {
-            const { data: courseRow, error } = await supabase
+            const { data: courseRow, error } = await supabaseClient
                 .from('courses').select('*').eq('id', id).maybeSingle();
             if (error || !courseRow) { showError('That course could not be found.'); return false; }
 
@@ -1401,7 +1401,7 @@ ${languageRule()}`;
             };
             activeSourceText = courseRow.source_text || '';
 
-            const { data: progRows } = await supabase.from('progress').select('*').eq('course_id', id);
+            const { data: progRows } = await supabaseClient.from('progress').select('*').eq('course_id', id);
             progress = {};
             (progRows || []).forEach(r => {
                 progress[r.lesson_index] = {
@@ -2513,7 +2513,7 @@ ${languageRule()}`;
         document.getElementById('navAccount').addEventListener('click', async () => {
             if (!currentUser) { showAuthModal('signin'); return; }
             if (confirm(`Signed in as ${currentUser.email}. Sign out?`)) {
-                await supabase.auth.signOut();
+                await supabaseClient.auth.signOut();
             }
         });
 
@@ -2705,7 +2705,7 @@ ${languageRule()}`;
             if (pendingAction) {
                 try { sessionStorage.setItem('pending_action', JSON.stringify(pendingAction)); } catch (_) {}
             }
-            const { error } = await supabase.auth.signInWithOAuth({
+            const { error } = await supabaseClient.auth.signInWithOAuth({
                 provider: 'google',
                 options: { redirectTo: window.location.origin + window.location.pathname },
             });
@@ -2740,8 +2740,8 @@ ${languageRule()}`;
             btn.textContent = isUp ? 'Creating account…' : 'Signing in…';
             try {
                 const { data, error } = isUp
-                    ? await supabase.auth.signUp({ email, password })
-                    : await supabase.auth.signInWithPassword({ email, password });
+                    ? await supabaseClient.auth.signUp({ email, password })
+                    : await supabaseClient.auth.signInWithPassword({ email, password });
 
                 if (error) {
                     err.textContent = error.message;
@@ -2795,7 +2795,7 @@ ${languageRule()}`;
                 err.hidden = false;
                 return;
             }
-            const { error } = await supabase.auth.resetPasswordForEmail(email);
+            const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
             err.className = 'info-message';
             err.textContent = error
                 ? error.message
@@ -2803,7 +2803,7 @@ ${languageRule()}`;
             err.hidden = false;
         });
 
-        supabase.auth.onAuthStateChange((event) => {
+        supabaseClient.auth.onAuthStateChange((event) => {
             if (event === 'SIGNED_OUT') onSignedOut();
         });
 
@@ -2826,7 +2826,7 @@ ${languageRule()}`;
         (async () => {
             try {
                 window.__diagPush('init: calling getSession');
-                const { data: { session } } = await supabase.auth.getSession();
+                const { data: { session } } = await supabaseClient.auth.getSession();
                 window.__diagPush('init: getSession resolved, hasSession=' + !!session);
                 if (session?.user) {
                     try {

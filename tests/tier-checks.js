@@ -29,6 +29,11 @@
  * writing 4k — roughly $0.75. Run it once.
  */
 
+// Written out by hand on purpose. app.js has a PLANS table with the same
+// numbers in it and the page's copy is in scope when this file is pasted into
+// the console — do not "deduplicate" this against it. These are the assertions;
+// if they read their expected values out of the code under test, a wrong table
+// would agree with itself and the check would pass while the product was broken.
 const TIER_EXPECT = {
   trial: { concepts: 10, model: /haiku/,  docChars:   5000 },
   basic: { concepts: 10, model: /haiku/,  docChars:   5000 },
@@ -36,7 +41,8 @@ const TIER_EXPECT = {
   max:   { concepts: 15, model: /opus/,   docChars: 120000 },
 };
 
-const TEMPLATE_ALLOWANCE = 12000;  // must match ai-proxy/index.ts
+// Must match TEMPLATE_ALLOWANCE in supabase/functions/ai-proxy/index.ts.
+const TEMPLATE_ALLOWANCE = 12000;
 
 // Plausible English prose: ~4 chars/token, so the token counts below are
 // predictable. Filler in Hebrew tokenizes at ~2 chars/token and the expected

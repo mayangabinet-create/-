@@ -23,7 +23,27 @@
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
-        const MAX_COURSES = 8;
+        const MAX_COURSES = 8;   // how many courses a library holds, not how many you may build
+
+        // Mirrors PLANS in the ai-proxy Edge Function, and has to be kept in step
+        // with it. The server is the authority and clamps every request down to
+        // the account's tier, so nothing here can buy more than was paid for.
+        // This copy exists for the opposite failure: without it the client cuts
+        // the document to 5,000 chars before sending, and a Max account gets
+        // Basic's reading no matter how generous the server was willing to be.
+        const PLANS = {
+            trial: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  label: 'Trial' },
+            basic: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  label: 'Basic' },
+            pro:   { lessonsPerCourse: 12, readChars: 40000,  excerptChars: 8000,  label: 'Pro' },
+            max:   { lessonsPerCourse: 15, readChars: 120000, excerptChars: 16000, label: 'Max' },
+        };
+
+        // Smallest tier until the real one is known. Erring low only costs a
+        // shorter document on the first call; erring high would send 120,000
+        // chars over the wire for the server to throw away.
+        let planKey = 'basic';
+        let currentPlan = PLANS.basic;
+        let planLoaded = false;
 
         let currentUser = null;
         let courseData = null;
@@ -165,13 +185,19 @@
         async function generateLessonPath(text) {
             showMessage("Analyzing your material...");
 
+            // How much of the document is read, and how many concepts come back,
+            // are both tier decisions. The server rewrites the count to the tier's
+            // number anyway — asking for it here just means the prompt says what
+            // is actually about to happen.
+            const plan = await ensurePlan();
+
             const extractPrompt = `Analyse the study material below and extract its key concepts.
 
 MATERIAL:
-${text.substring(0, 5000)}
+${text.substring(0, plan.readChars)}
 
 TASK:
-1. Identify 10-20 core concepts a learner must understand from this material.
+1. Identify exactly ${plan.lessonsPerCourse} core concepts a learner must understand from this material.
 2. Order them by logical progression — prerequisites first.
 3. For each concept give:
    - name (1-4 words)
@@ -252,6 +278,9 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
 
         async function generateLesson(concept) {
             // Ground the lesson in the actual document, not the model's priors.
+            // How long a passage that may be is the tier's call, so the plan has
+            // to be known before the excerpt is built, not after.
+            await ensurePlan();
             const excerpt = retrieveExcerpt(concept, getSourceText());
 
             const prompt = `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
@@ -1131,14 +1160,58 @@ ${languageRule()}`;
         }
 
         // ============= Usage & cost tracking =============
-        // Haiku 4.5 pricing: $1 per 1M input tokens, $5 per 1M output tokens.
-        const PRICE_IN = 1 / 1_000_000;
-        const PRICE_OUT = 5 / 1_000_000;
+        // Per million tokens, by the model the tier's lessons run on. Lessons are
+        // where the tokens go — ten to fifteen of them against a single course
+        // plan — so Max is priced at Sonnet's rate even though Opus plans its
+        // course. `ai_usage` stores one running total with no model attached, so
+        // the badge can only ever be an estimate at the current tier's rates;
+        // usage from a month on a different plan is priced at today's.
+        const PRICES = {
+            trial: { in: 1, out: 5 },     // Haiku 4.5
+            basic: { in: 1, out: 5 },     // Haiku 4.5
+            pro:   { in: 3, out: 15 },    // Sonnet 5
+            max:   { in: 3, out: 15 },    // Sonnet 5 writes the lessons; Opus 5 ($5/$25) plans the course
+        };
 
         // The Edge Function increments ai_usage server-side on every real call —
         // the client just reflects it. "cached" (this app's own lesson cache, not
         // an API call at all) is session-only, there's nothing server-side to sync.
         let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0 };
+
+        // Which tier this account is on. Read from `subscriptions`, which RLS
+        // scopes to the signed-in user, so this can only ever return their own
+        // row. The same derivation the Edge Function does, for the same reason:
+        // an unrecognised plan name falls back to the smallest tier, never the
+        // largest, so a bad row can't hand out Max limits.
+        async function loadPlan() {
+            if (!currentUser) return;
+            const { data, error } = await supabaseClient
+                .from('subscriptions')
+                .select('status, plan, current_period_end')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+
+            if (error) {
+                // Keep whatever we had. The server clamps regardless, so the
+                // worst case is a shorter document, not a wrong bill.
+                console.error('Could not read subscription:', error);
+                return;
+            }
+
+            const trialing = data?.status === 'trialing' && data.current_period_end &&
+                new Date(data.current_period_end) > new Date();
+            planKey = trialing ? 'trial' : (data?.plan && PLANS[data.plan] ? data.plan : 'basic');
+            currentPlan = PLANS[planKey];
+            planLoaded = true;
+            renderUsage();
+        }
+
+        // Every AI call that spends the document budget goes through here first,
+        // so a course built straight after sign-in still uses the right tier.
+        async function ensurePlan() {
+            if (!planLoaded) await loadPlan();
+            return currentPlan;
+        }
 
         async function refreshUsage() {
             if (!currentUser) return;
@@ -1161,15 +1234,22 @@ ${languageRule()}`;
         }
 
         function totalCost() {
-            return usage.inputTokens * PRICE_IN + usage.outputTokens * PRICE_OUT;
+            const price = PRICES[planKey] || PRICES.basic;
+            return (usage.inputTokens * price.in + usage.outputTokens * price.out) / 1_000_000;
         }
 
         function renderUsage() {
             const el = document.getElementById('usageBadge');
             if (!el) return;
             const cost = totalCost();
-            el.textContent = `$${cost.toFixed(4)} · ${usage.calls} calls` +
+            el.textContent = (planLoaded ? `${currentPlan.label} · ` : '') +
+                `$${cost.toFixed(4)} · ${usage.calls} calls` +
                 (usage.cached ? ` · ${usage.cached} cached this session` : '');
+            el.title = planLoaded
+                ? `${currentPlan.label}: ${currentPlan.lessonsPerCourse} lessons per course, ` +
+                  `${currentPlan.readChars.toLocaleString()} characters of your document read per course. ` +
+                  `Spend is estimated at ${currentPlan.label} rates.`
+                : '';
         }
 
         // Models wrap JSON in prose or markdown fences, and a truncated response
@@ -1336,7 +1416,10 @@ ${languageRule()}`;
 
         const CHUNK_CHARS = 1200;
         const CHUNK_OVERLAP = 150;
-        const EXCERPT_BUDGET = 2400;   // chars of source sent per lesson
+        // Chars of source sent per lesson is a tier limit — see currentPlan.
+        // Chunk size is not: it's the granularity retrieval works at, and the
+        // same 1,200 chars is the right passage size on every plan. A larger
+        // budget buys more chunks, not longer ones.
 
         // Split on sentence boundaries where possible. A chunk that ends mid-sentence
         // gives the model a fragment it will happily complete from imagination.
@@ -1409,6 +1492,7 @@ ${languageRule()}`;
         function retrieveExcerpt(concept, sourceText) {
             if (!sourceText) return '';
 
+            const EXCERPT_BUDGET = currentPlan.excerptChars;
             const chunks = chunkText(sourceText);
             if (!chunks.length) return '';
             if (chunks.length === 1) return chunks[0].slice(0, EXCERPT_BUDGET);
@@ -2910,13 +2994,13 @@ ${languageRule()}`;
             if (pendingAction) {
                 const action = pendingAction;
                 pendingAction = null;
-                await refreshUsage();
+                await Promise.all([refreshUsage(), loadPlan()]);
                 await runPendingAction(action);
                 return;
             }
 
             try {
-                await refreshUsage();
+                await Promise.all([refreshUsage(), loadPlan()]);
                 await loadLibrary();
                 const lastId = localStorage.getItem(ACTIVE_STORAGE);
                 if (lastId && library.some(c => c.id === lastId)) {
@@ -2946,6 +3030,9 @@ ${languageRule()}`;
             activeSourceText = '';
             library = [];
             pendingAction = null;
+            planKey = 'basic';
+            currentPlan = PLANS.basic;
+            planLoaded = false;   // the next person to sign in gets their own tier
             document.getElementById('userBadge').hidden = true;
             document.getElementById('signInPromptBtn').hidden = false;
             document.getElementById('libraryScreen').hidden = true;

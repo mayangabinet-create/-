@@ -1,4 +1,3 @@
-        window.__diagPush('main script: start');
         // Configuration
         // Courses now live in Supabase, one row per user — not localStorage.
         // These are public by design (like a Firebase config): they identify
@@ -22,7 +21,6 @@
             throw new Error('supabase-js failed to load from CDN');
         }
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-        window.__diagPush('main script: supabase client created');
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
         const MAX_COURSES = 8;
@@ -60,8 +58,8 @@
             file: svgIcon('<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>'),
             info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
+            pencil: svgIcon('<path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z"/><path d="M14.5 6.5l3 3"/>'),
         };
-        window.__diagPush('main script: ICONS defined');
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
         // works without it); a blocked/slow CDN load should only disable that one
@@ -69,7 +67,6 @@
         if (window.pdfjsLib) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
         }
-        window.__diagPush('main script: pdfjs guard passed');
 
         // ============= API & AI Functions =============
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
@@ -673,11 +670,28 @@ ${languageRule()}`;
             await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''));
         }
 
-        async function processLearningMaterial(text, title = 'Learning Course') {
+        // A course name has to contain something readable. A filename like "-.pdf",
+        // or a model that answers with a stray dash, otherwise ends up as the course's
+        // whole title — a card labelled "-" with no way to fix it.
+        function cleanTitle(raw) {
+            const s = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+            // \p{L}\p{N} so Hebrew/Arabic/Cyrillic titles count as real text too.
+            return /[\p{L}\p{N}]/u.test(s) ? s.slice(0, 80) : '';
+        }
+
+        // Whatever the learner typed into the "Course name" box, if anything.
+        function requestedCourseName() {
+            const input = document.getElementById('courseNameInput');
+            return input ? cleanTitle(input.value) : '';
+        }
+
+        // `title` is the fallback (filename, or nothing for pasted text); a name the
+        // learner typed themselves always beats both that and the model's suggestion.
+        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName()) {
             // The point of need: building a course is the first thing that
             // actually requires an account. Resume automatically after sign-up.
             if (!currentUser) {
-                pendingAction = { type: 'buildCourse', text, title };
+                pendingAction = { type: 'buildCourse', text, title, chosenName };
                 showAuthModal('signup');
                 return;
             }
@@ -689,9 +703,15 @@ ${languageRule()}`;
                     return;
                 }
 
-                if (!course.courseName) course.courseName = title;
+                course.courseName = chosenName
+                    || cleanTitle(course.courseName)
+                    || cleanTitle(title)
+                    || 'Untitled course';
                 const id = await saveCourse(course, text);
                 if (!id) return;
+
+                const nameInput = document.getElementById('courseNameInput');
+                if (nameInput) nameInput.value = '';   // don't reuse it for the next course
 
                 courseData = course;
                 activeCourseId = id;
@@ -1358,7 +1378,7 @@ ${languageRule()}`;
         async function saveCourse(course, sourceText) {
             const { data, error } = await supabaseClient.from('courses').insert({
                 user_id: currentUser.id,
-                title: course.courseName || 'Untitled course',
+                title: cleanTitle(course.courseName) || 'Untitled course',
                 language: course.language || 'English',
                 concepts: course.concepts,
                 source_text: sourceText || null,
@@ -1370,6 +1390,38 @@ ${languageRule()}`;
             }
             await loadLibrary();
             return data.id;
+        }
+
+        // Renaming touches three places that each hold their own copy of the title:
+        // the row in Supabase, the library list, and the open course in memory.
+        async function renameCourse(id, rawTitle) {
+            const title = cleanTitle(rawTitle);
+            if (!title) {
+                showError('A course name needs at least one letter or number.');
+                return false;
+            }
+            const { error } = await supabaseClient.from('courses').update({ title }).eq('id', id);
+            if (error) {
+                console.error('renameCourse failed:', error);
+                showError('Could not rename that course: ' + error.message);
+                return false;
+            }
+            const meta = library.find(c => c.id === id);
+            if (meta) meta.title = title;
+            if (activeCourseId === id && courseData) {
+                courseData.courseName = title;
+                const titleEl = document.getElementById('courseTitle');
+                if (titleEl) titleEl.textContent = title;
+            }
+            return true;
+        }
+
+        // Shared by the library card's rename button and the course title on the path.
+        async function promptRename(id, currentTitle) {
+            const next = prompt('Rename this course:', currentTitle || '');
+            if (next === null) return;            // cancelled
+            if (cleanTitle(next) === cleanTitle(currentTitle)) return;
+            await renameCourse(id, next);
         }
 
         async function deleteCourse(id) {
@@ -1442,6 +1494,7 @@ ${languageRule()}`;
                 return `
                 <div class="course-card" data-id="${esc(c.id)}">
                     <button class="course-delete" data-del="${esc(c.id)}" aria-label="Delete course" title="Delete">×</button>
+                    <button class="course-rename" data-rename="${esc(c.id)}" aria-label="Rename course" title="Rename">${ICONS.pencil}</button>
                     <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
                     <div class="course-meta">${c.conceptCount} lessons · ${esc(c.language)}</div>
                     <div class="course-bar"><div class="course-bar-fill" style="width:${pct}%"></div></div>
@@ -1451,8 +1504,18 @@ ${languageRule()}`;
 
             grid.querySelectorAll('.course-card').forEach(card => {
                 card.onclick = async (e) => {
-                    if (e.target.dataset.del) return;
+                    // closest(), not e.target.dataset — a tap usually lands on the
+                    // icon's <svg>/<path>, not on the button carrying the data attribute.
+                    if (e.target.closest('[data-del], [data-rename]')) return;
                     await openCourse(card.dataset.id);
+                };
+            });
+            grid.querySelectorAll('[data-rename]').forEach(btn => {
+                btn.onclick = async (e) => {
+                    e.stopPropagation();
+                    const id = btn.dataset.rename;
+                    await promptRename(id, library.find(c => c.id === id)?.title);
+                    renderLibrary();
                 };
             });
             grid.querySelectorAll('[data-del]').forEach(btn => {
@@ -2524,9 +2587,17 @@ ${languageRule()}`;
 
         document.getElementById('submitTextBtn').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
-            if (text.trim()) {
-                await processLearningMaterial(text);
+            // Used to return silently on empty input, which read as a dead button.
+            if (!text.trim()) {
+                showError('Paste some study material first, then tap "Build learning path".');
+                return;
             }
+            await processLearningMaterial(text);
+        });
+
+        document.getElementById('courseTitle').addEventListener('click', async () => {
+            if (!activeCourseId || !courseData) return;
+            await promptRename(activeCourseId, courseData.courseName);
         });
 
         document.getElementById('startReviewBtn').addEventListener('click', startReviewSession);
@@ -2630,7 +2701,7 @@ ${languageRule()}`;
         let pendingAction = null;
 
         async function runPendingAction(action) {
-            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title);
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName);
             if (action.type === 'showLibrary') return showLibrary();
         }
 
@@ -2816,18 +2887,14 @@ ${languageRule()}`;
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
         };
-        window.__diagPush('main script: about to fill static icons, ICONS keys=' + Object.keys(ICONS).length);
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);
             if (el) el.innerHTML = ICONS[icon];
         });
-        window.__diagPush('main script: static icons filled');
 
         (async () => {
             try {
-                window.__diagPush('init: calling getSession');
                 const { data: { session } } = await supabaseClient.auth.getSession();
-                window.__diagPush('init: getSession resolved, hasSession=' + !!session);
                 if (session?.user) {
                     try {
                         const raw = sessionStorage.getItem('pending_action');
@@ -2837,12 +2904,15 @@ ${languageRule()}`;
                         }
                     } catch (_) {}
                     await onSignedIn(session.user);
-                    window.__diagPush('init: onSignedIn done');
                 } else {
                     showAnonymousHome();
-                    window.__diagPush('init: showAnonymousHome done');
                 }
             } catch (e) {
-                window.__diagPush('init: THREW -> ' + (e && (e.stack || e.message) || e));
+                console.error('init failed:', e);
             }
         })();
+
+        // Last statement in the file. index.html watches for this: every icon and
+        // every button listener is registered above, so if this never runs the page
+        // is half-wired and says so instead of looking fine and doing nothing.
+        window.__appBooted = true;

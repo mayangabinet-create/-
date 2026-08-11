@@ -1,11 +1,11 @@
 # AI Learning Path
 
 Two files — `index.html` (markup + styles) and `app.js` — in Duolingo's visual
-language, with no build step and no framework. Sign in, name your course, upload a
-PDF (or paste text), and the app turns it into a Duolingo-style learning path: 10-20
-concepts extracted and ordered by prerequisite, each opening a multi-step interactive
-lesson grounded in your own document. Courses can be renamed any time, from the card
-in your library or by tapping the title above the path.
+language, with no build step and no framework. Drop in a PDF (or paste text), name it,
+and the app turns it into a Duolingo-style learning path: 10-20 concepts extracted and
+ordered by prerequisite, each opening a multi-step interactive lesson grounded in your
+own document. Courses can be renamed any time, from the card in your library or by
+tapping the title above the path.
 
 ## Quick start
 

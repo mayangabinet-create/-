@@ -87,6 +87,11 @@
             --duo-text: #3C3C3C;           /* primary text: 10.4 on the page bg */
             --duo-text-light: #707070;     /* secondary text: 4.61 on the page bg */
             --duo-locked-bg: #E5E5E5;
+            /* Text sitting on the #E5E5E5 sunken surface (tab tracks, toggle
+               tracks, disabled pills). --duo-text-light and --duo-green-dark are
+               only AA against the page background, not against this. */
+            --duo-text-on-sunk: #5C5C5C;   /* 5.31 on #E5E5E5 */
+            --duo-green-on-sunk: #3D7300;  /* 4.57 on #E5E5E5 */
             --duo-locked-icon: #707070;
 
             --duo-shadow: 0 1px 2px rgba(23, 43, 58, 0.04), 0 4px 12px rgba(23, 43, 58, 0.06);
@@ -650,7 +655,7 @@
         .source-tab:hover { color: var(--duo-text); }
         /* Solved against the #E5E5E5 tab track; --duo-text-light is only AA on
            white and the card background. */
-        .source-tab:not(.active) { color: #5C5C5C; }
+        .source-tab:not(.active) { color: var(--duo-text-on-sunk); }
         .source-tab.active {
             background: var(--duo-card); color: var(--duo-blue-dark);
             border-color: var(--duo-blue);
@@ -793,6 +798,139 @@
         }
         .library-grid {
             display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px;
+        }
+
+        /* ---- Account ---- */
+        .account-plan {
+            background: var(--duo-card); border: 1px solid var(--duo-border);
+            border-radius: var(--r-md); box-shadow: var(--duo-shadow);
+            padding: var(--s-4); margin-bottom: var(--s-3);
+        }
+        .account-plan-name {
+            font-size: var(--t-xl); font-weight: 800; line-height: var(--lh-tight);
+            color: var(--duo-text);
+        }
+        .account-plan-price { font-size: var(--t-sm); color: var(--duo-text-light); margin-top: var(--s-1); }
+        /* The quota bar is the "you already paid, this is your balance" cue — the
+           reason the header no longer shows a running dollar total. */
+        .account-meter { margin-top: var(--s-4); }
+        .account-meter-row {
+            display: flex; justify-content: space-between; align-items: baseline;
+            font-size: var(--t-sm); margin-bottom: var(--s-2);
+        }
+        .account-meter-used { font-weight: 800; color: var(--duo-text); font-size: var(--t-md); }
+        .account-meter-reset { color: var(--duo-text-light); }
+        .account-track {
+            height: 12px; border-radius: var(--r-pill);
+            background: var(--duo-locked-bg); overflow: hidden;
+        }
+        .account-fill {
+            height: 100%; border-radius: var(--r-pill); background: var(--duo-green);
+            transition: width 0.3s ease;
+        }
+        .account-fill.is-empty { background: var(--duo-red); }
+        .account-rows {
+            background: var(--duo-card); border: 1px solid var(--duo-border);
+            border-radius: var(--r-md); box-shadow: var(--duo-shadow);
+            padding: var(--s-3) var(--s-4); margin-bottom: var(--s-3);
+        }
+        .account-row {
+            display: flex; justify-content: space-between; gap: var(--s-3);
+            padding: var(--s-2) 0; font-size: var(--t-sm);
+            border-bottom: 1px solid var(--duo-border);
+        }
+        .account-row:last-child { border-bottom: none; }
+        .account-row dt { color: var(--duo-text-light); }
+        .account-row dd { margin: 0; font-weight: 700; color: var(--duo-text); text-align: right; }
+
+        /* ---- Pricing ---- */
+        .pricing-head { text-align: center; margin-bottom: var(--s-4); }
+        .pricing-head h2 {
+            font-size: var(--t-2xl); font-weight: 800; line-height: var(--lh-tight);
+            color: var(--duo-text); margin: 0 0 var(--s-2);
+        }
+        .pricing-head p {
+            color: var(--duo-text-light); font-size: var(--t-sm);
+            max-width: var(--measure); margin: 0 auto; line-height: var(--lh-body);
+        }
+        .billing-toggle {
+            display: flex; gap: var(--s-1); margin: 0 auto var(--s-5);
+            background: var(--duo-locked-bg); border-radius: var(--r-pill);
+            padding: var(--s-1); width: fit-content;
+        }
+        .billing-option {
+            border: none; background: transparent; cursor: pointer;
+            padding: 10px var(--s-4); min-height: var(--tap-min);
+            border-radius: var(--r-pill); font-family: inherit;
+            font-size: var(--t-sm); font-weight: 800; color: var(--duo-text-on-sunk);
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+        .billing-option[aria-pressed="true"] {
+            background: var(--duo-card); color: var(--duo-text);
+            box-shadow: var(--duo-shadow);
+        }
+        .billing-save {
+            display: inline-block; margin-inline-start: var(--s-2);
+            font-size: var(--t-xs); font-weight: 800; color: var(--duo-green-on-sunk);
+        }
+        /* Three across where there's room, so Pro is literally the middle column.
+           Stacked on a phone it keeps its badge and border to stay the obvious pick. */
+        .pricing-grid {
+            display: grid; gap: var(--s-3);
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            align-items: start;
+        }
+        .tier-card {
+            position: relative; display: flex; flex-direction: column;
+            background: var(--duo-card); border: 2px solid var(--duo-border);
+            border-radius: var(--r-md); box-shadow: var(--duo-shadow);
+            padding: var(--s-4);
+        }
+        .tier-card.tier-featured {
+            border-color: var(--duo-green); box-shadow: var(--duo-shadow-lift);
+        }
+        @media (min-width: 760px) {
+            .tier-card.tier-featured { transform: scale(1.04); z-index: 1; }
+        }
+        .tier-badge {
+            position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+            background: var(--duo-green-strong); color: #fff;
+            font-size: var(--t-xs); font-weight: 800; letter-spacing: .02em;
+            padding: 4px 12px; border-radius: var(--r-pill); white-space: nowrap;
+        }
+        .tier-name {
+            font-size: var(--t-lg); font-weight: 800; color: var(--duo-text);
+            line-height: var(--lh-tight);
+        }
+        .tier-price {
+            font-size: var(--t-hero); font-weight: 800; color: var(--duo-text);
+            line-height: var(--lh-tight); margin-top: var(--s-2);
+        }
+        .tier-price span { font-size: var(--t-sm); font-weight: 700; color: var(--duo-text-light); }
+        .tier-sub { font-size: var(--t-xs); color: var(--duo-text-light); margin-top: var(--s-1); min-height: 1.4em; }
+        .tier-blurb {
+            font-size: var(--t-sm); color: var(--duo-text-light);
+            line-height: var(--lh-body); margin: var(--s-3) 0 0;
+        }
+        .tier-features { list-style: none; margin: var(--s-3) 0 var(--s-4); padding: 0; }
+        .tier-features li {
+            position: relative; padding-inline-start: 24px; margin-bottom: var(--s-2);
+            font-size: var(--t-sm); color: var(--duo-text); line-height: var(--lh-body);
+        }
+        .tier-features li::before {
+            content: "✓"; position: absolute; inset-inline-start: 0; top: 0;
+            color: var(--duo-green-dark); font-weight: 800;
+        }
+        .tier-card .button { width: 100%; margin-top: auto; }
+        .tier-current {
+            width: 100%; margin-top: auto; text-align: center;
+            padding: 14px; border-radius: var(--r-sm);
+            background: var(--duo-locked-bg); color: var(--duo-text-on-sunk);
+            font-size: var(--t-sm); font-weight: 800;
+        }
+        .pricing-note {
+            margin: var(--s-4) auto 0; max-width: var(--measure); text-align: center;
+            font-size: var(--t-xs); color: var(--duo-text-light); line-height: var(--lh-body);
         }
         .course-card {
             position: relative; cursor: pointer; padding: var(--s-4) var(--s-3);
@@ -1758,6 +1896,62 @@
                     <p>No courses yet. Upload a document to build your first one.</p>
                 </div>
                 <button class="button" id="newCourseBtn" style="width:100%; margin-top:20px;">New course</button>
+            </div>
+
+            <!-- Account: plan, what's left of it, and the way out -->
+            <div id="accountScreen" hidden>
+                <div class="library-head">
+                    <h2 class="library-title">Account</h2>
+                </div>
+
+                <div class="account-plan">
+                    <div class="account-plan-name" id="accountPlanName">Basic</div>
+                    <div class="account-plan-price" id="accountPlanPrice"></div>
+
+                    <div class="account-meter">
+                        <div class="account-meter-row">
+                            <span class="account-meter-used" id="accountMeterUsed"></span>
+                            <span class="account-meter-reset" id="accountMeterReset"></span>
+                        </div>
+                        <div class="account-track" role="progressbar" id="accountTrack"
+                             aria-valuemin="0" aria-valuenow="0" aria-valuemax="0"
+                             aria-label="Courses used this month">
+                            <div class="account-fill" id="accountFill" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <dl class="account-rows">
+                    <div class="account-row"><dt>Signed in as</dt><dd id="accountEmail"></dd></div>
+                    <div class="account-row"><dt>Lessons per course</dt><dd id="accountDepth"></dd></div>
+                    <div class="account-row"><dt>Reads from your document</dt><dd id="accountRead"></dd></div>
+                    <div class="account-row"><dt>Courses kept</dt><dd id="accountKeep"></dd></div>
+                </dl>
+
+                <button class="button" id="accountUpgradeBtn" style="width:100%;">See plans</button>
+                <button class="button button-secondary" id="accountSignOutBtn" style="width:100%; margin-top:10px;">Sign out</button>
+            </div>
+
+            <!-- Pricing. A screen rather than a dialog: three tiers plus a billing
+                 toggle is more than a confirm box should carry, and it needs to be
+                 scrollable on a phone. -->
+            <div id="pricingScreen" hidden>
+                <div class="pricing-head">
+                    <h2>Choose a plan</h2>
+                    <p id="pricingLede">Every plan turns your own documents into full courses. The difference is how many, how deep, and how much of each document gets read.</p>
+                </div>
+
+                <div class="billing-toggle" role="group" aria-label="Billing period">
+                    <button type="button" class="billing-option" id="billMonthly" aria-pressed="false">Monthly</button>
+                    <button type="button" class="billing-option" id="billAnnual" aria-pressed="true">
+                        Annual<span class="billing-save">2 months free</span>
+                    </button>
+                </div>
+
+                <div class="pricing-grid" id="pricingGrid"></div>
+
+                <p class="pricing-note" id="pricingNote"></p>
+                <button class="button button-secondary" id="pricingBackBtn" style="width:100%; margin-top:20px;">Back</button>
             </div>
 
             <!-- Source picker: two tabs, both reachable at any time -->

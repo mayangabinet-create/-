@@ -23,7 +23,76 @@
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
-        const MAX_COURSES = 8;
+
+        // ============= Plans =============
+        // The unit sold is a course, not a lesson — that's what someone actually
+        // wants ("turn my three textbooks into courses"). A course is only a
+        // priceable unit because `lessonsPerCourse` is fixed: left at the old
+        // "10-20 concepts" the same course cost anywhere from 10 to 20 lessons.
+        //
+        // Everything here is a HINT. ai-proxy holds the same table and clamps
+        // against it, because a modified client can send whatever it likes. These
+        // values exist so the excerpt a Pro user's TF-IDF actually builds is the
+        // size they paid for, and so the UI can show real numbers.
+        const PLANS = {
+            trial: {
+                label: 'Free trial', coursesPerMonth: 1, lessonsPerCourse: 10,
+                readChars: 5000, excerptChars: 2400, libraryMax: 8,
+                priceMonth: 0, priceYear: 0,
+            },
+            basic: {
+                label: 'Basic', coursesPerMonth: 3, lessonsPerCourse: 10,
+                readChars: 5000, excerptChars: 2400, libraryMax: 8,
+                priceMonth: 6.99, priceYear: 69.90,
+                blurb: 'Enough for a course a week.',
+                model: 'Fast model',
+            },
+            pro: {
+                label: 'Pro', coursesPerMonth: 5, lessonsPerCourse: 12,
+                readChars: 40000, excerptChars: 8000, libraryMax: 20,
+                priceMonth: 19.99, priceYear: 199.90,
+                blurb: 'Deeper courses, and it reads 8× more of your document.',
+                model: 'Advanced model',
+            },
+            max: {
+                label: 'Max', coursesPerMonth: 8, lessonsPerCourse: 15,
+                readChars: 120000, excerptChars: 16000, libraryMax: 50,
+                priceMonth: 39.99, priceYear: 399.90,
+                blurb: 'Reads a whole textbook and plans it with our strongest model.',
+                model: 'Advanced model, expert course planning',
+            },
+        };
+        const PLAN_ORDER = ['basic', 'pro', 'max'];
+
+        // Returned by ai-proxy alongside a 429. Retrying never clears these, so they
+        // are handled separately from a genuine rate limit.
+        const QUOTA_CODES = ['course_quota', 'lesson_quota', 'trial_over', 'email_unconfirmed'];
+
+        // Mirrors `subscriptions` + the monthly counters on `ai_usage`. Defaults are
+        // the safe ones: an unknown caller is treated as the smallest plan, never
+        // the largest, so a failed load can't hand out Max limits.
+        let entitlement = {
+            plan: 'basic',
+            status: 'none',
+            interval: 'month',
+            coursesUsed: 0,
+            lessonsUsed: 0,
+            resetAt: null,
+            trialCoursesUsed: 0,
+        };
+
+        // Trialing accounts get trial limits regardless of what `plan` says, so a
+        // seeded plan row can't be used to skip the trial cap.
+        function currentPlan() {
+            if (entitlement.status === 'trialing') return PLANS.trial;
+            return PLANS[entitlement.plan] || PLANS.basic;
+        }
+
+        function coursesRemaining() {
+            const used = entitlement.status === 'trialing'
+                ? entitlement.trialCoursesUsed : entitlement.coursesUsed;
+            return Math.max(0, currentPlan().coursesPerMonth - used);
+        }
 
         let currentUser = null;
         let courseData = null;
@@ -86,9 +155,13 @@
                 return null;
             }
 
-            const { retries = 2, maxTokens = 1000 } = opts;
+            // `task` is sent for routing and telemetry only. Billing is never keyed
+            // off it — the server counts from max_tokens, which it can verify:
+            // a course plan is 4000, a lesson 5000, and tutor/feedback sit below.
+            const { retries = 2, maxTokens = 1000, task = null } = opts;
             const body = { messages: [{ role: 'user', content: userMessage }], max_tokens: maxTokens };
             if (systemPrompt) body.system = systemPrompt;
+            if (task) body.task = task;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 try {
@@ -109,8 +182,11 @@
                     try { payload = await error.context.json(); } catch (_) {}
                     console.error('ai-proxy error:', status, payload);
 
-                    // Rate limited or overloaded — back off and retry
-                    if ((status === 429 || status >= 500) && attempt < retries) {
+                    // Rate limited or overloaded — back off and retry. A spent quota
+                    // also comes back 429 but will never clear by retrying, so it
+                    // carries a code and skips the backoff.
+                    const quotaCode = QUOTA_CODES.includes(payload.code) ? payload.code : null;
+                    if (!quotaCode && (status === 429 || status >= 500) && attempt < retries) {
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
@@ -121,13 +197,15 @@
                         showAuthModal('signin');
                         return null;
                     }
-                    if (status === 402) {
-                        showError(payload.message || "Your trial has ended. Subscribe to keep generating lessons.");
-                        showUpgradePrompt();
+                    if (status === 402 || quotaCode) {
+                        // The server tells us which limit was hit; each one needs a
+                        // different next step, and none of them is "something went wrong".
+                        refreshUsage();
+                        handleQuotaExhausted(quotaCode || 'trial_over', payload);
                         return null;
                     }
                     if (status === 429) {
-                        showError(payload.message || "Daily limit reached. Try again tomorrow.");
+                        showError(payload.message || "Too many requests right now. Give it a moment and try again.");
                         return null;
                     }
 
@@ -165,13 +243,14 @@
         async function generateLessonPath(text) {
             showMessage("Analyzing your material...");
 
+            const plan = currentPlan();
             const extractPrompt = `Analyse the study material below and extract its key concepts.
 
 MATERIAL:
-${text.substring(0, 5000)}
+${text.substring(0, plan.readChars)}
 
 TASK:
-1. Identify 10-20 core concepts a learner must understand from this material.
+1. Identify exactly ${plan.lessonsPerCourse} core concepts a learner must understand from this material.
 2. Order them by logical progression — prerequisites first.
 3. For each concept give:
    - name (1-4 words)
@@ -210,6 +289,11 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
             // A truncated response still yields usable concepts — keep the valid ones.
             // A truncated tail can leave a name-only husk. Require real content.
             data.concepts = data.concepts.filter(c => c && c.name && c.description);
+            // Models overshoot "exactly N" often enough that the count has to be
+            // enforced, not asked for — a course is only a fixed-cost unit if its
+            // lesson count is fixed. ai-proxy truncates too; this keeps the client's
+            // own view consistent with what was billed.
+            data.concepts = data.concepts.slice(0, plan.lessonsPerCourse);
             return data;
         }
 
@@ -612,6 +696,8 @@ ${languageRule()}`;
             document.getElementById('sourcePicker').hidden = name !== 'source';
             document.getElementById('readyScreen').hidden = name !== 'ready';
             document.getElementById('libraryScreen').hidden = name !== 'library';
+            document.getElementById('accountScreen').hidden = name !== 'account';
+            document.getElementById('pricingScreen').hidden = name !== 'pricing';
             document.getElementById('learningPath').classList.toggle('active', name === 'path');
         }
 
@@ -1196,28 +1282,48 @@ ${languageRule()}`;
                 `<span class="heart${i < left ? '' : ' lost'}">${ICONS.heart}</span>`).join('');
         }
 
-        // ============= Usage & cost tracking =============
-        // Haiku 4.5 pricing: $1 per 1M input tokens, $5 per 1M output tokens.
-        const PRICE_IN = 1 / 1_000_000;
-        const PRICE_OUT = 5 / 1_000_000;
-
+        // ============= Usage & quota =============
         // The Edge Function increments ai_usage server-side on every real call —
         // the client just reflects it. "cached" (this app's own lesson cache, not
         // an API call at all) is session-only, there's nothing server-side to sync.
         let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0 };
 
+        // Two reads, one round trip: what they're entitled to and what they've spent.
         async function refreshUsage() {
             if (!currentUser) return;
-            const { data } = await supabaseClient
-                .from('ai_usage')
-                .select('calls, input_tokens, output_tokens')
-                .eq('user_id', currentUser.id)
-                .maybeSingle();
-            if (data) {
-                usage.calls = data.calls;
-                usage.inputTokens = data.input_tokens;
-                usage.outputTokens = data.output_tokens;
+            const [usageRes, subRes] = await Promise.all([
+                supabaseClient
+                    .from('ai_usage')
+                    .select('calls, input_tokens, output_tokens, courses_month, lessons_month, month_reset_at')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle(),
+                supabaseClient
+                    .from('subscriptions')
+                    .select('plan, status, interval, trial_courses_used')
+                    .eq('user_id', currentUser.id)
+                    .maybeSingle(),
+            ]);
+
+            const u = usageRes.data;
+            if (u) {
+                usage.calls = u.calls;
+                usage.inputTokens = u.input_tokens;
+                usage.outputTokens = u.output_tokens;
+                entitlement.coursesUsed = u.courses_month ?? 0;
+                entitlement.lessonsUsed = u.lessons_month ?? 0;
+                entitlement.resetAt = u.month_reset_at || null;
             }
+
+            const s = subRes.data;
+            if (s) {
+                // An unrecognised plan name falls back to the smallest one rather
+                // than the largest — a bad row must never hand out Max limits.
+                entitlement.plan = PLANS[s.plan] ? s.plan : 'basic';
+                entitlement.status = s.status || 'none';
+                entitlement.interval = s.interval === 'year' ? 'year' : 'month';
+                entitlement.trialCoursesUsed = s.trial_courses_used ?? 0;
+            }
+
             renderUsage();
         }
 
@@ -1226,16 +1332,36 @@ ${languageRule()}`;
             renderUsage();
         }
 
-        function totalCost() {
-            return usage.inputTokens * PRICE_IN + usage.outputTokens * PRICE_OUT;
-        }
-
+        // The badge used to show `$0.0000 · 12 calls` — this app's own cost of goods,
+        // itemised for the person paying. A running money meter re-prices every tap
+        // and makes the product feel expensive to touch. What someone has already
+        // bought is a balance, so show the balance.
         function renderUsage() {
             const el = document.getElementById('usageBadge');
             if (!el) return;
-            const cost = totalCost();
-            el.textContent = `$${cost.toFixed(4)} · ${usage.calls} calls` +
-                (usage.cached ? ` · ${usage.cached} cached this session` : '');
+            const plan = currentPlan();
+            const trialing = entitlement.status === 'trialing';
+            const left = coursesRemaining();
+            const total = plan.coursesPerMonth;
+            const used = total - left;
+            el.textContent = `${used} of ${total} course${total === 1 ? '' : 's'}` +
+                (trialing ? ' · free trial' : ' this month');
+            // The trial total is for the whole trial, not per month — saying it
+            // resets would promise a second free course that never arrives.
+            el.title = left === 0
+                ? 'No courses left — tap Account to upgrade'
+                : trialing
+                    ? `${left} free course${left === 1 ? '' : 's'} left`
+                    : `${left} course${left === 1 ? '' : 's'} left — resets ${resetPhrase()}`;
+        }
+
+        // "on 1 September" reads better than a date nobody asked for; the counter
+        // rolls on the first of the month, so derive it rather than trusting a
+        // column that only exists once the first call has been made.
+        function resetPhrase() {
+            const now = new Date();
+            const next = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+            return next.toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
         }
 
         // Models wrap JSON in prose or markdown fences, and a truncated response
@@ -1402,7 +1528,9 @@ ${languageRule()}`;
 
         const CHUNK_CHARS = 1200;
         const CHUNK_OVERLAP = 150;
-        const EXCERPT_BUDGET = 2400;   // chars of source sent per lesson
+        // Chars of source sent per lesson. Tier-dependent: "reads more of your
+        // document" is the paid upgrade, so this can't be a constant any more.
+        function excerptBudget() { return currentPlan().excerptChars; }
 
         // Split on sentence boundaries where possible. A chunk that ends mid-sentence
         // gives the model a fragment it will happily complete from imagination.
@@ -1477,7 +1605,7 @@ ${languageRule()}`;
 
             const chunks = chunkText(sourceText);
             if (!chunks.length) return '';
-            if (chunks.length === 1) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (chunks.length === 1) return chunks[0].slice(0, excerptBudget());
 
             const index = buildIndex(chunks);
             const query = tokenize([
@@ -1487,7 +1615,7 @@ ${languageRule()}`;
                 ...(concept.examples || []),
             ].join(' '));
 
-            if (!query.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (!query.length) return chunks[0].slice(0, excerptBudget());
 
             const ranked = index.tokenized
                 .map((toks, i) => ({ i, score: scoreChunk(query, toks, index) }))
@@ -1495,7 +1623,7 @@ ${languageRule()}`;
                 .sort((a, b) => b.score - a.score);
 
             // Nothing matched — the concept may be synthesised across the document.
-            if (!ranked.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (!ranked.length) return chunks[0].slice(0, excerptBudget());
 
             // Take the best chunk, then only add more if they are genuinely
             // comparable. Filling the budget blindly drags in neighbouring
@@ -1504,7 +1632,7 @@ ${languageRule()}`;
             const RELEVANCE_FLOOR = 0.55;   // a chunk must score >=55% of the best
 
             const picked = [ranked[0].i];
-            let budget = EXCERPT_BUDGET - chunks[ranked[0].i].length;
+            let budget = excerptBudget() - chunks[ranked[0].i].length;
 
             for (const r of ranked.slice(1)) {
                 if (budget <= 0) break;
@@ -1521,7 +1649,7 @@ ${languageRule()}`;
                 if (k > 0) out += (idx === picked[k - 1] + 1) ? ' ' : '\n[...]\n';
                 out += chunks[idx];
             });
-            return out.slice(0, EXCERPT_BUDGET);
+            return out.slice(0, excerptBudget());
         }
 
         function getSourceText() {
@@ -1695,7 +1823,7 @@ ${languageRule()}`;
             // Undo whatever renderSignedOutLibrary() hid.
             document.getElementById('newCourseBtn').hidden = false;
 
-            count.textContent = `${library.length} of ${MAX_COURSES}`;
+            count.textContent = `${library.length} of ${currentPlan().libraryMax}`;
             empty.hidden = library.length > 0;
             grid.innerHTML = library.map(c => {
                 const pct = courseProgressPct(c.id);
@@ -1791,8 +1919,17 @@ ${languageRule()}`;
         }
 
         function showNewCourse() {
-            if (library.length >= MAX_COURSES) {
-                showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
+            // Storage cap, not the monthly quota — a Max subscriber creating 8 courses
+            // a month must not be stopped by a limit that only exists to bound rows.
+            const keepMax = currentPlan().libraryMax;
+            if (library.length >= keepMax) {
+                showError(`You can keep ${keepMax} courses at a time. Delete one to add another.`);
+                return;
+            }
+            // The quota is the server's call, but telling someone up front beats
+            // letting them pick a PDF, name it, and only then hit a wall.
+            if (currentUser && coursesRemaining() === 0) {
+                handleQuotaExhausted('course_quota', {});
                 return;
             }
             setMainScreen('source');
@@ -2823,16 +2960,29 @@ ${languageRule()}`;
             startReviewSession();
         });
 
-        document.getElementById('navAccount').addEventListener('click', async () => {
-            if (!currentUser) {
-                showAuthModal('signin', 'Sign in to keep your courses and progress across devices.');
-                return;
-            }
-            const out = await uiConfirm('Account', `Signed in as ${currentUser.email}.`,
+        document.getElementById('navAccount').addEventListener('click', showAccount);
+
+        document.getElementById('accountUpgradeBtn').addEventListener('click', () => showPricing());
+
+        document.getElementById('accountSignOutBtn').addEventListener('click', async () => {
+            const out = await uiConfirm('Sign out', `Signed in as ${currentUser.email}.`,
                 { confirmText: 'Sign out', danger: true });
-            if (out) {
-                await supabaseClient.auth.signOut();
-            }
+            if (out) await supabaseClient.auth.signOut();
+        });
+
+        document.getElementById('billMonthly').addEventListener('click', () => {
+            billingInterval = 'month'; renderPricing();
+        });
+        document.getElementById('billAnnual').addEventListener('click', () => {
+            billingInterval = 'year'; renderPricing();
+        });
+
+        // Back goes to the account screen when that's where they came from, and to
+        // the library otherwise — a quota wall can send someone here from anywhere.
+        document.getElementById('pricingBackBtn').addEventListener('click', () => {
+            if (currentUser) { showAccount(); return; }
+            setMainScreen('source');
+            setActiveNav('home');
         });
 
         document.getElementById('signInPromptBtn').addEventListener('click', () => showAuthModal('signin'));
@@ -2996,11 +3146,160 @@ ${languageRule()}`;
             document.getElementById('authForgotBtn').closest('div').hidden = isUp;
         }
 
-        // Placeholder until Stripe is wired in — the entitlement check server-side
-        // already works, this just needs a real checkout link.
-        function showUpgradePrompt() {
-            uiAlert('Paid subscriptions are coming soon — check back shortly. Your courses and progress are all still here in the meantime.',
-                'Your free trial has ended');
+        // ============= Account =============
+        function showAccount() {
+            if (!currentUser) {
+                showAuthModal('signin', 'Sign in to keep your courses and progress across devices.');
+                return;
+            }
+            renderAccount();
+            setMainScreen('account');
+            setActiveNav('account');
+            refreshUsage().then(renderAccount);   // repaint once the fresh numbers land
+        }
+
+        function renderAccount() {
+            const plan = currentPlan();
+            const trialing = entitlement.status === 'trialing';
+            const total = plan.coursesPerMonth;
+            const used = total - coursesRemaining();
+
+            document.getElementById('accountPlanName').textContent =
+                trialing ? 'Free trial' : plan.label;
+            document.getElementById('accountPlanPrice').textContent = trialing
+                ? 'One free course to try it out'
+                : entitlement.interval === 'year'
+                    ? `$${plan.priceYear.toFixed(2)} a year`
+                    : `$${plan.priceMonth.toFixed(2)} a month`;
+
+            document.getElementById('accountMeterUsed').textContent =
+                `${used} of ${total} course${total === 1 ? '' : 's'} used`;
+            document.getElementById('accountMeterReset').textContent =
+                trialing ? '' : `Resets ${resetPhrase()}`;
+
+            const fill = document.getElementById('accountFill');
+            const pct = total ? Math.min(100, (used / total) * 100) : 0;
+            fill.style.width = `${pct}%`;
+            fill.classList.toggle('is-empty', used >= total);
+
+            const track = document.getElementById('accountTrack');
+            track.setAttribute('aria-valuenow', String(used));
+            track.setAttribute('aria-valuemax', String(total));
+
+            document.getElementById('accountEmail').textContent = currentUser.email;
+            document.getElementById('accountDepth').textContent = `${plan.lessonsPerCourse} lessons`;
+            document.getElementById('accountRead').textContent =
+                `${(plan.readChars / 1000).toLocaleString()}k characters`;
+            document.getElementById('accountKeep').textContent = `${plan.libraryMax} courses`;
+
+            document.getElementById('accountUpgradeBtn').textContent =
+                entitlement.plan === 'max' && !trialing ? 'See plans' : 'Upgrade';
+        }
+
+        // ============= Pricing =============
+        let billingInterval = 'year';   // annual preselected: it's the better deal on both sides
+
+        function showPricing(reason = '') {
+            document.getElementById('pricingLede').textContent = reason ||
+                'Every plan turns your own documents into full courses. The difference is how many, how deep, and how much of each document gets read.';
+            renderPricing();
+            setMainScreen('pricing');
+            setActiveNav('account');
+        }
+
+        function renderPricing() {
+            const annual = billingInterval === 'year';
+            document.getElementById('billMonthly').setAttribute('aria-pressed', String(!annual));
+            document.getElementById('billAnnual').setAttribute('aria-pressed', String(annual));
+
+            const grid = document.getElementById('pricingGrid');
+            grid.innerHTML = '';
+
+            PLAN_ORDER.forEach(key => {
+                const plan = PLANS[key];
+                const perMonth = annual ? plan.priceYear / 12 : plan.priceMonth;
+                const perCourse = perMonth / plan.coursesPerMonth;
+                const isCurrent = entitlement.status !== 'trialing' && entitlement.plan === key;
+
+                const card = document.createElement('div');
+                // Pro is the middle column and is meant to be the obvious pick, so it
+                // says so rather than relying on the reader to work it out.
+                card.className = 'tier-card' + (key === 'pro' ? ' tier-featured' : '');
+
+                const badge = key === 'pro' ? '<div class="tier-badge">Most popular</div>' : '';
+                const sub = annual
+                    ? `$${plan.priceYear.toFixed(2)} billed yearly · $${perCourse.toFixed(2)} per course`
+                    : `$${perCourse.toFixed(2)} per course`;
+
+                card.innerHTML = `
+                    ${badge}
+                    <div class="tier-name">${plan.label}</div>
+                    <div class="tier-price">$${perMonth.toFixed(2)}<span> /month</span></div>
+                    <div class="tier-sub">${sub}</div>
+                    <p class="tier-blurb">${plan.blurb}</p>
+                    <ul class="tier-features">
+                        <li><strong>${plan.coursesPerMonth} courses</strong> a month</li>
+                        <li><strong>${plan.lessonsPerCourse} lessons</strong> in every course</li>
+                        <li>Reads <strong>${(plan.readChars / 1000).toLocaleString()}k characters</strong> of your document</li>
+                        <li>${plan.model}</li>
+                        <li>Keep ${plan.libraryMax} courses</li>
+                    </ul>`;
+
+                if (isCurrent) {
+                    const cur = document.createElement('div');
+                    cur.className = 'tier-current';
+                    cur.textContent = 'Your current plan';
+                    card.appendChild(cur);
+                } else {
+                    const btn = document.createElement('button');
+                    btn.className = 'button' + (key === 'pro' ? '' : ' button-secondary');
+                    btn.textContent = `Choose ${plan.label}`;
+                    btn.onclick = () => startCheckout(key, billingInterval);
+                    card.appendChild(btn);
+                }
+
+                grid.appendChild(card);
+            });
+
+            document.getElementById('pricingNote').textContent = annual
+                ? 'Annual plans are billed once for twelve months at the price of ten. Cancel any time; your plan runs to the end of the period you paid for.'
+                : 'Switch to annual and two months are free. Cancel any time.';
+        }
+
+        // Stripe isn't wired up yet. Everything above is real and driven by the same
+        // plan table the server enforces, so this is the only piece still standing in.
+        function startCheckout(planKey, interval) {
+            const plan = PLANS[planKey];
+            const price = interval === 'year' ? plan.priceYear : plan.priceMonth;
+            uiAlert(
+                `${plan.label} at $${price.toFixed(2)} ${interval === 'year' ? 'a year' : 'a month'} — ` +
+                `checkout isn't switched on yet, so nothing has been charged. ` +
+                `Your courses and progress are all still here.`,
+                'Almost there');
+        }
+
+        // Called when the server refuses on quota. Each code has a different next
+        // step; none of them should read as an error the user caused.
+        function handleQuotaExhausted(code, payload = {}) {
+            if (code === 'email_unconfirmed') {
+                uiAlert(payload.message ||
+                    'Check your inbox and confirm your email address, then come back and build your course.',
+                    'Confirm your email first');
+                return;
+            }
+            if (code === 'lesson_quota') {
+                // Their courses are built; it's the lessons inside them that ran out.
+                uiAlert(payload.message ||
+                    `You've used every lesson included this month. It resets ${resetPhrase()}, or upgrade for more.`,
+                    'No lessons left this month');
+                showPricing('You’ve used every lesson included this month. A bigger plan comes with more.');
+                return;
+            }
+            if (entitlement.status === 'trialing' || code === 'trial_over') {
+                showPricing('Your free course is done — pick a plan to keep building. Everything you’ve made stays where it is.');
+                return;
+            }
+            showPricing(`You’ve used all ${currentPlan().coursesPerMonth} courses this month. They reset ${resetPhrase()}, or upgrade now for more.`);
         }
 
         // Set by any gated action (building a course, opening the library, etc.)
@@ -3081,6 +3380,13 @@ ${languageRule()}`;
         }
 
         function onSignedOut() {
+            // Reset to the safe default, not the last plan seen — otherwise the next
+            // person to sign in on this device briefly gets the previous one's limits.
+            entitlement = {
+                plan: 'basic', status: 'none', interval: 'month',
+                coursesUsed: 0, lessonsUsed: 0, resetAt: null, trialCoursesUsed: 0,
+            };
+            usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0 };
             showAnonymousHome();
         }
 

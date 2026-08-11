@@ -66,7 +66,11 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
 ## Tiers
 
 Held in `PLANS` in the Edge Function; `subscriptions.plan` picks the row, and an
-unrecognised value falls back to `basic` rather than the largest tier.
+unrecognised value falls back to `basic` rather than the largest tier. `app.js` carries
+a matching copy and has to be kept in step with it: the server clamps every request
+*down* to the tier, so the client's copy can't take more than was paid for — it exists
+so the client doesn't cut the document below the tier first, which would leave Max
+buying a bigger model to read a Basic-sized document.
 
 | | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | model |
 |---|---|---|---|---|---|
@@ -90,16 +94,12 @@ header shows the signed-in user's cumulative spend and call count, read from
   frontend is a placeholder. Once a Stripe account and price exist, this needs a
   checkout Edge Function and a webhook that updates `subscriptions` on
   `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
-- **The client knows nothing about tiers.** `app.js` still sends a fixed 5,000 chars
-  of the document on a course call and a fixed 2,400-char excerpt per lesson, and never
-  reads `subscriptions`. The server clamps *down* to the tier, so nobody can take more
-  than they paid for — but nobody can take more than Basic either, because the client
-  already cut the document to Basic's size before the request left the browser. Pro and
-  Max currently buy a bigger model reading a Basic-sized document. This has to be fixed
-  before anyone is charged for those tiers: mirror `PLANS` in the client, read the
-  plan at sign-in, and size `readChars`/`EXCERPT_BUDGET`/`MAX_COURSES` from it.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments.
+- **The usage badge is an estimate.** `ai_usage` keeps one running token total with no
+  model attached, so spend is priced at whatever tier the account is on now — including
+  usage from a month it spent on a different plan. Storing tokens per model would make
+  it exact.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.

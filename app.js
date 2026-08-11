@@ -151,28 +151,280 @@
             return null;
         }
 
-        async function extractConceptsFromPDF(file) {
+        // ============= PDF text extraction =============
+        // PDF has no notion of a paragraph — a page is a bag of positioned text
+        // runs. Joining those runs with spaces (which is what this used to do)
+        // throws away every line and paragraph boundary, so the model received one
+        // undifferentiated smear per page: headings glued to body text, table cells
+        // glued to their neighbours, and the page number welded onto the first
+        // sentence. Everything downstream — concept extraction, chunking,
+        // retrieval — is only as good as this step, so it reconstructs the layout
+        // from the geometry PDF.js hands us instead of discarding it.
+
+        const MAX_PDF_PAGES = 600;      // a hard stop, not a quality budget
+        const MAX_SOURCE_CHARS = 600000; // what we're willing to keep per course
+
+        // Two runs belong to the same visual line if their baselines are within a
+        // fraction of the text height. Exact equality fails: superscripts, inline
+        // maths and mixed font sizes all shift the baseline by a hair.
+        const LINE_TOLERANCE = 0.5;
+
+        // Enough of each direction to tell which way a line reads. Hebrew, Arabic
+        // and their presentation forms against Latin, Greek and Cyrillic.
+        const RTL_CHARS = /[֐-׿؀-ۿ܀-ݏݐ-ݿࢠ-ࣿיִ-﷿ﹰ-﻿]/g;
+        const LTR_CHARS = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]/g;
+
+        // Reconstruct one page's lines from positioned text runs.
+        function pageItemsToLines(items) {
+            const lines = [];
+
+            for (const item of items) {
+                const str = item.str;
+                if (!str) continue;
+                const tr = item.transform || [1, 0, 0, 1, 0, 0];
+                const x = tr[4];
+                const y = tr[5];
+                const height = item.height || Math.abs(tr[3]) || 10;
+                const width = item.width || 0;
+
+                // Match against the most recent line first: PDF content streams are
+                // usually emitted in reading order, so that is nearly always the hit.
+                let line = null;
+                for (let i = lines.length - 1; i >= 0 && i >= lines.length - 4; i--) {
+                    if (Math.abs(lines[i].y - y) <= Math.max(1, height * LINE_TOLERANCE)) {
+                        line = lines[i];
+                        break;
+                    }
+                }
+                if (!line) {
+                    line = { y, height, runs: [] };
+                    lines.push(line);
+                } else {
+                    line.height = Math.max(line.height, height);
+                }
+                line.runs.push({ str, x, width, height });
+            }
+
+            // Top of the page downwards. PDF's y axis grows upward, so descending y
+            // is reading order.
+            lines.sort((a, b) => b.y - a.y);
+
+            return lines.map(line => {
+                // Runs come in visual order — left to right across the page. For
+                // Latin text that is also reading order, but a Hebrew or Arabic
+                // line is read right to left, so its runs must be walked backwards.
+                //
+                // This only shows up on mixed lines. A run of pure Hebrew arrives
+                // as a single run holding a correctly-ordered string, so it looks
+                // fine either way; it is the moment a digit or a Latin word splits
+                // the line into several runs — "פרק 2: המיטוכונדריה", every
+                // numbered heading in the document — that visual order stops
+                // matching reading order and the line comes out inside out.
+                const joined = line.runs.map(r => r.str).join('');
+                const rtl = (joined.match(RTL_CHARS) || []).length;
+                const ltr = (joined.match(LTR_CHARS) || []).length;
+                const isRTL = rtl > ltr;
+
+                const runs = [...line.runs].sort((a, b) => isRTL ? b.x - a.x : a.x - b.x);
+
+                let text = '';
+                for (let i = 0; i < runs.length; i++) {
+                    const run = runs[i];
+                    if (i > 0) {
+                        const prev = runs[i - 1];
+                        // The gap between the two runs' facing edges, whichever
+                        // direction the line is read in.
+                        const gap = isRTL
+                            ? prev.x - (run.x + run.width)
+                            : run.x - (prev.x + prev.width);
+                        const needsSpace = gap > Math.max(1, run.height * 0.2);
+                        if (needsSpace && !/\s$/.test(text) && !/^\s/.test(run.str)) text += ' ';
+                    }
+                    text += run.str;
+                }
+                return { text: text.replace(/\s+/g, ' ').trim(), y: line.y, height: line.height };
+            }).filter(line => line.text.length > 0);
+        }
+
+        // Running heads, folios and "Chapter 3 | 47" footers repeat on every page.
+        // Left in, they are the single most frequent string in the document, which
+        // makes them look important to anything that counts words — and they break
+        // sentences apart wherever a page happens to turn.
+        function stripRepeatedFurniture(pages) {
+            const seen = new Map();
+
+            // Two ways a line can be "the same line as last page". Exact match is
+            // safe for anything. Ignoring digits is what catches "Page 12 of 40"
+            // and "Chapter 3 | 47", but it also collapses genuine prose that
+            // differs only by a number ("Sample 4 showed a marked response"), so
+            // it is allowed only for lines short enough to be furniture in the
+            // first place — a full sentence must repeat exactly to be dropped.
+            const LOOSE_MAX = 50;
+            const exact = s => s.replace(/\s+/g, ' ').trim().toLowerCase();
+            const loose = s => exact(s).replace(/\d+/g, '#');
+            const keysFor = s => {
+                const e = exact(s);
+                if (!e || e.length >= 120) return [];
+                // A heading is never matched loosely. "Chapter 1", "Chapter 2",
+                // "Chapter 3" all collapse to "chapter #", so the loose rule would
+                // see a running head repeating on every chapter opening and delete
+                // the entire outline — the one part of the document that describes
+                // its structure. An identical heading repeated verbatim is still
+                // caught by the exact key.
+                if (looksLikeHeading(e)) return [e];
+                return e.length <= LOOSE_MAX ? [e, 'loose:' + loose(s)] : [e];
+            };
+
+            // Only the top and bottom few lines of a page can be furniture — and on
+            // a sparse page (a title page, the last page of a chapter) a fixed two
+            // from each end would cover the entire page and put real body text at
+            // risk of being read as a running head.
+            const edgeLines = page => {
+                const n = Math.min(2, Math.floor(page.length / 3));
+                return n < 1 ? [] : [...page.slice(0, n), ...page.slice(-n)];
+            };
+
+            for (const page of pages) {
+                const keys = new Set();
+                edgeLines(page).forEach(l => keysFor(l.text).forEach(k => keys.add(k)));
+                keys.forEach(k => seen.set(k, (seen.get(k) || 0) + 1));
+            }
+
+            // Repeating on a third of a long document is furniture; on a 3-page
+            // handout it is a coincidence, so require an absolute count too.
+            const threshold = Math.max(3, Math.ceil(pages.length * 0.3));
+            const furniture = new Set([...seen].filter(([, n]) => n >= threshold).map(([k]) => k));
+
+            return pages.map(page => {
+                const edges = new Set(edgeLines(page));
+                return page.filter(line => {
+                    if (/^[\s\-–—|]*\d{1,4}[\s\-–—|]*$/.test(line.text)) return false;  // a bare folio
+                    if (!edges.has(line)) return true;
+                    return !keysFor(line.text).some(k => furniture.has(k));
+                });
+            });
+        }
+
+        // Lines become paragraphs. A wider-than-usual vertical gap, an indent, or a
+        // line that simply ends short of the margin all mark a break; anything else
+        // is a soft wrap that should be joined back into one flowing sentence.
+        function linesToParagraphs(lines) {
+            if (!lines.length) return '';
+
+            const gaps = [];
+            for (let i = 1; i < lines.length; i++) gaps.push(Math.abs(lines[i - 1].y - lines[i].y));
+            gaps.sort((a, b) => a - b);
+            // The 40th percentile, not the median: paragraph breaks are a minority
+            // of the gaps but a large enough one to drag a median upward, and on a
+            // page with only a few lines the median lands on the paragraph gap
+            // itself — which then measures as "normal" and no break is ever found.
+            const medianGap = gaps.length ? gaps[Math.floor(gaps.length * 0.4)] : 0;
+            const paragraphGap = medianGap * 1.4;
+
+            const widths = lines.map(l => l.text.length).sort((a, b) => a - b);
+            const typicalWidth = widths.length ? widths[Math.floor(widths.length * 0.75)] : 0;
+
+            // Headings are set larger than body text, and that is a far more
+            // reliable signal than spacing: the gap below a heading is often only
+            // a few points wider than normal leading, which is not enough to
+            // separate them — and a heading swallowed into the paragraph beneath
+            // it is lost to the outline, which is where the document's structure
+            // comes from.
+            // The 40th percentile again, and for the same reason as the gaps: body
+            // type is what we want to measure against, and on a sparse page — a
+            // chapter opening with a heading and one paragraph — a median lands on
+            // the heading itself, which then reads as "normal size" and no heading
+            // is ever detected.
+            const heights = lines.map(l => l.height).sort((a, b) => a - b);
+            const typicalHeight = heights.length ? heights[Math.floor(heights.length * 0.4)] : 0;
+            const prominent = l => typicalHeight > 0 && l.height > typicalHeight * 1.15;
+
+            const paragraphs = [];
+            let cur = '';
+
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (!cur) { cur = line.text; continue; }
+
+                const gap = Math.abs(lines[i - 1].y - line.y);
+                const prevEndsSentence = /[.!?。！？׃:;]["')\]]?$/.test(lines[i - 1].text);
+                const prevRunsShort = lines[i - 1].text.length < typicalWidth * 0.65;
+                // Crossing between a larger-type run and body type, in either
+                // direction, is a boundary: body ends where a heading starts, and
+                // the heading ends where body type resumes.
+                const sizeChanged = prominent(line) !== prominent(lines[i - 1]);
+
+                if (sizeChanged || (medianGap > 0 && gap > paragraphGap) || (prevEndsSentence && prevRunsShort)) {
+                    paragraphs.push(cur);
+                    cur = line.text;
+                    continue;
+                }
+
+                // A word broken across the line wrap: rejoin it rather than leaving
+                // "photo- synthesis", which no search or tokeniser will ever match.
+                if (/(\p{L})[-­]$/u.test(cur) && /^\p{Ll}/u.test(line.text)) {
+                    cur = cur.replace(/[-­]$/, '') + line.text;
+                } else {
+                    cur += ' ' + line.text;
+                }
+            }
+            if (cur) paragraphs.push(cur);
+
+            return paragraphs.map(p => p.trim()).filter(Boolean).join('\n\n');
+        }
+
+        // Read the document. `onProgress` is called per page because a 300-page
+        // textbook takes long enough that a frozen "Reading..." looks like a hang.
+        async function extractConceptsFromPDF(file, onProgress) {
             if (!window.pdfjsLib) throw new Error('PDF_READER_UNAVAILABLE');
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-            let text = '';
 
-            for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+            const pageCount = Math.min(pdf.numPages, MAX_PDF_PAGES);
+            const pages = [];
+
+            for (let i = 1; i <= pageCount; i++) {
+                if (onProgress) onProgress(i, pageCount);
                 const page = await pdf.getPage(i);
                 const textContent = await page.getTextContent();
-                text += textContent.items.map(item => item.str).join(' ') + '\n';
+                pages.push(pageItemsToLines(textContent.items));
+                // Pages hold on to their rendering resources until told otherwise,
+                // and a few hundred of them will exhaust a phone's memory.
+                page.cleanup();
             }
 
-            return text;
+            const text = stripRepeatedFurniture(pages)
+                .map(linesToParagraphs)
+                .filter(Boolean)
+                .join('\n\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+
+            return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
         }
 
         async function generateLessonPath(text) {
             showMessage("Analyzing your material...");
 
+            // Not the first N characters of the document. The opening pages of a
+            // textbook are a title page, a copyright notice and a table of contents
+            // — the least conceptual text in the whole file — and a course built
+            // from them lists the chapters instead of teaching them. The digest
+            // reads the whole document and spends the budget on the parts that
+            // actually carry concepts, spread from first page to last.
+            const digest = buildSourceDigest(text, planReadChars());
+
             const extractPrompt = `Analyse the study material below and extract its key concepts.
 
+The material is a digest of a longer document. Lines in [SQUARE BRACKETS] are
+labels added by the app, not part of the document — do not treat them as content,
+and do not let them influence which language you report. [...] marks text that was
+left out. [OUTLINE] lists the document's own section headings in order, so use it
+to understand the shape and coverage of the whole document even where the body
+text below it was omitted.
+
 MATERIAL:
-${text.substring(0, 5000)}
+${digest}
 
 TASK:
 1. Identify 10-20 core concepts a learner must understand from this material.
@@ -800,7 +1052,11 @@ ${languageRule()}`;
             showMessage(`Reading ${file.name}...`);
             let text;
             try {
-                text = await extractConceptsFromPDF(file);
+                text = await extractConceptsFromPDF(file, (page, total) => {
+                    // A long document takes tens of seconds to read. Without a
+                    // moving count that is indistinguishable from a hung tab.
+                    if (total > 8) showMessage(`Reading ${file.name} — page ${page} of ${total}...`);
+                });
             } catch (err) {
                 console.error('PDF read error:', err);
                 hideMessage();
@@ -1512,11 +1768,17 @@ ${languageRule()}`;
         // display only — the server decides — but it is the difference between
         // "why did that stop working" and knowing what you have left before you
         // spend it.
+        // `readChars` and `excerptChars` mirror the PLANS table in the ai-proxy Edge
+        // Function, which is the authority: it clamps every request down to the
+        // caller's real tier. They are here so the client asks for the tier's full
+        // size — a client that keeps sending Basic's 5,000 characters gets a Basic
+        // -sized answer no matter what the account pays for, because the server can
+        // only ever clamp down, never refill what the browser already cut away.
         const PLAN_LIMITS = {
-            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku' },
-            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku' },
-            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet' },
-            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet' },
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000 },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000 },
         };
 
         let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
@@ -1906,33 +2168,85 @@ ${languageRule()}`;
 
         const CHUNK_CHARS = 1200;
         const CHUNK_OVERLAP = 150;
-        const EXCERPT_BUDGET = 2400;   // chars of source sent per lesson
+
+        // How much source each call may carry, per tier. The server clamps these
+        // down to whatever the account actually pays for, so a tampered client
+        // gains nothing — but until the client asks for the larger figure, the
+        // clamp never fires and Pro and Max quietly read a Basic-sized document.
+        // These have to match the PLANS table in the ai-proxy Edge Function.
+        function planReadChars() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.readChars) || 5000;
+        }
+        function excerptBudget() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.excerptChars) || 2400;
+        }
 
         // Split on sentence boundaries where possible. A chunk that ends mid-sentence
         // gives the model a fragment it will happily complete from imagination.
+        // Paragraph breaks, where the extractor found them, are stronger boundaries
+        // than sentence ends: a chunk that stops at one holds a single idea rather
+        // than the tail of a heading plus the start of the next section.
         function chunkText(text) {
-            const clean = text.replace(/\s+/g, ' ').trim();
-            if (clean.length <= CHUNK_CHARS) return clean.length > 80 ? [clean] : [];
-
-            // Sentence enders across scripts: Latin, Hebrew/Arabic, CJK.
-            const sentences = clean.match(/[^.!?。！？׃]+[.!?。！？׃]+|\S+$/g) || [clean];
-
+            const blocks = splitBlocks(text);
             const chunks = [];
             let cur = '';
-            for (const s of sentences) {
-                if (cur.length + s.length > CHUNK_CHARS && cur.length > 200) {
-                    chunks.push(cur.trim());
-                    // Carry a sentence of overlap so a concept straddling the seam
-                    // still appears in both chunks.
-                    const tail = cur.slice(-CHUNK_OVERLAP);
-                    const cut = tail.search(/[.!?。！？׃]\s/);
-                    cur = (cut >= 0 ? tail.slice(cut + 2) : '') + s;
-                } else {
-                    cur += s;
+
+            const flush = () => {
+                if (cur.trim().length > 80) chunks.push(cur.trim());
+                cur = '';
+            };
+
+            for (const block of blocks) {
+                // A paragraph that fits alongside what we have joins it; the seam is
+                // marked so the model can see the two were not one running passage.
+                if (cur && cur.length + block.length + 1 <= CHUNK_CHARS) {
+                    cur += '\n' + block;
+                    continue;
                 }
+                if (block.length <= CHUNK_CHARS) {
+                    flush();
+                    cur = block;
+                    continue;
+                }
+
+                // A paragraph too long to be a chunk on its own — usually a page of
+                // unbroken prose — falls back to sentence splitting.
+                flush();
+                const sentences = (block.match(/[^.!?。！？׃]+[.!?。！？׃]+|\S+$/g) || [block])
+                    // Text with no sentence enders at all — OCR that lost its
+                    // punctuation, a table flattened into one line — otherwise
+                    // arrives here as a single "sentence" the size of the whole
+                    // block, and sails through the loop below as one huge chunk
+                    // that then outweighs every real chunk in the ranking.
+                    .flatMap(s => s.length <= CHUNK_CHARS
+                        ? [s]
+                        : (s.match(new RegExp(`[\\s\\S]{1,${CHUNK_CHARS}}`, 'g')) || []));
+                for (const s of sentences) {
+                    if (cur.length + s.length > CHUNK_CHARS && cur.length > 200) {
+                        chunks.push(cur.trim());
+                        // Carry a sentence of overlap so a concept straddling the seam
+                        // still appears in both chunks.
+                        const tail = cur.slice(-CHUNK_OVERLAP);
+                        const cut = tail.search(/[.!?。！？׃]\s/);
+                        cur = (cut >= 0 ? tail.slice(cut + 2) : '') + s;
+                    } else {
+                        cur += s;
+                    }
+                }
+                flush();
             }
-            if (cur.trim().length > 80) chunks.push(cur.trim());
+            flush();
             return chunks;
+        }
+
+        // Paragraphs, when the source has them. Pasted text often arrives as one
+        // wall with no blank lines at all, in which case the whole thing is a
+        // single block and chunkText falls through to sentence splitting.
+        function splitBlocks(text) {
+            return String(text || '')
+                .split(/\n\s*\n/)
+                .map(b => b.replace(/\s+/g, ' ').trim())
+                .filter(Boolean);
         }
 
         // Words too common to carry meaning. Short tokens are dropped anyway,
@@ -1979,9 +2293,10 @@ ${languageRule()}`;
         function retrieveExcerpt(concept, sourceText) {
             if (!sourceText) return '';
 
+            const cap = excerptBudget();
             const chunks = chunkText(sourceText);
             if (!chunks.length) return '';
-            if (chunks.length === 1) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (chunks.length === 1) return chunks[0].slice(0, cap);
 
             const index = buildIndex(chunks);
             const query = tokenize([
@@ -1991,7 +2306,7 @@ ${languageRule()}`;
                 ...(concept.examples || []),
             ].join(' '));
 
-            if (!query.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (!query.length) return chunks[0].slice(0, cap);
 
             const ranked = index.tokenized
                 .map((toks, i) => ({ i, score: scoreChunk(query, toks, index) }))
@@ -1999,7 +2314,7 @@ ${languageRule()}`;
                 .sort((a, b) => b.score - a.score);
 
             // Nothing matched — the concept may be synthesised across the document.
-            if (!ranked.length) return chunks[0].slice(0, EXCERPT_BUDGET);
+            if (!ranked.length) return chunks[0].slice(0, cap);
 
             // Take the best chunk, then only add more if they are genuinely
             // comparable. Filling the budget blindly drags in neighbouring
@@ -2008,7 +2323,7 @@ ${languageRule()}`;
             const RELEVANCE_FLOOR = 0.55;   // a chunk must score >=55% of the best
 
             const picked = [ranked[0].i];
-            let budget = EXCERPT_BUDGET - chunks[ranked[0].i].length;
+            let budget = cap - chunks[ranked[0].i].length;
 
             for (const r of ranked.slice(1)) {
                 if (budget <= 0) break;
@@ -2025,7 +2340,182 @@ ${languageRule()}`;
                 if (k > 0) out += (idx === picked[k - 1] + 1) ? ' ' : '\n[...]\n';
                 out += chunks[idx];
             });
-            return out.slice(0, EXCERPT_BUDGET);
+            return out.slice(0, cap);
+        }
+
+        // ============= Condensing a document for the planning call =============
+        // The planner gets one shot at the whole document, and its budget is far
+        // smaller than a textbook. What it is given decides which concepts exist,
+        // so the goal is coverage — some evidence from every part of the document —
+        // rather than depth on whichever part happened to come first.
+
+        // Headings are the author's own summary of their document, already ordered
+        // by prerequisite. A few hundred characters of them tell the planner more
+        // about a 400-page book than any single chapter would.
+        function looksLikeHeading(block) {
+            const s = block.trim();
+            if (s.length < 3 || s.length > 90) return false;
+            if (/[.!?]["')\]]?$/.test(s)) return false;          // a sentence, not a heading
+            if (/^\d+(\.\d+)*[.)]?\s+\p{L}/u.test(s)) return true; // "3.2 Photosynthesis"
+            if (/^(chapter|section|part|unit|appendix|lesson)\b/iu.test(s)) return true;
+            // \b is defined in terms of ASCII word characters, so it never matches
+            // at the edge of a Hebrew word — these need an explicit lookahead.
+            if (/^(פרק|חלק|יחידה|נספח|שיעור)(?=[\s:.\-–—]|$)/u.test(s)) return true;
+            const words = s.split(/\s+/);
+            if (words.length > 12) return false;
+            // ALL CAPS, or Title Case across most words — both read as headings.
+            const letters = s.replace(/[^\p{L}]/gu, '');
+            if (letters.length > 2 && letters === letters.toUpperCase() && /\p{Lu}/u.test(letters)) return true;
+            const capitalised = words.filter(w => /^\p{Lu}/u.test(w)).length;
+            return words.length >= 2 && capitalised >= Math.ceil(words.length * 0.7);
+        }
+
+        function extractOutline(blocks, maxChars) {
+            const out = [];
+            let used = 0;
+            for (const b of blocks) {
+                if (!looksLikeHeading(b)) continue;
+                const line = '- ' + b.trim();
+                if (used + line.length + 1 > maxChars) break;
+                out.push(line);
+                used += line.length + 1;
+            }
+            return out;
+        }
+
+        // Build a digest of `text` that fits in `budget` characters.
+        function buildSourceDigest(text, budget) {
+            const source = String(text || '');
+            if (source.length <= budget) return source;
+
+            const blocks = splitBlocks(source);
+            if (blocks.length <= 1) return source.slice(0, budget);
+
+            // Reserve: outline gets a fifth, the opening an eighth (title, abstract
+            // and introduction genuinely do say what a document is about), and the
+            // closing a tenth (conclusions and summaries are dense with concepts).
+            // The rest is spread across the body.
+            const outlineBudget = Math.floor(budget * 0.20);
+            const openingBudget = Math.floor(budget * 0.12);
+            const closingBudget = Math.floor(budget * 0.10);
+
+            const outline = extractOutline(blocks, outlineBudget);
+
+            // Score every block by how much distinctive vocabulary it carries.
+            // Boilerplate — copyright lines, running examples, navigation — reuses
+            // words that appear everywhere, so it scores near zero; the passage
+            // that introduces a term is where that rare term is densest.
+            const docFreq = new Map();
+            const tokenised = blocks.map(b => {
+                const toks = tokenize(b);
+                new Set(toks).forEach(t => docFreq.set(t, (docFreq.get(t) || 0) + 1));
+                return toks;
+            });
+            const n = blocks.length;
+            const density = blocks.map((b, i) => {
+                const toks = tokenised[i];
+                if (toks.length < 12) return 0;      // captions, page furniture, stubs
+                let score = 0;
+                new Set(toks).forEach(t => { score += Math.log(1 + n / (docFreq.get(t) || 1)); });
+                // Divide by sqrt(length) so a long mediocre block cannot outrank a
+                // short dense one purely by being long.
+                return score / Math.sqrt(toks.length);
+            });
+
+            const opening = takeBlocks(blocks, 0, openingBudget);
+            const closing = takeBlocks(blocks, blocks.length - 1, closingBudget, -1);
+
+            // Walk the document in equal segments and take the densest block from
+            // each. This is what guarantees the last chapter is represented: the
+            // budget is divided by position first and quality only second.
+            const bodyBudget = budget - outline.join('\n').length - opening.chars - closing.chars - 200;
+            const body = [];
+            let bodyUsed = 0;
+
+            if (bodyBudget > 0) {
+                // How many places in the document we can afford to sample. Sizing
+                // this from the document's own paragraph length matters: a fixed
+                // guess either asks for more sample points than the budget can pay
+                // for, or — the worse failure — takes one short paragraph per
+                // segment and leaves most of the budget unspent while whole
+                // chapters go unrepresented.
+                const lengths = blocks.map(b => b.length).sort((a, b) => a - b);
+                const typical = Math.max(200, lengths[Math.floor(lengths.length / 2)] || 400);
+                const SEGMENTS = Math.max(4, Math.min(60, Math.floor(bodyBudget / typical)));
+                const size = Math.max(1, blocks.length / SEGMENTS);
+                const taken = new Set([...opening.indices, ...closing.indices]);
+
+                // Each pass nominates the best unused block from every segment,
+                // then accepts nominations best-first until the budget runs out.
+                //
+                // Nominating first and spending afterwards is the whole point. If
+                // segments simply spent as they were visited, the budget would be
+                // exhausted somewhere in the middle of the document and every
+                // segment after that would get nothing — reproducing, one level
+                // down, the very bias this function exists to remove. Choosing
+                // across all segments at once means what gets dropped is the
+                // weakest passage, not the last one.
+                for (let pass = 0; pass < 3 && bodyUsed < bodyBudget; pass++) {
+                    const nominees = [];
+                    for (let s = 0; s < SEGMENTS; s++) {
+                        const from = Math.floor(s * size);
+                        const to = (s === SEGMENTS - 1) ? blocks.length : Math.floor((s + 1) * size);
+                        let bestIdx = -1;
+                        let bestScore = 0;
+                        for (let i = from; i < to; i++) {
+                            if (taken.has(i)) continue;
+                            if (blocks[i].length > bodyBudget) continue;
+                            if (density[i] > bestScore) { bestScore = density[i]; bestIdx = i; }
+                        }
+                        if (bestIdx >= 0) nominees.push({ i: bestIdx, score: bestScore });
+                    }
+                    if (!nominees.length) break;
+
+                    nominees.sort((a, b) => b.score - a.score);
+                    let acceptedAny = false;
+                    for (const nominee of nominees) {
+                        if (bodyUsed + blocks[nominee.i].length > bodyBudget) continue;
+                        taken.add(nominee.i);
+                        body.push(nominee.i);
+                        bodyUsed += blocks[nominee.i].length;
+                        acceptedAny = true;
+                    }
+                    if (!acceptedAny) break;
+                }
+                body.sort((a, b) => a - b);
+            }
+
+            const parts = [];
+            if (outline.length) parts.push('[OUTLINE]\n' + outline.join('\n'));
+            if (opening.text) parts.push('[OPENING]\n' + opening.text);
+            if (body.length) {
+                let passage = '';
+                body.forEach((idx, k) => {
+                    if (k > 0) passage += (idx === body[k - 1] + 1) ? '\n\n' : '\n\n[...]\n\n';
+                    passage += blocks[idx];
+                });
+                parts.push('[BODY — passages sampled across the whole document]\n' + passage);
+            }
+            if (closing.text) parts.push('[CLOSING]\n' + closing.text);
+
+            return parts.join('\n\n').slice(0, budget);
+        }
+
+        // Consecutive blocks from one end of the document, up to a character budget.
+        function takeBlocks(blocks, start, budget, step = 1) {
+            const indices = [];
+            let used = 0;
+            for (let i = start; i >= 0 && i < blocks.length; i += step) {
+                if (used + blocks[i].length > budget) break;
+                indices.push(i);
+                used += blocks[i].length;
+            }
+            indices.sort((a, b) => a - b);
+            return {
+                indices,
+                chars: used,
+                text: indices.map(i => blocks[i]).join('\n\n'),
+            };
         }
 
         function getSourceText() {
@@ -3482,8 +3972,13 @@ ${languageRule()}`;
                 .filter(([key]) => key !== 'trial')
                 .map(([key, p]) => {
                     const here = entitlement && !entitlement.trialing && entitlement.planKey === key;
+                    // Roughly 1,800 characters to a printed page — close enough to
+                    // turn an abstract character budget into something you can
+                    // picture against the document you were about to upload.
+                    const pages = Math.round(p.readChars / 1800);
                     return `<li${here ? ' class="is-current"' : ''}><strong>${p.label}</strong>${here ? ' — your plan' : ''}<br>
-                        ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}</li>`;
+                        ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}<br>
+                        reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course</li>`;
                 }).join('');
 
             uiAlert(

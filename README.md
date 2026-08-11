@@ -29,6 +29,39 @@ Every lesson is grounded in the source document: the relevant passage is retriev
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come
 from that passage, not general knowledge.
 
+## Reading the PDF
+
+A PDF page is not text — it is a bag of positioned glyph runs — so how the file is read
+decides everything the model can know about it. Three steps:
+
+**Extraction.** Every page is read (the reader used to stop at page 20). Runs are grouped
+into lines by baseline, ordered by position, and joined using the gap between them so
+words are neither glued together nor split apart. Hebrew and Arabic lines are read
+right-to-left: PDF.js emits runs in *visual* order, which for RTL is backwards, and a
+line only splits into multiple runs when a digit or a Latin word interrupts it — so it is
+exactly the numbered headings (`פרק 2: המיטוכונדריה`) that come out inside out if this is
+ignored. Lines then become paragraphs, using vertical gaps, line width and type size —
+a heading is set larger than body text, which separates it far more reliably than spacing
+does. Words hyphenated across a line-wrap are rejoined. Running heads and page-number
+footers are detected by repetition across pages and dropped, with headings exempt from
+the digit-insensitive form of that match, since "Chapter 1", "Chapter 2" and "Chapter 3"
+otherwise look like one line repeating and the whole outline gets deleted.
+
+**Condensing.** The planning call cannot hold a textbook, so it gets a digest rather than
+the first N characters. Taking the first N is the worst available choice: the opening
+pages of a book are the title page, the copyright notice and the table of contents, and a
+course built from them lists the chapters instead of teaching them. The digest is an
+outline of the document's own headings, its opening and closing, and body passages sampled
+across the whole document — segments chosen by position first and quality second, so the
+last chapter is represented as surely as the first. On a 27-page test book at Basic's
+budget this quotes 8 of 12 chapters and names all 12, where the old head-slice reached 1.
+
+**Retrieval.** Unchanged in shape — TF-IDF over the whole stored document, per lesson —
+but chunking now breaks on paragraph boundaries where the extractor found them, and the
+budget comes from the account's tier instead of a constant.
+
+`tests/pdf-pipeline.js` covers all of this and needs nothing but `node`.
+
 Courses are multi-language: the app writes in whatever language the source material is
 in, and the UI adapts direction (RTL) for Hebrew/Arabic content while the chrome itself
 stays English.
@@ -114,16 +147,14 @@ out is visible before it happens rather than only when a build is refused.
   what still works without it — it just can't take money. Once a Stripe account and
   price exist, this needs a checkout Edge Function and a webhook that updates `subscriptions` on
   `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
-- **The client sizes every request as if it were Basic.** `app.js` now reads
-  `subscriptions` at sign-in and mirrors the tier table in `PLAN_LIMITS`, but that copy
-  is display only — it drives the Account page's quota meters and the warning before an
-  upload, nothing about the request itself. A course call still sends a fixed 5,000
-  chars of the document and a lesson a fixed 2,400-char excerpt. The server clamps
-  *down* to the tier, so nobody can take more than they paid for — but nobody can take
-  more than Basic either, because the client already cut the document to Basic's size
-  before the request left the browser. Pro and Max currently buy a bigger model reading
-  a Basic-sized document. This has to be fixed before anyone is charged for those tiers:
-  size `readChars`/`EXCERPT_BUDGET`/`MAX_COURSES` from `PLAN_LIMITS` instead of hardcoding them.
+- **`MAX_COURSES` is still a constant.** `PLAN_LIMITS` now carries `readChars` and
+  `excerptChars`, and the planning digest and per-lesson excerpt are sized from the
+  signed-in account's tier (`planReadChars()` / `excerptBudget()`), so Pro and Max
+  genuinely read more of the document rather than buying a bigger model to read a
+  Basic-sized slice. The library cap did not move: `MAX_COURSES = 8` is still hardcoded
+  and is the largest tier's figure, so every plan is allowed to *keep* eight courses.
+  The monthly build quota is enforced server-side and is unaffected, but this should
+  read `PLAN_LIMITS[planKey].courses` before anyone is charged.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments.

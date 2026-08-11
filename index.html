@@ -4,6 +4,47 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
+    <script>
+        // TEMPORARY diagnostic: something is breaking on real devices that never
+        // reproduces in headless testing. Instead of guessing further, surface
+        // whatever actually throws directly on the page so it can be read and
+        // reported back. Remove once the real cause is found and fixed.
+        (function () {
+            var banner = null;
+            function show(msg) {
+                if (!banner) {
+                    banner = document.createElement('div');
+                    banner.id = '__diagBanner';
+                    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:999999;' +
+                        'background:#FF4B4B;color:#fff;padding:12px 40px 12px 14px;' +
+                        'font:600 12px/1.5 monospace;white-space:pre-wrap;word-break:break-word;' +
+                        'max-height:50vh;overflow:auto;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
+                    var closeBtn = document.createElement('button');
+                    closeBtn.textContent = '×';
+                    closeBtn.setAttribute('aria-label', 'Close');
+                    closeBtn.style.cssText = 'position:absolute;top:6px;right:10px;background:none;' +
+                        'border:none;color:#fff;font-size:20px;cursor:pointer;line-height:1;';
+                    closeBtn.onclick = function () { banner.remove(); banner = null; };
+                    banner.appendChild(closeBtn);
+                    var text = document.createElement('div');
+                    text.id = '__diagBannerText';
+                    banner.appendChild(text);
+                    (document.body || document.documentElement).appendChild(banner);
+                }
+                var textEl = document.getElementById('__diagBannerText');
+                textEl.textContent += (textEl.textContent ? '\n\n' : 'DEBUG — please screenshot/copy this and send it back:\n\n') + msg;
+            }
+            window.addEventListener('error', function (e) {
+                var msg = (e.target && e.target !== window && e.target.tagName)
+                    ? 'Failed to load resource: <' + e.target.tagName.toLowerCase() + '> ' + (e.target.src || e.target.href)
+                    : 'JS error: ' + e.message + '\n  at ' + (e.filename || '?').split('/').pop() + ':' + e.lineno + ':' + e.colno;
+                show(msg);
+            }, true);
+            window.addEventListener('unhandledrejection', function (e) {
+                show('Unhandled promise rejection: ' + (e.reason && (e.reason.stack || e.reason.message) || e.reason));
+            });
+        })();
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">

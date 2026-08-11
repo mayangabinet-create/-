@@ -25,23 +25,29 @@
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
         const MAX_COURSES = 8;   // how many courses a library holds, not how many you may build
 
-        // Mirrors PLANS in the ai-proxy Edge Function, and has to be kept in step
-        // with it. The server is the authority and clamps every request down to
-        // the account's tier, so nothing here can buy more than was paid for.
-        // This copy exists for the opposite failure: without it the client cuts
-        // the document to 5,000 chars before sending, and a Max account gets
-        // Basic's reading no matter how generous the server was willing to be.
+        // Mirrors PLANS in the ai-proxy Edge Function — a reference copy of the
+        // deployed function lives at supabase/functions/ai-proxy/index.ts, and the
+        // two tables have to be kept in step. The server is the authority and
+        // clamps every request down to the account's tier, so nothing here can buy
+        // more than was paid for. This copy exists for the opposite failure:
+        // without it the client cuts the document to 5,000 chars before sending,
+        // and a Max account gets Basic's reading no matter how generous the server
+        // was willing to be.
+        //
+        // priceIn/priceOut are dollars per million tokens for the model that tier's
+        // lessons run on. Lessons are where the tokens go — ten to fifteen of them
+        // against a single course plan — so Max is priced at Sonnet's rate even
+        // though Opus plans its course.
         const PLANS = {
-            trial: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  label: 'Trial' },
-            basic: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  label: 'Basic' },
-            pro:   { lessonsPerCourse: 12, readChars: 40000,  excerptChars: 8000,  label: 'Pro' },
-            max:   { lessonsPerCourse: 15, readChars: 120000, excerptChars: 16000, label: 'Max' },
+            trial: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  priceIn: 1, priceOut: 5,  label: 'Trial' },
+            basic: { lessonsPerCourse: 10, readChars: 5000,   excerptChars: 2400,  priceIn: 1, priceOut: 5,  label: 'Basic' },
+            pro:   { lessonsPerCourse: 12, readChars: 40000,  excerptChars: 8000,  priceIn: 3, priceOut: 15, label: 'Pro' },
+            max:   { lessonsPerCourse: 15, readChars: 120000, excerptChars: 16000, priceIn: 3, priceOut: 15, label: 'Max' },
         };
 
         // Smallest tier until the real one is known. Erring low only costs a
         // shorter document on the first call; erring high would send 120,000
         // chars over the wire for the server to throw away.
-        let planKey = 'basic';
         let currentPlan = PLANS.basic;
         let planLoaded = false;
 
@@ -1160,18 +1166,10 @@ ${languageRule()}`;
         }
 
         // ============= Usage & cost tracking =============
-        // Per million tokens, by the model the tier's lessons run on. Lessons are
-        // where the tokens go — ten to fifteen of them against a single course
-        // plan — so Max is priced at Sonnet's rate even though Opus plans its
-        // course. `ai_usage` stores one running total with no model attached, so
-        // the badge can only ever be an estimate at the current tier's rates;
-        // usage from a month on a different plan is priced at today's.
-        const PRICES = {
-            trial: { in: 1, out: 5 },     // Haiku 4.5
-            basic: { in: 1, out: 5 },     // Haiku 4.5
-            pro:   { in: 3, out: 15 },    // Sonnet 5
-            max:   { in: 3, out: 15 },    // Sonnet 5 writes the lessons; Opus 5 ($5/$25) plans the course
-        };
+        // Rates live on the plan (see PLANS). `ai_usage` stores one running token
+        // total with no model attached, so the badge can only ever be an estimate
+        // at the current tier's rates — usage from a month on a different plan is
+        // priced at today's.
 
         // The Edge Function increments ai_usage server-side on every real call —
         // the client just reflects it. "cached" (this app's own lesson cache, not
@@ -1200,8 +1198,8 @@ ${languageRule()}`;
 
             const trialing = data?.status === 'trialing' && data.current_period_end &&
                 new Date(data.current_period_end) > new Date();
-            planKey = trialing ? 'trial' : (data?.plan && PLANS[data.plan] ? data.plan : 'basic');
-            currentPlan = PLANS[planKey];
+            const key = trialing ? 'trial' : (data?.plan && PLANS[data.plan] ? data.plan : 'basic');
+            currentPlan = PLANS[key];
             planLoaded = true;
             renderUsage();
         }
@@ -1234,8 +1232,8 @@ ${languageRule()}`;
         }
 
         function totalCost() {
-            const price = PRICES[planKey] || PRICES.basic;
-            return (usage.inputTokens * price.in + usage.outputTokens * price.out) / 1_000_000;
+            return (usage.inputTokens * currentPlan.priceIn +
+                    usage.outputTokens * currentPlan.priceOut) / 1_000_000;
         }
 
         function renderUsage() {
@@ -3030,7 +3028,6 @@ ${languageRule()}`;
             activeSourceText = '';
             library = [];
             pendingAction = null;
-            planKey = 'basic';
             currentPlan = PLANS.basic;
             planLoaded = false;   // the next person to sign in gets their own tier
             document.getElementById('userBadge').hidden = true;

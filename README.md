@@ -60,7 +60,10 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
   request the client makes: the model, the number of concepts a course gets, how much
   of the document is read, and the monthly course/lesson quota are all rewritten from
   the `subscriptions` row. A modified client can send anything it likes and still gets
-  its own tier's answer.
+  its own tier's answer. A reference copy of the deployed source is checked in at
+  `supabase/functions/ai-proxy/index.ts` — the deployment is the source of truth, and
+  the copy is there so the server's rules are readable next to the client that has to
+  match them.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
 ## Tiers
@@ -71,6 +74,11 @@ a matching copy and has to be kept in step with it: the server clamps every requ
 *down* to the tier, so the client's copy can't take more than was paid for — it exists
 so the client doesn't cut the document below the tier first, which would leave Max
 buying a bigger model to read a Basic-sized document.
+
+These numbers exist in three places, and changing one means changing the others:
+`PLANS` in `supabase/functions/ai-proxy/index.ts` (and a redeploy), `PLANS` in `app.js`,
+and `TIER_EXPECT` in `tests/tier-checks.js`. The third is deliberate duplication — it's
+the assertion, so it must not read its expected values out of the code it checks.
 
 | | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | model |
 |---|---|---|---|---|---|

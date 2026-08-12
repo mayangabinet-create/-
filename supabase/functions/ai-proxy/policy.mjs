@@ -43,7 +43,17 @@ export const PLANS = {
 export const TEMPLATE_ALLOWANCE = 12_000;
 export const FREE_CALL_CHARS = 20_000;
 export const FREE_CALLS_PER_DAY = 200;
-export const KNOWN_TASKS = new Set(["path", "lesson", "feedback"]);
+/**
+ * `tutor` is still here although the dock that sent it has been deleted from
+ * the client, because the server has to outlive the client it talks to. The
+ * removal lives on an unmerged branch; the app being served still asks tutor
+ * questions, and a label dropped from this set is a 400 on a request that used
+ * to work. It costs nothing to keep — tutor calls classify as free work, so
+ * they are capped at 1,000 output tokens and metered against the daily
+ * backstop like any other. Drop it once the client without the dock has been
+ * deployed and has stopped sending it.
+ */
+export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback"]);
 
 // A client that sends fifty blocks is not a client we wrote.
 export const MAX_CONTENT_BLOCKS = 8;

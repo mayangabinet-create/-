@@ -49,7 +49,11 @@ console.log("\n== classification ==");
   ok("a free call is capped at 1000 output", classify(250).cap === 1000);
   ok("garbage max_tokens is free work", classify(undefined).kind === "free");
   ok("a huge max_tokens is still capped", classify(999999).cap === 5000);
-  ok("the removed tutor task is no longer accepted", !KNOWN_TASKS.has("tutor"));
+  // The dock is gone from the client, but the client being served still sends
+  // this label. A server that stops accepting it 400s a request that worked
+  // yesterday — the allowlist has to lag the client, not lead it.
+  ok("the tutor label is still accepted while old clients send it", KNOWN_TASKS.has("tutor"));
+  ok("a tutor call is free work, so it is capped and metered", classify(400).kind === "free");
 }
 
 console.log("\n== tier resolution ==");

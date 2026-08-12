@@ -1,0 +1,8 @@
+# Any one of these is enough — the pipeline uses whichever it can import,
+# in this order. PyMuPDF keeps layout best; pypdf is the smallest install.
+pymupdf>=1.23 ; python_version >= "3.8"
+pypdf>=4.0
+
+# Only needed to run the end-to-end test, which builds a PDF to read back.
+# The rest of tests/test_pdf_index.py runs on the standard library alone.
+reportlab>=4.0

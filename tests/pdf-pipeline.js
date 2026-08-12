@@ -352,6 +352,29 @@ console.log('\n== tier-sized excerpt budget ==');
   ok('max plan read budget', P.planReadChars() === 120000);
 }
 
+console.log('\n== cacheable course context ==');
+{
+  // The shared context block is only worth sending because the API caches it,
+  // and caching is a prefix match: one differing character on the second lesson
+  // turns a ~10%-price read into a fresh full-price write. Nothing about the
+  // digest may vary between calls on the same document.
+  const doc = [...Array(80)].map((_, i) =>
+    `Section ${i} explains mechanism${i} and its consequences at some length, `
+    + `with examples of mechanism${i} drawn from practice and a note on limits.`).join('\n\n');
+
+  const a = P.buildSourceDigest(doc, 24000);
+  const b = P.buildSourceDigest(doc, 24000);
+  ok('the digest is byte-identical when recomputed', a === b,
+     a === b ? '' : `${a.length} vs ${b.length}`);
+
+  ok('the digest respects its budget', a.length <= 24000, 'len=' + a.length);
+  ok('a different budget is a different block', P.buildSourceDigest(doc, 8000) !== a);
+
+  // Rebuilt after a reload, from the same stored source, it has to match — the
+  // cache entry written in the previous session is only reusable if it does.
+  ok('a rebuild from the same source matches', P.buildSourceDigest(doc.slice(0), 24000) === a);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
 

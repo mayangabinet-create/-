@@ -116,7 +116,8 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
   request the client makes: the model, the number of concepts a course gets, how much
   of the document is read, and the monthly course/lesson quota are all rewritten from
   the `subscriptions` row. A modified client can send anything it likes and still gets
-  its own tier's answer.
+  its own tier's answer. Its source lives in `supabase/functions/ai-proxy` — the rules
+  in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
 ## Tiers
@@ -124,12 +125,24 @@ framework or build step), backed by a real Supabase project ("Mayan ai app",
 Held in `PLANS` in the Edge Function; `subscriptions.plan` picks the row, and an
 unrecognised value falls back to `basic` rather than the largest tier.
 
-| | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | model |
-|---|---|---|---|---|---|
-| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | Haiku |
-| basic | 3 | 10 | 5,000 | 2,400 | Haiku |
-| pro | 5 | 12 | 40,000 | 8,000 | Sonnet |
-| max | 8 | 15 | 120,000 | 16,000 | Opus plans, Sonnet writes |
+| | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | shared context (cached) | model |
+|---|---|---|---|---|---|---|
+| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
+| basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
+| pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Sonnet |
+| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Opus plans, Sonnet writes |
+
+**Shared context** is a digest of the whole document sent ahead of every lesson in a
+course, byte-identical each time so the API caches it: the first lesson pays a write
+premium of 1.25x, the rest read it back at about a tenth of input price. It is what
+lets a lesson see the document it came from rather than only its own retrieved
+passage.
+
+It is blank on the Haiku tiers on purpose. Haiku will not cache a prefix under 4,096
+tokens, and below that the API accepts the request, caches nothing, and charges the
+premium anyway. Turning it on there means first raising the budget past ~16,000
+characters, which costs real money per course — a decision worth making against the
+hit rate the paid tiers are about to start reporting rather than against a guess.
 
 ## Cost model
 

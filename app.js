@@ -91,7 +91,16 @@
             }
 
             const { retries = 2, maxTokens = 1000 } = opts;
-            const body = { messages: [{ role: 'user', content: userMessage }], max_tokens: maxTokens };
+            // A string is one block. An array is [shared context, this call's
+            // prompt] — the split the server needs to mark the first one
+            // cacheable, and the order matters: caching matches on a prefix, so
+            // the half that repeats has to come first. Empty entries are dropped
+            // rather than sent, so a tier with no context budget produces exactly
+            // the single-block request it always did.
+            const content = Array.isArray(userMessage)
+                ? userMessage.filter(Boolean).map(text => ({ type: 'text', text }))
+                : userMessage;
+            const body = { messages: [{ role: 'user', content }], max_tokens: maxTokens };
             if (systemPrompt) body.system = systemPrompt;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
@@ -526,6 +535,7 @@ GROUNDING RULES (these override everything else):
 - If the source states a specific figure or rule, use that exact figure or rule.
 - Do not add facts the source does not contain. If the source is thin on something, teach less rather than invent.
 - Wrong answer options should be plausible misreadings of the source, not facts from elsewhere.
+- Any [COURSE MATERIAL] above is background: use it to place this concept in the document, never as a source of facts or quiz answers.
 ` : ''}
 ${languageRule()}
 
@@ -632,7 +642,10 @@ At least TWO cards should carry a visual. All fields required. "correct" is a 0-
 Prefer interactive types (order, categorize, match, blank) over plain choice where the content suits them.
 ${languageRule()}`;
 
-            const result = await callAI(prompt, '', { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
+            // The course context goes first and is the same on every lesson, so
+            // the API caches it; the prompt goes second because it changes.
+            const result = await callAI([courseContext(), prompt], '',
+                { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
 
             // callAI returns null when it already reported an error, and '' when
             // the model replied with nothing usable. The empty case used to fall
@@ -1714,11 +1727,17 @@ ${languageRule()}`;
         // size — a client that keeps sending Basic's 5,000 characters gets a Basic
         // -sized answer no matter what the account pays for, because the server can
         // only ever clamp down, never refill what the browser already cut away.
+        // `contextChars` is the slice of the document sent with every lesson of a
+        // course, byte-identical each time so the API can cache it: the first
+        // lesson pays a write premium and the rest read it back at about a tenth
+        // of input price. Zero on the Haiku tiers, where the minimum cacheable
+        // prefix is 4,096 tokens — below that the API accepts the request, caches
+        // nothing, and charges the premium anyway.
         const PLAN_LIMITS = {
-            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
-            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
-            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000 },
-            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000 },
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
         };
 
         let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
@@ -2119,6 +2138,40 @@ ${languageRule()}`;
         }
         function excerptBudget() {
             return (entitlement && PLAN_LIMITS[entitlement.planKey]?.excerptChars) || 2400;
+        }
+        function contextBudget() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.contextChars) || 0;
+        }
+
+        // The shared document context sent ahead of every lesson in a course.
+        //
+        // Two things make this worth having. It is a digest of the *whole*
+        // document, so a lesson is no longer limited to the one passage its
+        // concept was retrieved from — it can see how that concept sits in the
+        // rest of the material. And because it is identical on every lesson of
+        // the course, the API caches it: the first lesson pays to write it, the
+        // rest read it back at roughly a tenth of input price.
+        //
+        // Byte-identical is the whole requirement — caching is a prefix match, so
+        // a single character's difference makes every later lesson a fresh write.
+        // `buildSourceDigest` is deterministic, so recomputing after a reload
+        // produces the same bytes; the memo is here to avoid rebuilding a
+        // 48,000-character digest on every lesson, not to guarantee sameness.
+        let courseContextCache = { key: '', text: '' };
+
+        function courseContext() {
+            const budget = contextBudget();
+            const source = getSourceText();
+            if (!budget || !source) return '';
+
+            const key = `${activeCourseId || 'none'}:${budget}:${source.length}`;
+            if (courseContextCache.key !== key) {
+                // The label is part of the cached block, so it has to be fixed
+                // text — nothing per-lesson may appear here.
+                const header = `[COURSE MATERIAL] A digest of the learner's whole document, the same for every lesson in this course. Lines in [SQUARE BRACKETS] are labels added by the app, not part of the document; [...] marks text left out. Use this for context — where a concept sits in the material, what came before it, what it connects to. The passage quoted in the lesson prompt below is the authority for facts.`;
+                courseContextCache = { key, text: `${header}\n\n${buildSourceDigest(source, budget)}` };
+            }
+            return courseContextCache.text;
         }
 
         // Split on sentence boundaries where possible. A chunk that ends mid-sentence

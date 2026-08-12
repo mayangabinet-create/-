@@ -452,6 +452,11 @@ TASK:
    - description (one sentence)
    - difficulty (1-5)
    - why it matters
+   - domain: the subject it belongs to, which decides which ready-made
+     figures its lesson may use. Exactly one of:
+       math | physics | cs | logic | data | science | finance | other
+     Use "other" honestly — for history, law, literature, medicine, business
+     and anything else. It is not a lesser option.
    - kind: what sort of thing it is, which decides how its lesson will be
      taught. Exactly one of:
        geometry       — figures, shapes, sides, angles, areas
@@ -473,6 +478,7 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
       "name": "Concept name",
       "description": "One-sentence description",
       "difficulty": 2,
+      "domain": "other",
       "kind": "definition",
       "importance": "Why this matters",
       "examples": ["Example 1", "Example 2"]
@@ -482,8 +488,8 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
 
 LANGUAGE: write every string above in the same language as the MATERIAL.
 If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
-The two exceptions are "language" and "kind", which are labels the app reads:
-keep those in English, spelled exactly as listed above.`;
+The exceptions are "language", "domain" and "kind", which are labels the app
+reads: keep those in English, spelled exactly as listed above.`;
 
             const result = await callAI(extractPrompt, '', { maxTokens: MAX_TOKENS.path, task: 'path' });
             if (!result) return null;
@@ -550,11 +556,11 @@ keep those in English, spelled exactly as listed above.`;
                 spec: '{"type":"boolean","text":"A claim","answer":true,"explanation":"…"}',
             },
             numeric: {
-                use: 'a number the learner works out and types. Use this for anything calculable — options give a calculation away. "tolerance" is how far off is still right (0 for exact)',
+                use: 'a number worked out and typed. Use for anything calculable — options give a calculation away. "tolerance" is how far off still counts (0 = exact)',
                 spec: '{"type":"numeric","text":"…","answer":12.5,"tolerance":0.1,"unit":" cm","explanation":"…"}',
             },
             order: {
-                use: 'arrange into the correct sequence — steps, chronology, size. List items in the CORRECT order; the app shuffles them',
+                use: 'arrange into the right sequence. List items in the CORRECT order; the app shuffles them',
                 spec: '{"type":"order","text":"Put these in order","items":["first","second","third"],"explanation":"…"}',
             },
             categorize: {
@@ -574,7 +580,7 @@ keep those in English, spelled exactly as listed above.`;
                 spec: '{"type":"mistake","text":"Which statement is WRONG?","options":["true1","FALSE one","true2"],"correct":1,"explanation":"…"}',
             },
             hotspot: {
-                use: 'tap a part of a figure. "visual" must be a shape; "target" names the part — side:N, vertex:N or angle:N, numbered as in that shape',
+                use: 'tap a part of a figure. "visual" must be a shape; "target" is side:N, vertex:N or angle:N, numbered as in that shape',
                 spec: '{"type":"hotspot","text":"Tap the hypotenuse","visual":{"type":"shape","shape":"right-triangle","sides":[3,4,5],"sideLabels":["3","4","5"]},"target":"side:2","explanation":"…"}',
             },
         };
@@ -612,6 +618,11 @@ keep those in English, spelled exactly as listed above.`;
             // failing over — the playbook line is simply left out.
             const kindKey = String(concept.kind || '').trim().toLowerCase();
             const kind = KIND_PLAYBOOK[kindKey] ? kindKey : null;
+            // Only this subject's shelf of templates is offered, and only if the
+            // subject has one. A concept with no domain gets the primitives and
+            // nothing else — which is the format exactly as it was.
+            const domain = String(concept.domain || '').trim().toLowerCase();
+            const templates = templateCatalogue(domain);
 
             return `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
 
@@ -637,26 +648,33 @@ Principles:
 - Never a wall of text. Each card = ONE idea, 2-3 sentences.
 - Assume no prior knowledge.
 - Open with curiosity, not a definition.
-- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence, a
-  structure or a comparison in it, draw it. Prose that describes a figure the
-  app could have drawn is the single worst thing this lesson can contain.
+- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
+  comparison in it, draw it. Prose describing a figure the app could have drawn
+  is the worst thing this lesson can contain.
 - Questions test real understanding. Distractors must be mistakes a real learner would make.
 - Vary the position of the correct answer. Never always first.
 
-VISUALS — attach one to a card, a worked example, a summary or a question by
-setting its "visual" field. Omit the field where a diagram adds nothing. The app
-draws these itself from the spec, so they cost nothing and are always legible.
-Never invent a type that is not on this list; an unknown type is discarded.
+VISUALS — attach one to a card, worked example, summary or question in its
+"visual" field; omit the field where a diagram adds nothing. The app draws them
+from the spec. Never invent a type not on this list — it is discarded.
 
 ${visualCatalogue()}
 
-Rules for visuals: labels under 6 words, 2-5 items each. Numbers you put in a
-"shape", "slider" or "gematria" spec must be real — the app draws and computes
-them exactly as given, so a wrong number becomes a wrong picture.
-${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}
+Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
+"gematria" are drawn and computed exactly as given — a wrong number becomes a
+wrong picture.
+${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${templates ? `
+TEMPLATES — prefer these over writing a spec yourself. In the "visual" field
+write { "template": "<id>", "params": { … } } and the app builds the figure and
+every calculation in it: the hypotenuse, the roots, the interest, the truth
+table. Give the numbers the SOURCE MATERIAL uses, never the results — working
+those out is the app's job and it will not get them wrong. One template may
+produce several figures.
 
-QUESTION TYPES — every question needs "type", "text" and "explanation". Any
-question may also carry a "visual" (a figure it asks about).
+${templates}
+` : ''}
+QUESTION TYPES — each needs "type", "text" and "explanation", and may carry a
+"visual" it asks about.
 
 ${questionCatalogue()}
 
@@ -705,12 +723,10 @@ Return valid JSON only (no markdown, no surrounding prose):
 }
 
 Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions.
-Required, and checked: at least TWO visuals in the lesson, of at least TWO
-different types; at least ONE of them interactive (slider or reveal) or a
-figure the learner is asked about (shape with a hotspot question); at least
-THREE different question types across the quiz, never the same type twice in a
-row; and where the material is quantitative, at least one numeric question.
-"correct" is a 0-based index.
+Required: at least TWO visuals of TWO different types, one of them interactive
+(slider, reveal, or a shape with a hotspot question); at least THREE question
+types across the quiz, never the same twice in a row; and a numeric question
+wherever the material is quantitative. "correct" is a 0-based index.
 ${languageRule()}`;
         }
 
@@ -844,7 +860,13 @@ ${languageRule()}`;
         // depends on it, so a type can never be validated by one rule and drawn
         // by another. A check that throws on a hostile spec fails closed.
         function validVisual(v) {
-            if (!v || typeof v !== 'object' || !v.type) return null;
+            if (!v || typeof v !== 'object') return null;
+            // A template call is expanded into a real spec here, once, and it is
+            // the expansion that gets stored and drawn. A template that cannot
+            // build — sides that do not close, a formula that does not parse —
+            // returns nothing, exactly like a malformed spec.
+            if (v.template && !v.type) return expandTemplate(v);
+            if (!v.type) return null;
             const def = VISUALS[v.type];
             if (!def) return null;
             try { return def.check(v) ? v : null; } catch (_) { return null; }
@@ -2168,12 +2190,22 @@ ${languageRule()}`;
             const def = VISUALS[v.type];
             if (!def) return '';
             try {
-                const inner = def.draw(v, opts);
+                const inner = drawSpec(v, opts);
                 return inner ? `<figure class="visual visual-${esc(v.type)}">${inner}</figure>` : '';
             } catch (err) {
                 console.warn('Visual render failed:', v.type, err);
                 return '';   // a broken diagram must never break the lesson
             }
+        }
+
+        // Draw one spec and its caption. Every type may carry a caption — it is
+        // where a template puts the number it computed — so it is written here
+        // once rather than in each renderer, and a figure inside a group gets
+        // one on the same terms as a figure on its own.
+        function drawSpec(v, opts) {
+            const inner = VISUALS[v.type].draw(v, opts);
+            if (!inner) return '';
+            return inner + (v.caption ? `<div class="vis-caption">${esc(v.caption)}</div>` : '');
         }
 
         // Interactive visuals are drawn as strings like every other one, so they
@@ -2572,7 +2604,7 @@ ${languageRule()}`;
 
             return `<svg class="vis-shape" viewBox="0 0 ${SHAPE_W} ${SHAPE_H}" role="img"
                          aria-label="${escAttr(v.caption || v.shape || 'diagram')}">${body}</svg>
-                    ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+`;
         }
 
         // ---- Formulas and derivations --------------------------------------
@@ -2601,7 +2633,12 @@ ${languageRule()}`;
         function visNumberline(v) {
             const min = num(v.min, 0), max = num(v.max, 10);
             if (!(max > min)) return '';
-            const W = 320, H = 96, PAD = 28, AXIS = 58;
+            const ranges = (v.ranges || []).filter(r => r && isFinite(num(r.from, NaN)) && isFinite(num(r.to, NaN)));
+            // Two ranges around the same centre — ±1σ and ±2σ — put their labels
+            // on the same spot. Every second one drops a line, and the drawing
+            // grows to make room for it.
+            const rows = Math.min(2, Math.max(1, ranges.filter(r => r.label).length));
+            const W = 320, H = 82 + rows * 14, PAD = 28, AXIS = 58;
             const at = t => PAD + ((Math.max(min, Math.min(max, t)) - min) / (max - min)) * (W - PAD * 2);
 
             // Enough ticks to read the scale, never so many they collide.
@@ -2610,12 +2647,11 @@ ${languageRule()}`;
             const ticks = [];
             for (let t = min; t <= max + step / 1000 && ticks.length <= 21; t += step) ticks.push(t);
 
-            const ranges = (v.ranges || []).filter(r => r && isFinite(num(r.from, NaN)) && isFinite(num(r.to, NaN)))
-                .map(r => {
-                    const x1 = at(Math.min(num(r.from), num(r.to))), x2 = at(Math.max(num(r.from), num(r.to)));
-                    return `<rect class="nl-range" x="${x1.toFixed(1)}" y="${AXIS - 7}" width="${Math.max(2, x2 - x1).toFixed(1)}" height="14" rx="4"></rect>
-                            ${r.label ? `<text class="nl-range-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${AXIS + 30}">${esc(r.label)}</text>` : ''}`;
-                }).join('');
+            const rangeSvg = ranges.map((r, i) => {
+                const x1 = at(Math.min(num(r.from), num(r.to))), x2 = at(Math.max(num(r.from), num(r.to)));
+                return `<rect class="nl-range" x="${x1.toFixed(1)}" y="${AXIS - 7}" width="${Math.max(2, x2 - x1).toFixed(1)}" height="14" rx="4"></rect>
+                        ${r.label ? `<text class="nl-range-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${AXIS + 30 + (i % 2) * 14}">${esc(r.label)}</text>` : ''}`;
+            }).join('');
 
             const points = (v.points || []).filter(p => p && isFinite(num(p.value, NaN))).map(p => {
                 const x = at(num(p.value));
@@ -2625,12 +2661,12 @@ ${languageRule()}`;
 
             return `<svg class="vis-numberline" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(v.caption || 'number line')}">
                 <line class="nl-axis" x1="${PAD}" y1="${AXIS}" x2="${W - PAD}" y2="${AXIS}"></line>
-                ${ranges}
+                ${rangeSvg}
                 ${ticks.map(t => `<g><line class="nl-tick" x1="${at(t).toFixed(1)}" y1="${AXIS - 5}" x2="${at(t).toFixed(1)}" y2="${AXIS + 5}"></line>
                     <text class="nl-tick-label" x="${at(t).toFixed(1)}" y="${AXIS + 19}">${esc(fmtNum(t, 2))}</text></g>`).join('')}
                 ${points}
             </svg>
-            ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+`;
         }
 
         const plotPoints = s => (s.points || [])
@@ -2759,7 +2795,7 @@ ${languageRule()}`;
                     ${row.map((cell, c) => `<td class="${marked.has(`${r}:${c}`) ? 'is-highlight' : ''}">${esc(cell)}</td>`).join('')}
                 </tr>`).join('')}</tbody>
             </table></div>
-            ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+`;
         }
 
         // ---- Gematria --------------------------------------------------------
@@ -2966,7 +3002,7 @@ ${languageRule()}`;
                 draw: visCompare,
             },
             venn: {
-                use: 'two categories that overlap — what belongs to each, and what to both',
+                use: 'two categories that overlap, and what belongs to both',
                 spec: '{"type":"venn","left":{"title":"A","points":["…"]},"right":{"title":"B","points":["…"]},"overlap":{"title":"both","points":["…"]}}',
                 check: v => v.left?.title && v.right?.title,
                 draw: visVenn,
@@ -2991,7 +3027,7 @@ ${languageRule()}`;
                 draw: visTable,
             },
             grid: {
-                use: 'a labelled grid — a times table, a case matrix, a Punnett square. "highlight" marks [row,col] cells',
+                use: 'a labelled grid — times table, case matrix, Punnett square. "highlight" marks [row,col] cells',
                 spec: '{"type":"grid","rowHeaders":["r1","r2"],"colHeaders":["c1","c2"],"cells":[["a","b"],["c","d"]],"highlight":[[0,1]]}',
                 check: v => Array.isArray(v.cells) && v.cells.some(r => Array.isArray(r) && r.length),
                 draw: visGrid,
@@ -3009,7 +3045,7 @@ ${languageRule()}`;
                 draw: visPie,
             },
             shape: {
-                use: 'geometry — a figure with named sides, angles and vertices. shape: triangle | right-triangle | square | rectangle | circle | polygon. "sides" are the real lengths of edge 0 (vertex 0→1), edge 1 (1→2), edge 2 (2→0); give them and the figure is drawn to scale and the right angle is really a right angle. sideLabels / angles / vertices label those same parts in the same order',
+                use: 'geometry: triangle | right-triangle | square | rectangle | circle | polygon. "sides" are the real lengths of edge 0 (vertices 0→1), edge 1 (1→2), edge 2 (2→0) — give them and it is drawn to scale. sideLabels / angles / vertices label those same parts, in that order',
                 spec: '{"type":"shape","shape":"right-triangle","sides":[3,4,5],"sideLabels":["a = 3","b = 4","c = 5"],"angles":["","90°",""],"vertices":["A","B","C"],"caption":"optional"}',
                 check: v => !!shapeGeometry(v),
                 draw: visShape,
@@ -3021,13 +3057,13 @@ ${languageRule()}`;
                 draw: visFormula,
             },
             equation: {
-                use: 'a calculation or derivation worked line by line, each line saying what changed',
+                use: 'a calculation worked line by line, each line saying what changed',
                 spec: '{"type":"equation","lines":[{"expr":"2x + 4 = 10","note":"start"},{"expr":"2x = 6","note":"subtract 4"},{"expr":"x = 3","note":"divide by 2"}]}',
                 check: v => Array.isArray(v.lines) && v.lines.filter(l => l && l.expr).length >= 2,
                 draw: visEquation,
             },
             numberline: {
-                use: 'where values sit on a scale — a threshold, a bracket, a range that satisfies a condition',
+                use: 'where values sit on a scale — a threshold, a bracket, a range',
                 spec: '{"type":"numberline","min":0,"max":100,"step":20,"points":[{"value":65,"label":"pass"}],"ranges":[{"from":65,"to":100,"label":"passing"}]}',
                 check: v => num(v.max, 0) > num(v.min, 0),
                 draw: visNumberline,
@@ -3039,22 +3075,37 @@ ${languageRule()}`;
                 draw: visPlot,
             },
             gematria: {
-                use: 'Hebrew letters as numbers. Give the words and what they mean — the app computes every value and total itself, so never write the sums yourself. method: standard | gadol | ordinal | katan',
+                use: 'Hebrew letters as numbers. Give the words and their meaning; the app computes every value and total. method: standard | gadol | ordinal | katan',
                 spec: '{"type":"gematria","method":"standard","words":[{"word":"אמת","note":"what the source says about it"}]}',
                 check: v => Array.isArray(v.words) && v.words.some(w => w && w.word && gematriaBreakdown(w.word, v.method).letters.length),
                 draw: visGematria,
             },
             reveal: {
-                use: 'INTERACTIVE. Cards the learner taps to uncover — a term whose meaning should be recalled before it is read',
+                use: 'INTERACTIVE. Cards tapped to uncover — a term to recall before reading it',
                 spec: '{"type":"reveal","items":[{"label":"Term","text":"What it means"},{"label":"Term 2","text":"…"}]}',
                 check: v => Array.isArray(v.items) && v.items.filter(i => i && i.label && i.text).length >= 2,
                 draw: visReveal,
             },
             slider: {
-                use: 'INTERACTIVE. A quantity the learner drags while dependent values recompute live. "outputs" are formulas in the slider variable and any "constants"; use it whenever one number depends on another',
+                use: 'INTERACTIVE. A quantity the learner drags while dependent values recompute. "outputs" are formulas in the variable and any "constants". Use it whenever one number depends on another',
                 spec: '{"type":"slider","variable":"b","label":"Base (cm)","min":1,"max":12,"step":1,"value":4,"unit":" cm","constants":{"h":6},"outputs":[{"label":"Area","expr":"b * h / 2","unit":" cm²","decimals":1}]}',
                 check: v => !!sliderSpec(v),
                 draw: visSlider,
+            },
+            // Not offered to the model — a template produces it when one idea
+            // needs more than one figure: the formula *and* the graph, the
+            // triangle *and* the working. One level deep only, so a group can
+            // never contain a group.
+            group: {
+                internal: true,
+                use: 'several figures shown together',
+                spec: '{"type":"group","items":[]}',
+                check: v => Array.isArray(v.items)
+                            && v.items.filter(i => i && i.type !== 'group' && VISUALS[i.type]).length >= 1,
+                draw: (v, opts) => (v.items || [])
+                    .filter(i => i && i.type !== 'group' && VISUALS[i.type])
+                    .map(i => `<div class="vis-group-item">${drawSpec(i, opts)}</div>`)
+                    .join(''),
             },
         };
 
@@ -3062,7 +3113,685 @@ ${languageRule()}`;
         // prompt and the renderer can never disagree.
         function visualCatalogue() {
             return Object.entries(VISUALS)
+                .filter(([, def]) => !def.internal)
                 .map(([name, def]) => `  "${name}" — ${def.use}\n      ${def.spec}`)
+                .join('\n');
+        }
+
+        // ============= Templates =============
+        // The model is a bad draughtsman and a worse calculator, but it knows
+        // what a lesson is about. So it stops specifying figures and starts
+        // *choosing* them: "this is a right triangle, the legs are 6 and 8" —
+        // and the app builds the picture, computes the hypotenuse, and writes
+        // the numbers in. Everything that can be got wrong is done here.
+        //
+        // A template is not a new kind of figure. Every one of them composes the
+        // primitives above, so a template can be added without touching the
+        // renderer, and a lesson stores the *expanded* spec — which means a
+        // cached lesson keeps working even if its template is later changed or
+        // withdrawn.
+        //
+        // `domains` decides which shelf a lesson is shown: the course plan
+        // labels every concept with its subject, and only that subject's
+        // templates reach the prompt. That is what keeps a library this size
+        // affordable to offer, and it is why the model picks well — eight
+        // candidates that all fit, not thirty that mostly don't.
+
+        // Read a number the model sent: coerced, defaulted, and clamped to a
+        // range the renderer can actually draw. A template never sees a string,
+        // a NaN, or a request for a 900-sided polygon.
+        function tNum(params, key, fallback, min = -1e9, max = 1e9) {
+            const raw = params ? params[key] : undefined;
+            const n = typeof raw === 'string' ? Number(raw.replace(/[^\d.\-]/g, '')) : raw;
+            const value = (typeof n === 'number' && isFinite(n)) ? n : fallback;
+            return Math.min(max, Math.max(min, value));
+        }
+        function tStr(params, key, fallback = '') {
+            const raw = params ? params[key] : undefined;
+            return raw == null ? fallback : String(raw).slice(0, 60);
+        }
+        // A list of numbers, however the model chose to write it.
+        function tList(params, key, fallback = [], max = 12) {
+            let raw = params ? params[key] : undefined;
+            if (typeof raw === 'string') raw = raw.split(/[,;\s]+/);
+            if (!Array.isArray(raw)) return fallback;
+            const out = raw.map(Number).filter(n => isFinite(n));
+            return out.length ? out.slice(0, max) : fallback;
+        }
+        function tWords(params, key, fallback = [], max = 12) {
+            let raw = params ? params[key] : undefined;
+            if (typeof raw === 'string') raw = raw.split(/[,;]+/);
+            if (!Array.isArray(raw)) return fallback;
+            const out = raw.map(w => String(w).trim().slice(0, 40)).filter(Boolean);
+            return out.length ? out.slice(0, max) : fallback;
+        }
+        const withUnit = (n, unit, decimals = 2) => fmtNum(n, decimals) + (unit ? ' ' + unit : '');
+
+        // "y = 1x² + -2x + -3" is what naive string-building produces and no
+        // textbook has ever printed. Terms are given as [coefficient, symbol].
+        function polynomial(terms) {
+            let out = '';
+            for (const [coefficient, symbol] of terms) {
+                if (!coefficient) continue;
+                const mag = Math.abs(coefficient);
+                const shown = (mag === 1 && symbol) ? '' : fmtNum(mag);
+                if (!out) out = (coefficient < 0 ? '−' : '') + shown + symbol;
+                else out += (coefficient < 0 ? ' − ' : ' + ') + shown + symbol;
+            }
+            return out || '0';
+        }
+
+        // Sample a function across a range for `plot`. The app evaluates; the
+        // model never hands over a list of points it worked out itself.
+        function samplePoints(from, to, steps, fn) {
+            const pts = [];
+            const n = Math.max(2, Math.min(60, Math.round(steps)));
+            for (let i = 0; i <= n; i++) {
+                const x = from + ((to - from) * i) / n;
+                const y = fn(x);
+                if (isFinite(y)) pts.push([x, y]);
+            }
+            return pts;
+        }
+
+        // ---- Boolean logic, for truth tables --------------------------------
+        // Its own parser rather than the arithmetic one: the operators are
+        // different, and a truth table computed by a language model is a truth
+        // table with a wrong row in it.
+        function evalBool(src, vars) {
+            const s = String(src || '')
+                .replace(/[¬~]/g, '!').replace(/[∧&]+/g, ' and ').replace(/[∨|]+/g, ' or ')
+                .replace(/[⊕]/g, ' xor ').replace(/(<->|↔|≡)/g, ' iff ').replace(/(->|→|⇒)/g, ' then ');
+            let i = 0;
+            const ws = () => { while (i < s.length && /\s/.test(s[i])) i++; };
+            const word = w => {
+                ws();
+                if (!s.slice(i).toLowerCase().startsWith(w)) return false;
+                const after = s[i + w.length];
+                if (after && /[A-Za-z0-9_]/.test(after)) return false;   // "android" is not "and"
+                i += w.length;
+                return true;
+            };
+            const sym = c => { ws(); if (s[i] === c) { i++; return true; } return false; };
+
+            function parseIff() {
+                let left = parseThen();
+                while (word('iff')) { const r = parseThen(); left = left === r; }
+                return left;
+            }
+            function parseThen() {
+                const left = parseOr();
+                if (!word('then')) return left;
+                // The right side is parsed before the verdict, not inside it:
+                // `||` would short-circuit and leave "B" unread, and the parser
+                // would then reject the whole expression as trailing input.
+                const right = parseThen();                        // right-associative
+                return !left || right;
+            }
+            function parseOr() {
+                let left = parseXor();
+                while (word('or')) left = parseXor() || left;
+                return left;
+            }
+            function parseXor() {
+                let left = parseAnd();
+                while (word('xor')) left = parseAnd() !== left;
+                return left;
+            }
+            function parseAnd() {
+                let left = parseNot();
+                while (word('and')) left = parseNot() && left;
+                return left;
+            }
+            function parseNot() {
+                if (sym('!') || word('not')) return !parseNot();
+                return parseAtom();
+            }
+            function parseAtom() {
+                if (sym('(')) {
+                    const value = parseIff();
+                    if (!sym(')')) throw new Error('unbalanced');
+                    return value;
+                }
+                ws();
+                const m = /^[A-Za-z_][A-Za-z_0-9]*/.exec(s.slice(i));
+                if (!m) throw new Error('unexpected input');
+                i += m[0].length;
+                const name = m[0];
+                if (/^(true|t|1)$/i.test(name)) return true;
+                if (/^(false|f|0)$/i.test(name)) return false;
+                if (!(name in vars)) throw new Error('unknown variable: ' + name);
+                return !!vars[name];
+            }
+
+            const out = parseIff();
+            ws();
+            if (i < s.length) throw new Error('trailing input');
+            return out;
+        }
+
+        const TEMPLATES = {
+            // ---- Mathematics ------------------------------------------------
+            'right-triangle': {
+                domains: ['math'],
+                use: 'a right triangle from its two legs — hypotenuse computed, drawn to scale, right angle marked',
+                params: 'a, b (the legs), unit',
+                build: p => {
+                    const a = tNum(p, 'a', 3, 0.1, 1000), b = tNum(p, 'b', 4, 0.1, 1000);
+                    const c = Math.hypot(a, b);
+                    const u = tStr(p, 'unit');
+                    return [
+                        { type: 'shape', shape: 'right-triangle', sides: [a, b, c],
+                          sideLabels: [withUnit(a, u), withUnit(b, u), withUnit(c, u)],
+                          angles: ['', '90°', ''], vertices: ['A', 'B', 'C'] },
+                        { type: 'formula', expression: `${fmtNum(a)}² + ${fmtNum(b)}² = ${fmtNum(c * c)}`,
+                          note: `c = √${fmtNum(c * c)} = ${withUnit(c, u, 3)}` },
+                    ];
+                },
+            },
+            'triangle': {
+                domains: ['math'],
+                use: 'any triangle from its three sides — drawn to scale, every angle computed',
+                params: 'a, b, c (sides), unit',
+                build: p => {
+                    const sides = [tNum(p, 'a', 5, 0.1, 1000), tNum(p, 'b', 6, 0.1, 1000), tNum(p, 'c', 7, 0.1, 1000)];
+                    const pts = triangleFromSides(sides);
+                    if (!pts) return null;                       // no such triangle: no figure
+                    const u = tStr(p, 'unit');
+                    const angles = vertexAngles(pts).map(a => `${fmtNum(a, 1)}°`);
+                    return { type: 'shape', shape: 'triangle', sides,
+                             sideLabels: sides.map(s => withUnit(s, u)), angles,
+                             vertices: ['A', 'B', 'C'],
+                             caption: `Angles add to ${fmtNum(vertexAngles(pts).reduce((t, a) => t + a, 0), 0)}°` };
+                },
+            },
+            'rectangle': {
+                domains: ['math'],
+                use: 'a rectangle or square, with area and perimeter computed',
+                params: 'width, height, unit',
+                build: p => {
+                    const w = tNum(p, 'width', 4, 0.1, 1000), h = tNum(p, 'height', 3, 0.1, 1000);
+                    const u = tStr(p, 'unit');
+                    return [
+                        { type: 'shape', shape: 'rectangle', width: w, height: h,
+                          sideLabels: [withUnit(w, u), withUnit(h, u), '', ''] },
+                        { type: 'formula', expression: `A = ${fmtNum(w)} × ${fmtNum(h)} = ${fmtNum(w * h)}`,
+                          note: `Perimeter = 2 × (${fmtNum(w)} + ${fmtNum(h)}) = ${fmtNum(2 * (w + h))}` },
+                    ];
+                },
+            },
+            'circle': {
+                domains: ['math'],
+                use: 'a circle, with circumference and area computed from the radius',
+                params: 'r, unit',
+                build: p => {
+                    const r = tNum(p, 'r', 4, 0.1, 1000), u = tStr(p, 'unit');
+                    return [
+                        { type: 'shape', shape: 'circle', radiusLabel: `r = ${withUnit(r, u)}`, vertices: ['O'] },
+                        { type: 'formula', expression: `C = 2πr = ${fmtNum(2 * Math.PI * r)}`,
+                          note: `A = πr² = ${fmtNum(Math.PI * r * r)}` },
+                    ];
+                },
+            },
+            'polygon-angles': {
+                domains: ['math'],
+                use: 'a regular polygon, with its interior and exterior angles computed',
+                params: 'n (3-12)',
+                build: p => {
+                    const n = Math.round(tNum(p, 'n', 5, 3, 12));
+                    const interior = ((n - 2) * 180) / n;
+                    return { type: 'shape', shape: 'polygon', n,
+                             angles: Array(n).fill(`${fmtNum(interior, 1)}°`),
+                             caption: `${n} sides · interior angles total ${(n - 2) * 180}° · each is ${fmtNum(interior, 1)}°` };
+                },
+            },
+            'solve-linear': {
+                domains: ['math'],
+                use: 'solving ax + b = c step by step — the app does the algebra, line by line',
+                params: 'a, b, c',
+                build: p => {
+                    const a = tNum(p, 'a', 2, -1000, 1000), b = tNum(p, 'b', 4, -1000, 1000), c = tNum(p, 'c', 10, -1000, 1000);
+                    if (a === 0) return null;
+                    const sign = b < 0 ? '−' : '+';
+                    const lines = [{ expr: `${fmtNum(a)}x ${sign} ${fmtNum(Math.abs(b))} = ${fmtNum(c)}`, note: 'start' }];
+                    if (b !== 0) lines.push({ expr: `${fmtNum(a)}x = ${fmtNum(c - b)}`,
+                                              note: `${b < 0 ? 'add' : 'subtract'} ${fmtNum(Math.abs(b))}` });
+                    lines.push({ expr: `x = ${fmtNum((c - b) / a, 3)}`, note: `divide by ${fmtNum(a)}` });
+                    return { type: 'equation', lines };
+                },
+            },
+            'quadratic': {
+                domains: ['math'],
+                use: 'a parabola y = ax² + bx + c, plotted, with roots and vertex computed',
+                params: 'a, b, c',
+                build: p => {
+                    const a = tNum(p, 'a', 1, -100, 100), b = tNum(p, 'b', -2, -100, 100), c = tNum(p, 'c', -3, -100, 100);
+                    if (a === 0) return null;
+                    const vx = -b / (2 * a), disc = b * b - 4 * a * c;
+                    const span = Math.max(4, Math.abs(vx) + 4);
+                    const roots = disc > 0
+                        ? `roots at x = ${fmtNum((-b - Math.sqrt(disc)) / (2 * a), 2)} and x = ${fmtNum((-b + Math.sqrt(disc)) / (2 * a), 2)}`
+                        : (disc === 0 ? `one root at x = ${fmtNum(vx, 2)}` : 'no real roots');
+                    return [
+                        { type: 'plot', xLabel: 'x', yLabel: 'y',
+                          series: [{ label: `y = ${polynomial([[a, 'x²'], [b, 'x'], [c, '']])}`,
+                                     points: samplePoints(vx - span / 2, vx + span / 2, 24, x => a * x * x + b * x + c) }] },
+                        { type: 'formula', expression: `x = (−b ± √(b² − 4ac)) / 2a`,
+                          note: `b² − 4ac = ${fmtNum(disc)} → ${roots}. Vertex at x = ${fmtNum(vx, 2)}.` },
+                    ];
+                },
+            },
+            'linear-function': {
+                domains: ['math'],
+                use: 'a straight line y = mx + b, plotted with its slope and intercept named',
+                params: 'm, b',
+                build: p => {
+                    const m = tNum(p, 'm', 2, -1000, 1000), b = tNum(p, 'b', 1, -1000, 1000);
+                    return [
+                        { type: 'plot', xLabel: 'x', yLabel: 'y',
+                          series: [{ label: `y = ${polynomial([[m, 'x'], [b, '']])}`,
+                                     points: samplePoints(0, 10, 10, x => m * x + b) }] },
+                        { type: 'slider', variable: 'x', label: 'x', min: 0, max: 10, step: 1, value: 3,
+                          constants: { m, b }, outputs: [{ label: 'y', expr: 'm * x + b', decimals: 2 }] },
+                    ];
+                },
+            },
+            'fraction': {
+                domains: ['math'],
+                use: 'a fraction or share of a whole, drawn with the percentage computed',
+                params: 'part, whole, label',
+                build: p => {
+                    const part = tNum(p, 'part', 1, 0, 1e9), whole = tNum(p, 'whole', 4, 0.0001, 1e9);
+                    if (part > whole) return null;
+                    const label = tStr(p, 'label', 'this part');
+                    return { type: 'pie', unit: '',
+                             slices: [{ label, value: part }, { label: 'the rest', value: Math.max(whole - part, 0.0001) }],
+                             caption: `${fmtNum(part)}/${fmtNum(whole)} = ${fmtNum((part / whole) * 100, 1)}%` };
+                },
+            },
+
+            // ---- Physics ----------------------------------------------------
+            'ohms-law': {
+                domains: ['physics'],
+                use: 'Ohm\'s law as something to drag: change the voltage and watch current and power recompute',
+                params: 'volts, ohms',
+                build: p => {
+                    const v = tNum(p, 'volts', 12, 0.1, 1e6), r = tNum(p, 'ohms', 4, 0.01, 1e6);
+                    return [
+                        { type: 'formula', expression: 'I = V / R',
+                          where: [{ symbol: 'V', meaning: 'voltage (volts)' }, { symbol: 'R', meaning: 'resistance (ohms)' },
+                                  { symbol: 'I', meaning: 'current (amps)' }] },
+                        { type: 'slider', variable: 'V', label: 'Voltage (V)', min: 0, max: Math.max(v * 2, 1),
+                          step: Math.max(v * 2, 1) / 20, value: v, unit: ' V', constants: { R: r },
+                          outputs: [{ label: 'Current', expr: 'V / R', unit: ' A', decimals: 2 },
+                                    { label: 'Power', expr: 'V * V / R', unit: ' W', decimals: 2 }] },
+                    ];
+                },
+            },
+            'resistors': {
+                domains: ['physics'],
+                use: 'resistors in series or in parallel, with the total computed',
+                params: 'values (list of ohms), mode (series | parallel)',
+                build: p => {
+                    const values = tList(p, 'values', [100, 220, 330], 6);
+                    const parallel = /parallel/i.test(tStr(p, 'mode', 'series'));
+                    const total = parallel
+                        ? 1 / values.reduce((t, r) => t + (r > 0 ? 1 / r : 0), 0)
+                        : values.reduce((t, r) => t + r, 0);
+                    if (!isFinite(total)) return null;
+                    return [
+                        { type: 'bar', unit: ' Ω', bars: values.map((r, i) => ({ label: `R${i + 1}`, value: r })) },
+                        { type: 'formula',
+                          expression: parallel
+                            ? `1/R = ${values.map(r => `1/${fmtNum(r)}`).join(' + ')}`
+                            : `R = ${values.map(r => fmtNum(r)).join(' + ')}`,
+                          note: `Total: ${fmtNum(total, 2)} Ω — ${parallel ? 'less than the smallest one' : 'more than any one of them'}` },
+                    ];
+                },
+            },
+            'motion': {
+                domains: ['physics'],
+                use: 'motion under constant acceleration — speed against time, with the distance computed',
+                params: 'v0 (start speed), a (acceleration), t (seconds)',
+                build: p => {
+                    const v0 = tNum(p, 'v0', 0, -1000, 1000), a = tNum(p, 'a', 2, -100, 100), t = tNum(p, 't', 10, 0.1, 1000);
+                    return [
+                        { type: 'plot', xLabel: 'time (s)', yLabel: 'speed (m/s)',
+                          series: [{ label: 'v = v₀ + at', points: samplePoints(0, t, 10, x => v0 + a * x) }] },
+                        { type: 'formula', expression: 's = v₀t + ½at²',
+                          note: `After ${fmtNum(t)} s: speed ${fmtNum(v0 + a * t, 1)} m/s, distance ${fmtNum(v0 * t + 0.5 * a * t * t, 1)} m` },
+                    ];
+                },
+            },
+            'projectile': {
+                domains: ['physics'],
+                use: 'a projectile\'s arc, with range and greatest height computed',
+                params: 'speed (m/s), angle (degrees)',
+                build: p => {
+                    const v = tNum(p, 'speed', 20, 0.1, 1000), deg = tNum(p, 'angle', 45, 1, 89);
+                    const rad = (deg * Math.PI) / 180, g = 9.81;
+                    const range = (v * v * Math.sin(2 * rad)) / g;
+                    const peak = (v * v * Math.sin(rad) ** 2) / (2 * g);
+                    return [
+                        { type: 'plot', xLabel: 'distance (m)', yLabel: 'height (m)',
+                          series: [{ label: `${fmtNum(v)} m/s at ${fmtNum(deg)}°`,
+                                     points: samplePoints(0, range, 20, x => x * Math.tan(rad) - (g * x * x) / (2 * v * v * Math.cos(rad) ** 2)) }] },
+                        { type: 'formula', expression: 'range = v² sin(2θ) / g',
+                          note: `Range ${fmtNum(range, 1)} m, highest point ${fmtNum(peak, 1)} m` },
+                    ];
+                },
+            },
+            'wave': {
+                domains: ['physics'],
+                use: 'a wave drawn from its amplitude and wavelength, with frequency computed from the speed',
+                params: 'amplitude, wavelength, speed',
+                build: p => {
+                    const amp = tNum(p, 'amplitude', 1, 0.01, 1000), len = tNum(p, 'wavelength', 4, 0.01, 1000);
+                    const speed = tNum(p, 'speed', 340, 0.01, 3e8);
+                    return [
+                        { type: 'plot', xLabel: 'distance', yLabel: 'displacement',
+                          series: [{ label: `λ = ${fmtNum(len)}`,
+                                     points: samplePoints(0, len * 2, 48, x => amp * Math.sin((2 * Math.PI * x) / len)) }] },
+                        { type: 'formula', expression: 'v = f λ',
+                          note: `f = ${fmtNum(speed)} / ${fmtNum(len)} = ${fmtNum(speed / len, 2)} Hz` },
+                    ];
+                },
+            },
+            'pendulum': {
+                domains: ['physics'],
+                use: 'a pendulum whose period the learner changes by dragging its length',
+                params: 'length (metres)',
+                build: p => {
+                    const l = tNum(p, 'length', 1, 0.05, 100);
+                    return { type: 'slider', variable: 'L', label: 'Length (m)', min: 0.1, max: Math.max(l * 2, 2),
+                             step: 0.1, value: l, unit: ' m', constants: { g: 9.81 },
+                             outputs: [{ label: 'Period', expr: '2 * pi * sqrt(L / g)', unit: ' s', decimals: 2 },
+                                       { label: 'Swings per minute', expr: '60 / (2 * pi * sqrt(L / g))', decimals: 1 }],
+                             note: 'The period depends on length alone — not on the mass, and not on how far it swings.' };
+                },
+            },
+            'half-life': {
+                domains: ['physics', 'science'],
+                use: 'radioactive or any exponential decay: how much is left after each half-life',
+                params: 'halfLife, unit, periods',
+                build: p => {
+                    const hl = tNum(p, 'halfLife', 5, 0.001, 1e9);
+                    const u = tStr(p, 'unit', 'years');
+                    const periods = Math.round(tNum(p, 'periods', 5, 1, 10));
+                    return [
+                        { type: 'plot', xLabel: u, yLabel: '% left',
+                          series: [{ label: 'remaining', points: samplePoints(0, hl * periods, 30, t => 100 * Math.pow(0.5, t / hl)) }] },
+                        { type: 'table', headers: [`After (${u})`, 'Left'],
+                          rows: Array.from({ length: periods + 1 }, (_, i) =>
+                              [fmtNum(i * hl), `${fmtNum(100 * Math.pow(0.5, i), 2)}%`]) },
+                    ];
+                },
+            },
+
+            // ---- Computing and logic ----------------------------------------
+            'binary-number': {
+                domains: ['cs'],
+                use: 'a number in binary, with the place values laid out and the conversion computed',
+                params: 'value (0-255)',
+                build: p => {
+                    const n = Math.round(tNum(p, 'value', 42, 0, 255));
+                    const bits = n.toString(2).padStart(8, '0').split('');
+                    const places = [128, 64, 32, 16, 8, 4, 2, 1];
+                    return { type: 'grid', colHeaders: places.map(String),
+                             rowHeaders: ['bit'], cells: [bits],
+                             highlight: bits.map((b, i) => b === '1' ? [0, i] : null).filter(Boolean),
+                             caption: `${n} = ${places.filter((_, i) => bits[i] === '1').join(' + ') || '0'} = ${bits.join('')}₂` };
+                },
+            },
+            'binary-search': {
+                domains: ['cs'],
+                use: 'a binary search traced step by step over a sorted list — the app runs the search',
+                params: 'values (sorted list), target',
+                build: p => {
+                    const values = tList(p, 'values', [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]).sort((a, b) => a - b);
+                    const target = tNum(p, 'target', values[Math.floor(values.length / 2)] ?? 0);
+                    const lines = [];
+                    let lo = 0, hi = values.length - 1;
+                    while (lo <= hi && lines.length < 8) {
+                        const mid = Math.floor((lo + hi) / 2);
+                        const v = values[mid];
+                        const verdict = v === target ? 'found it' : (v < target ? 'too small — look right' : 'too big — look left');
+                        lines.push({ expr: `[${lo}…${hi}] middle = ${fmtNum(v)}`, note: verdict });
+                        if (v === target) break;
+                        if (v < target) lo = mid + 1; else hi = mid - 1;
+                    }
+                    if (lo > hi) lines.push({ expr: 'range is empty', note: `${fmtNum(target)} is not in the list` });
+                    return [
+                        { type: 'table', headers: values.map((_, i) => String(i)), rows: [values.map(String)] },
+                        { type: 'equation', lines },
+                    ];
+                },
+            },
+            'big-o': {
+                domains: ['cs'],
+                use: 'two growth rates plotted against each other, so the difference is seen rather than asserted',
+                params: 'a, b (each one of: 1, logn, n, nlogn, n2, 2n), maxN',
+                build: p => {
+                    const curves = {
+                        '1': ['O(1)', () => 1], 'logn': ['O(log n)', n => Math.log2(Math.max(n, 1))],
+                        'n': ['O(n)', n => n], 'nlogn': ['O(n log n)', n => n * Math.log2(Math.max(n, 2))],
+                        'n2': ['O(n²)', n => n * n], '2n': ['O(2ⁿ)', n => Math.pow(2, Math.min(n, 20))],
+                    };
+                    const pick = key => curves[String(key || '').toLowerCase().replace(/[^a-z0-9]/g, '')] || null;
+                    const first = pick(tStr(p, 'a', 'n')) || curves.n;
+                    const second = pick(tStr(p, 'b', 'n2')) || curves.n2;
+                    const maxN = Math.round(tNum(p, 'maxN', 20, 4, 200));
+                    return { type: 'plot', xLabel: 'input size n', yLabel: 'steps',
+                             series: [first, second].map(([label, fn]) =>
+                                 ({ label, points: samplePoints(1, maxN, 20, fn) })) };
+                },
+            },
+            'truth-table': {
+                domains: ['cs', 'logic'],
+                use: 'a truth table computed by the app from a boolean expression. Write it with and / or / not / xor / then (implication) / iff, over single-letter variables',
+                params: 'expression, variables (e.g. "A,B")',
+                build: p => {
+                    const vars = tWords(p, 'variables', ['A', 'B'], 3)
+                        .map(v => v.replace(/[^A-Za-z_]/g, '').slice(0, 3)).filter(Boolean);
+                    const expr = tStr(p, 'expression', 'A and B');
+                    if (!vars.length) return null;
+                    const rows = [];
+                    for (let mask = 0; mask < (1 << vars.length); mask++) {
+                        const env = {};
+                        vars.forEach((v, i) => { env[v] = !!(mask & (1 << (vars.length - 1 - i))); });
+                        let out;
+                        try { out = evalBool(expr, env); } catch (_) { return null; }   // unparseable: no table
+                        rows.push([...vars.map(v => (env[v] ? 'T' : 'F')), out ? 'T' : 'F']);
+                    }
+                    return { type: 'grid', colHeaders: [...vars, expr],
+                             cells: rows,
+                             highlight: rows.map((r, i) => r[r.length - 1] === 'T' ? [i, vars.length] : null).filter(Boolean),
+                             caption: `${rows.filter(r => r[r.length - 1] === 'T').length} of ${rows.length} rows come out true` };
+                },
+            },
+            'set-operations': {
+                domains: ['logic', 'math'],
+                use: 'two sets, with union, intersection and differences computed from the members',
+                params: 'A (list), B (list), titleA, titleB',
+                build: p => {
+                    const A = tWords(p, 'A', ['2', '4', '6', '8']), B = tWords(p, 'B', ['3', '6', '9']);
+                    const inBoth = A.filter(x => B.includes(x));
+                    return { type: 'venn',
+                             left: { title: tStr(p, 'titleA', 'A'), points: A.filter(x => !B.includes(x)) },
+                             right: { title: tStr(p, 'titleB', 'B'), points: B.filter(x => !A.includes(x)) },
+                             overlap: { title: 'in both', points: inBoth },
+                             caption: `Union has ${new Set([...A, ...B]).size}; intersection has ${inBoth.length}` };
+                },
+            },
+
+            // ---- Data and statistics ----------------------------------------
+            'summary-stats': {
+                domains: ['data'],
+                use: 'a set of numbers with mean, median, range and spread computed and drawn',
+                params: 'values (list), label',
+                build: p => {
+                    const values = tList(p, 'values', [4, 8, 15, 16, 23, 42]);
+                    const sorted = [...values].sort((a, b) => a - b);
+                    const mean = values.reduce((t, v) => t + v, 0) / values.length;
+                    const mid = Math.floor(sorted.length / 2);
+                    const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+                    const sd = Math.sqrt(values.reduce((t, v) => t + (v - mean) ** 2, 0) / values.length);
+                    return [
+                        { type: 'bar', bars: values.map((v, i) => ({ label: tStr(p, 'label', 'x') + (i + 1), value: v })) },
+                        { type: 'numberline', min: sorted[0], max: sorted[sorted.length - 1],
+                          points: [{ value: mean, label: `mean ${fmtNum(mean, 2)}` }, { value: median, label: `median ${fmtNum(median, 2)}` }] },
+                        { type: 'formula', expression: `mean = ${fmtNum(mean, 2)}`,
+                          note: `median ${fmtNum(median, 2)} · range ${fmtNum(sorted[sorted.length - 1] - sorted[0], 2)} · standard deviation ${fmtNum(sd, 2)}` },
+                    ];
+                },
+            },
+            'histogram': {
+                domains: ['data'],
+                use: 'raw numbers counted into bins by the app and drawn as a distribution',
+                params: 'values (list), bins',
+                build: p => {
+                    const values = tList(p, 'values', [1, 2, 2, 3, 3, 3, 4, 4, 5], 60);
+                    const bins = Math.round(tNum(p, 'bins', 5, 2, 10));
+                    const lo = Math.min(...values), hi = Math.max(...values);
+                    const width = (hi - lo) / bins || 1;
+                    const counts = Array(bins).fill(0);
+                    values.forEach(v => { counts[Math.min(bins - 1, Math.floor((v - lo) / width))]++; });
+                    return { type: 'bar', unit: '',
+                             bars: counts.map((n, i) => ({ label: `${fmtNum(lo + i * width, 1)}–${fmtNum(lo + (i + 1) * width, 1)}`, value: n })),
+                             caption: `${values.length} values in ${bins} bins` };
+                },
+            },
+            'normal-curve': {
+                domains: ['data'],
+                use: 'a bell curve from a mean and a standard deviation, with the 68/95 bands marked',
+                params: 'mean, sd',
+                build: p => {
+                    const mean = tNum(p, 'mean', 100, -1e6, 1e6), sd = tNum(p, 'sd', 15, 0.001, 1e6);
+                    return [
+                        { type: 'plot', xLabel: 'value', yLabel: 'likelihood',
+                          series: [{ label: `mean ${fmtNum(mean)}, sd ${fmtNum(sd)}`,
+                                     points: samplePoints(mean - 3 * sd, mean + 3 * sd, 36,
+                                        x => Math.exp(-((x - mean) ** 2) / (2 * sd * sd))) }] },
+                        { type: 'numberline', min: mean - 3 * sd, max: mean + 3 * sd, step: sd,
+                          ranges: [{ from: mean - sd, to: mean + sd, label: '68% of values' },
+                                   { from: mean - 2 * sd, to: mean + 2 * sd, label: '95%' }],
+                          points: [{ value: mean, label: 'mean' }] },
+                    ];
+                },
+            },
+            'dice-sums': {
+                domains: ['data', 'math'],
+                use: 'every outcome of two dice, counted — why some totals are commoner',
+                params: 'faces (default 6)',
+                build: p => {
+                    const faces = Math.round(tNum(p, 'faces', 6, 2, 10));
+                    const rows = Array.from({ length: faces }, (_, i) =>
+                        Array.from({ length: faces }, (_, j) => String(i + j + 2)));
+                    const counts = {};
+                    rows.flat().forEach(s => { counts[s] = (counts[s] || 0) + 1; });
+                    const total = faces * faces;
+                    return [
+                        { type: 'grid', rowHeaders: Array.from({ length: faces }, (_, i) => `⚀${i + 1}`),
+                          colHeaders: Array.from({ length: faces }, (_, i) => `⚀${i + 1}`), cells: rows },
+                        { type: 'bar', unit: `/${total}`,
+                          bars: Object.entries(counts).sort((a, b) => Number(a[0]) - Number(b[0]))
+                              .map(([sum, n]) => ({ label: sum, value: n })) },
+                    ];
+                },
+            },
+
+            // ---- Money -------------------------------------------------------
+            'compound-interest': {
+                domains: ['finance'],
+                use: 'money growing at a rate, plotted year by year, with simple interest alongside it for contrast',
+                params: 'principal, ratePercent, years',
+                build: p => {
+                    const principal = tNum(p, 'principal', 1000, 1, 1e9);
+                    const rate = tNum(p, 'ratePercent', 5, -50, 200) / 100;
+                    const years = Math.round(tNum(p, 'years', 10, 1, 60));
+                    const final = principal * Math.pow(1 + rate, years);
+                    return [
+                        { type: 'plot', xLabel: 'years', yLabel: 'balance',
+                          series: [
+                            { label: 'compound', points: samplePoints(0, years, Math.min(years, 20), t => principal * Math.pow(1 + rate, t)) },
+                            { label: 'simple', points: samplePoints(0, years, Math.min(years, 20), t => principal * (1 + rate * t)) },
+                          ] },
+                        { type: 'slider', variable: 'y', label: 'Years', min: 1, max: Math.max(years * 2, 5), step: 1, value: years,
+                          constants: { P: principal, r: rate },
+                          outputs: [{ label: 'Compound', expr: 'P * (1 + r) ^ y', decimals: 0 },
+                                    { label: 'Simple', expr: 'P * (1 + r * y)', decimals: 0 }] },
+                        { type: 'formula', expression: 'A = P(1 + r)ⁿ',
+                          note: `${fmtNum(principal)} at ${fmtNum(rate * 100, 2)}% for ${years} years → ${fmtNum(final, 0)}` },
+                    ];
+                },
+            },
+            'loan-payment': {
+                domains: ['finance'],
+                use: 'what a loan actually costs: the monthly payment and the total interest, computed',
+                params: 'principal, annualRatePercent, months',
+                build: p => {
+                    const principal = tNum(p, 'principal', 100000, 1, 1e9);
+                    const monthly = tNum(p, 'annualRatePercent', 6, 0, 100) / 100 / 12;
+                    const months = Math.round(tNum(p, 'months', 240, 1, 600));
+                    const payment = monthly === 0 ? principal / months
+                        : (principal * monthly) / (1 - Math.pow(1 + monthly, -months));
+                    const paid = payment * months;
+                    return [
+                        { type: 'formula', expression: 'payment = P · i / (1 − (1 + i)⁻ⁿ)',
+                          where: [{ symbol: 'i', meaning: 'monthly rate' }, { symbol: 'n', meaning: 'number of payments' }],
+                          note: `${fmtNum(payment, 2)} a month for ${months} months` },
+                        { type: 'pie', slices: [{ label: 'the loan', value: principal },
+                                                { label: 'interest', value: Math.max(paid - principal, 0.01) }],
+                          caption: `Paid in total: ${fmtNum(paid, 0)} — of which ${fmtNum(paid - principal, 0)} is interest` },
+                    ];
+                },
+            },
+            'percent-change': {
+                domains: ['finance', 'math'],
+                use: 'the percentage change between two figures, computed both ways round',
+                params: 'from, to, unit',
+                build: p => {
+                    const from = tNum(p, 'from', 200, -1e12, 1e12), to = tNum(p, 'to', 250, -1e12, 1e12);
+                    if (from === 0) return null;
+                    const change = ((to - from) / Math.abs(from)) * 100;
+                    const back = to === 0 ? null : ((from - to) / Math.abs(to)) * 100;
+                    const u = tStr(p, 'unit');
+                    return [
+                        { type: 'bar', unit: u ? ' ' + u : '',
+                          bars: [{ label: 'before', value: from }, { label: 'after', value: to }] },
+                        { type: 'formula', expression: `(${fmtNum(to)} − ${fmtNum(from)}) / ${fmtNum(Math.abs(from))} = ${fmtNum(change, 1)}%`,
+                          note: back === null ? '' : `Going back the other way is ${fmtNum(back, 1)}% — the two are not the same number.` },
+                    ];
+                },
+            },
+        };
+
+        // Expand a template into the spec the renderer already knows how to
+        // draw. The lesson stores the result, not the template call: a cached
+        // lesson then survives a template being changed or withdrawn, which a
+        // stored `{template: …}` would not.
+        function expandTemplate(v) {
+            const def = TEMPLATES[v.template];
+            if (!def) return null;
+            let built;
+            try { built = def.build(v.params && typeof v.params === 'object' ? v.params : {}); }
+            catch (err) { console.warn('Template failed:', v.template, err); return null; }
+            if (!built) return null;
+
+            const items = (Array.isArray(built) ? built : [built])
+                .map(spec => (spec && VISUALS[spec.type] && VISUALS[spec.type].check(spec)) ? spec : null)
+                .filter(Boolean);
+            if (!items.length) return null;
+            return items.length === 1 ? items[0] : { type: 'group', items };
+        }
+
+        // Only the shelf for this subject. Thirty candidates the model has to
+        // rank is how you get a bar chart on a geometry lesson; eight that all
+        // fit is how you get a triangle.
+        function templateCatalogue(domain) {
+            return Object.entries(TEMPLATES)
+                .filter(([, def]) => def.domains.includes(domain))
+                .map(([id, def]) => `  "${id}" — ${def.use}. params: ${def.params}`)
                 .join('\n');
         }
 

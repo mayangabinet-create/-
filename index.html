@@ -1894,6 +1894,14 @@
         .bar-value { font-size: var(--fs-sm); color: var(--text); font-weight: 800; font-variant-numeric: tabular-nums; }
         @keyframes barGrow { from { width: 0 !important; } }
 
+        /* A template can answer one idea with several figures — the triangle and
+           the working, the curve and the bands. They stack inside one frame with
+           a rule between them, so they read as one exhibit rather than three. */
+        .vis-group-item + .vis-group-item {
+            margin-top: var(--sp-5); padding-top: var(--sp-5);
+            border-top: 1px solid var(--border);
+        }
+
         /* Shared furniture: a caption under a figure, a note under a widget. */
         .vis-caption {
             margin-top: var(--sp-3); text-align: center;
@@ -2042,6 +2050,10 @@
         .cycle-note { font-size: var(--fs-xs); color: var(--text-muted); }
 
         .vis-grid td.is-highlight { background: var(--info-tint); font-weight: 800; color: var(--info-strong); }
+        /* A row header is a header for one row, not for the table: it takes the
+           body's hairline, not the heavy rule under the column headings. */
+        .vis-grid tbody th { border-bottom: 1px solid var(--border); font-weight: 700; }
+        .vis-grid tbody tr:last-child th { border-bottom: none; }
 
         /* ---- Gematria ----
            Every value here is computed by the app, never quoted from the model. */

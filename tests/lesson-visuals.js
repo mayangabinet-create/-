@@ -83,8 +83,12 @@ const names = [
   'function visGematria',
   // interactive
   'function visReveal', 'function sliderSpec', 'function visSlider',
+  // templates
+  'function tNum', 'function tStr', 'function tList', 'function tWords',
+  'const withUnit', 'function polynomial', 'function samplePoints', 'function evalBool',
+  'const TEMPLATES', 'function expandTemplate', 'function templateCatalogue',
   // the registries and what reads them
-  'const VISUALS', 'function validVisual', 'function visualCatalogue',
+  'const VISUALS', 'function drawSpec', 'function validVisual', 'function visualCatalogue',
   'const QUESTION_TYPES', 'function questionCatalogue', 'const KIND_PLAYBOOK',
   'function normaliseQuestion',
   // the prompt
@@ -113,6 +117,7 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   vertexAngles, regularPolygon, gematriaValue, gematriaBreakdown, sliderSpec, validVisual,
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
+  TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
   buildLessonPrompt, setLanguage: l => { courseData = { language: l }; } };
 `;
 
@@ -237,20 +242,23 @@ console.log('\n== gematria ==');
 // ---------------------------------------------------------------- validation
 console.log('\n== what survives validation ==');
 {
-  ok('every catalogued type can be validated and drawn',
+  // `group` is produced by templates, never asked of the model, so it is the
+  // one type held to the first rule and not the rest.
+  const offered = Object.entries(P.VISUALS).filter(([, d]) => !d.internal);
+  ok('every type can be validated and drawn',
      Object.entries(P.VISUALS).every(([, d]) => typeof d.check === 'function' && typeof d.draw === 'function'
                                                 && typeof d.use === 'string' && typeof d.spec === 'string'));
   ok('every spec in the catalogue is valid JSON',
-     Object.entries(P.VISUALS).every(([, d]) => { try { JSON.parse(d.spec); return true; } catch (_) { return false; } }));
-  ok('and every spec passes its own check and draws something',
-     Object.entries(P.VISUALS).every(([name, d]) => {
-       const spec = JSON.parse(d.spec);
-       return P.validVisual(spec) && spec.type === name && d.draw(spec, {}).length > 0;
-     }),
-     Object.entries(P.VISUALS).filter(([name, d]) => {
-       const spec = JSON.parse(d.spec);
-       return !(P.validVisual(spec) && spec.type === name && d.draw(spec, {}).length > 0);
-     }).map(([n]) => n).join(', '));
+     offered.every(([, d]) => { try { JSON.parse(d.spec); return true; } catch (_) { return false; } }));
+  const broken = offered.filter(([name, d]) => {
+    const spec = JSON.parse(d.spec);
+    return !(P.validVisual(spec) && spec.type === name && d.draw(spec, {}).length > 0);
+  }).map(([n]) => n);
+  ok('and every spec passes its own check and draws something', !broken.length, broken.join(', '));
+  ok('an internal type is never offered to the model',
+     !P.visualCatalogue().includes('"group"'));
+  ok('and a group cannot contain a group',
+     P.validVisual({ type: 'group', items: [{ type: 'group', items: [] }] }) === null);
 
   ok('an unknown type is dropped', P.validVisual({ type: 'sculpture' }) === null);
   ok('a type with nothing in it is dropped', P.validVisual({ type: 'flow', steps: ['only one'] }) === null);
@@ -268,6 +276,97 @@ console.log('\n== what survives validation ==');
      slider && slider.constants.h === 6 && slider.outputs.length === 1);
   ok('and its starting value is inside its own range',
      slider.value >= slider.min && slider.value <= slider.max);
+}
+
+// ---------------------------------------------------------------- templates
+console.log('\n== templates ==');
+{
+  const ids = Object.keys(P.TEMPLATES);
+  ok(`there are ${ids.length} of them, each with a domain, a use and params`,
+     ids.every(id => { const t = P.TEMPLATES[id];
+       return Array.isArray(t.domains) && t.domains.length && t.use && t.params && typeof t.build === 'function'; }));
+
+  // The point of the whole layer: a template asked for by name, with no
+  // parameters at all, still produces something drawable.
+  const emptyFail = ids.filter(id => !P.validVisual({ template: id }));
+  ok('every template builds from its defaults alone', !emptyFail.length, emptyFail.join(', '));
+
+  const drawFail = ids.filter(id => { const spec = P.validVisual({ template: id });
+    return !spec || !P.drawSpec(spec, {}).length; });
+  ok('and everything it builds actually draws', !drawFail.length, drawFail.join(', '));
+
+  // Model output is not to be trusted with types. Nothing here may throw.
+  const junk = [{}, { a: 'x' }, { values: 'not a list' }, { n: 1e9 }, { r: -5 },
+                { a: null, b: undefined }, { values: [] }, { expression: '((' }];
+  const threw = [];
+  for (const id of ids) for (const params of junk) {
+    try { P.validVisual({ template: id, params }); } catch (e) { threw.push(id + ': ' + e.message); }
+  }
+  ok('junk parameters are survived, never thrown on', !threw.length, threw.slice(0, 3).join('; '));
+
+  ok('an unknown template is dropped', P.validVisual({ template: 'teleporter' }) === null);
+  ok('a template that cannot build returns nothing, not a broken figure',
+     P.validVisual({ template: 'triangle', params: { a: 1, b: 2, c: 99 } }) === null);
+  ok('a stored lesson keeps the expansion, not the call',
+     P.validVisual({ template: 'circle', params: { r: 2 } }).type === 'group');
+
+  // What the layer exists for: the arithmetic is the app's.
+  const rt = P.validVisual({ template: 'right-triangle', params: { a: 6, b: 8 } });
+  ok('the hypotenuse is computed, not quoted',
+     JSON.stringify(rt).includes('"10"') || JSON.stringify(rt).includes('10'),
+     JSON.stringify(rt).slice(0, 200));
+  ok('and the triangle is built at those measurements',
+     rt.items[0].sides[2] === 10);
+
+  const solved = P.validVisual({ template: 'solve-linear', params: { a: 3, b: -6, c: 9 } });
+  ok('the algebra is worked by the app', solved.lines.at(-1).expr === 'x = 5', JSON.stringify(solved.lines));
+
+  const compound = P.validVisual({ template: 'compound-interest', params: { principal: 1000, ratePercent: 10, years: 2 } });
+  ok('compound interest lands on the right figure',
+     JSON.stringify(compound).includes('1210'), JSON.stringify(compound).slice(-160));
+
+  const bin = P.validVisual({ template: 'binary-number', params: { value: 42 } });
+  ok('a number is converted to binary correctly', bin.caption.includes('101010'), bin.caption);
+
+  const search = P.validVisual({ template: 'binary-search', params: { values: [1, 3, 5, 7, 9, 11], target: 11 } });
+  ok('a binary search is actually run, and finds what is there',
+     JSON.stringify(search).includes('found it'));
+  ok('and reports honestly when it is not',
+     JSON.stringify(P.validVisual({ template: 'binary-search', params: { values: [1, 3, 5], target: 4 } }))
+       .includes('not in the list'));
+
+  const stats = P.validVisual({ template: 'summary-stats', params: { values: [2, 4, 4, 4, 5, 5, 7, 9] } });
+  ok('mean and standard deviation are computed',
+     JSON.stringify(stats).includes('mean = 5') && JSON.stringify(stats).includes('deviation 2'),
+     JSON.stringify(stats).slice(-220));
+
+  const poly = P.validVisual({ template: 'polygon-angles', params: { n: 8 } });
+  ok('an octagon knows its interior angle', poly.caption.includes('135'), poly.caption);
+}
+
+console.log('\n== boolean logic ==');
+{
+  const t = { A: true, B: false };
+  ok('and / or / not', P.evalBool('A and not B', t) === true && P.evalBool('B or (A and B)', t) === false);
+  ok('symbols read the same as words', P.evalBool('A ∧ ¬B', t) === true);
+  ok('implication is not conjunction', P.evalBool('A -> B', t) === false && P.evalBool('B -> A', t) === true);
+  ok('xor and iff', P.evalBool('A xor B', t) === true && P.evalBool('A iff B', t) === false);
+  ok('precedence: and binds tighter than or',
+     P.evalBool('F or T and T', { T: true, F: false }) === true);
+  ok('"android" is a variable, not "and"', P.evalBool('android', { android: true }) === true);
+  let threw = false;
+  try { P.evalBool('A and', t); } catch (_) { threw = true; }
+  ok('an unfinished expression is an error', threw);
+
+  const table = P.validVisual({ template: 'truth-table', params: { expression: 'A or B', variables: ['A', 'B'] } });
+  ok('a truth table has a row per combination', table.cells.length === 4);
+  // Rows count up in binary, F F first, which is the order the rest of the
+  // course's own tables will be in.
+  ok('and every row is right',
+     JSON.stringify(table.cells) === JSON.stringify([['F','F','F'],['F','T','T'],['T','F','T'],['T','T','T']]),
+     JSON.stringify(table.cells));
+  ok('an expression that will not parse produces no table',
+     P.validVisual({ template: 'truth-table', params: { expression: 'A nand B' } }) === null);
 }
 
 // ---------------------------------------------------------------- questions
@@ -316,8 +415,9 @@ console.log('\n== the lesson prompt ==');
   const concept = { name: 'Area of a triangle', description: 'Half the base times the height.',
                     importance: 'It underlies every polygon area.', kind: 'geometry' };
 
-  ok('the catalogue lists every type the app can draw',
-     Object.keys(P.VISUALS).every(t => P.visualCatalogue().includes(`"${t}"`)));
+  ok('the catalogue lists every type the app offers',
+     Object.entries(P.VISUALS).filter(([, d]) => !d.internal)
+       .every(([t]) => P.visualCatalogue().includes(`"${t}"`)));
   ok('and every type it can grade',
      Object.keys(P.QUESTION_TYPES).every(t => P.questionCatalogue().includes(`"${t}"`)));
 
@@ -333,17 +433,34 @@ console.log('\n== the lesson prompt ==');
   ok('the language rule follows the course', P.buildLessonPrompt(concept, 'S').includes('Hebrew'));
   P.setLanguage('English');
 
+  // Only the concept's own subject reaches the prompt, so the size to guard is
+  // the largest shelf — whichever domain has the most templates.
+  const domains = [...new Set(Object.values(P.TEMPLATES).flatMap(t => t.domains))];
+  ok('every template is reachable from the domain it claims',
+     domains.every(d => P.templateCatalogue(d).length > 0));
+  ok('a concept with no domain is offered no templates', P.templateCatalogue('other') === '');
+  ok('and one with a domain is offered its own',
+     P.buildLessonPrompt({ ...concept, domain: 'math' }, 'S').includes('"right-triangle"'));
+  ok('but not another subject\'s',
+     !P.buildLessonPrompt({ ...concept, domain: 'math' }, 'S').includes('"ohms-law"'));
+
+  const widest = domains.map(d => ({ d, n: P.buildLessonPrompt({ ...concept, domain: d }, '').length }))
+                        .sort((a, b) => b.n - a.n)[0];
+
   // The prompt and the retrieved passage share one block, and the server
   // clamps that block. Overrun it and the tail is cut — which is the JSON
   // schema, the quantities, and the language rule.
-  const template = P.buildLessonPrompt(concept, '').length;
   for (const [name, plan] of Object.entries(PLANS)) {
-    const total = template + plan.excerptChars;
+    const total = widest.n + plan.excerptChars;
     ok(`the ${name} prompt fits inside what the server will forward`,
        total <= plan.excerptChars + TEMPLATE_ALLOWANCE,
-       `template ${template} + excerpt ${plan.excerptChars} = ${total} > ${plan.excerptChars + TEMPLATE_ALLOWANCE}`);
+       `template ${widest.n} + excerpt ${plan.excerptChars} = ${total} > ${plan.excerptChars + TEMPLATE_ALLOWANCE}`);
   }
-  console.log(`       (template is ${template} chars of the ${TEMPLATE_ALLOWANCE} allowed)`);
+  // Headroom, so the next few templates are caught here rather than by a
+  // learner opening a lesson whose prompt lost its own schema.
+  ok('with room left for the templates after these',
+     TEMPLATE_ALLOWANCE - widest.n >= 500, `only ${TEMPLATE_ALLOWANCE - widest.n} chars spare`);
+  console.log(`       (widest prompt is ${widest.d}, ${widest.n} chars of the ${TEMPLATE_ALLOWANCE} allowed)`);
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

@@ -80,15 +80,64 @@ classification, definition, text — and the lesson prompt turns that label into
 concrete instruction about what tends to teach that kind well, instead of leaving the
 model to choose from eighteen types unguided.
 
-`tests/lesson-visuals.js` covers all of it — the geometry, the evaluator's refusal to run
-anything but arithmetic, the gematria tables, what validation drops, and the size of the
-prompt itself. Like the pipeline tests it needs nothing but `node`.
+## Templates: the model chooses, the app builds
 
-One constraint worth knowing before adding to the catalogue: the lesson prompt and the
+Above the eighteen primitives sits a library of ready-made figures. Rather than
+specifying a diagram, the model names one and fills in the blanks:
+
+```json
+{ "template": "right-triangle", "params": { "a": 6, "b": 8, "unit": "cm" } }
+```
+
+and the app computes the hypotenuse, draws the triangle at those measurements, marks the
+right angle and writes out `6² + 8² = 100, c = 10`. The division of labour is the point:
+**the model knows what the lesson is about, the app knows what is true.** Every number
+inside a template — the hypotenuse, the roots of a quadratic, the interest after ten
+years, the rows of a truth table, the trace of a binary search — is computed here, in
+JavaScript, from the parameters. The model is asked for the figures the source material
+uses and explicitly not for the results.
+
+Twenty-eight templates, shelved by subject:
+
+| | |
+|---|---|
+| 🧮 **math** | right triangle · any triangle from three sides · rectangle · circle · regular polygon angles · solving ax+b=c step by step · quadratic with roots and vertex · straight line · fractions and shares · set operations · two-dice outcomes · percentage change |
+| ⚛️ **physics** | Ohm's law as a slider · resistors in series or parallel · motion under acceleration · projectile arc · waves · pendulum period · half-life decay |
+| 💻 **cs** | binary place values · a binary search traced over a real list · growth rates compared · truth tables |
+| 🧠 **logic** | truth tables from an expression (and/or/not/xor/implies/iff, parsed and evaluated) · set operations |
+| 📊 **data** | mean, median, range and standard deviation · histograms binned from raw values · the normal curve with its 68/95 bands · dice distributions |
+| 💰 **finance** | compound vs simple interest, plotted and draggable · loan payments and total interest · percentage change |
+| 🌌 **science** | half-life, shared with physics |
+
+A template may return several figures — the triangle *and* the working, the curve *and*
+the bands — which arrive as one grouped exhibit.
+
+Three properties make the layer safe to grow. Templates compose the primitives, so a new
+one needs no new renderer. Every parameter is coerced, defaulted and clamped, so junk
+from the model becomes a sensible figure rather than an exception — a template that
+genuinely cannot build (three lengths that will not close into a triangle) returns
+nothing at all, and the lesson goes on without it. And a lesson stores the *expanded*
+spec rather than the template call, so a cached lesson keeps working after its template
+changes or is withdrawn.
+
+Only the concept's own subject reaches the prompt. That is what keeps a library this
+size affordable to offer — and it is why the model picks well: eight candidates that all
+fit, not thirty that mostly don't. A concept whose domain is `other` — history, law,
+literature, medicine — is offered no templates and gets exactly the format described
+above.
+
+`tests/lesson-visuals.js` covers all of it — the geometry, the evaluator's refusal to run
+anything but arithmetic, the gematria tables, every template built from its defaults and
+then from deliberate junk, the arithmetic each one computes, and the size of the prompt
+itself. Like the pipeline tests it needs nothing but `node`.
+
+One constraint worth knowing before adding to either catalogue: the lesson prompt and the
 retrieved passage share one content block, and `ai-proxy` clamps that block to
 `excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
-which is where its own JSON schema lives. The template is currently a little under 10,000
-of the 12,000 characters allowed, and the test fails if a new entry pushes it over.
+which is where its own JSON schema lives. The widest prompt (a maths concept, whose shelf
+is the largest) is currently about 11,000 of the 12,000 characters allowed, and the test
+fails if an addition leaves under 500 spare. Raising the ceiling means raising
+`TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function.
 
 ## Reading the PDF
 

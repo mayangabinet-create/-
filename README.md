@@ -1,7 +1,7 @@
 # AI Learning Path
 
-Two files — `index.html` (markup + styles) and `app.js` — in Duolingo's visual
-language, with no build step and no framework. Sign in, name your course, upload a
+Two files — `index.html` (markup + styles) and `app.js` — plus a `fonts/` folder,
+with no build step and no framework. Sign in, name your course, upload a
 PDF (or paste text), and the app turns it into a Duolingo-style learning path: 10-20
 concepts extracted and ordered by prerequisite, each opening a multi-step interactive
 lesson grounded in your own document. Courses can be renamed any time, from the card
@@ -84,6 +84,52 @@ ever left showing underneath something else.
 Each screen's empty state carries the button that resolves it: no courses yet ends
 in "Create a course", signed out ends in "Sign in".
 
+On a phone the tabs are a bottom bar; from 900px up the same four buttons become a
+left rail, so a wide window buys content width instead of stretching a phone layout
+across it.
+
+## Design system
+
+Everything visual is defined once, in the token block at the top of `index.html`'s
+`<style>`. Below that block nothing hard-codes a colour, a radius, a spacing value
+or a duration — if a literal would appear twice, it becomes a token instead.
+
+- **Colour.** Six hues, each with a job, and nothing decorative. Green is the
+  product: progress, and the primary action. Blue explains — diagrams, links, the
+  focus ring. Gold marks the one node on the path you are meant to tap next. Amber
+  warns and marks a review as due. Red destroys or fails. Violet marks an analogy — a
+  deliberate aside from the main explanation, not new fact. Every
+  `--*-text` value clears 4.5:1 on the surface it is paired with, and every fill
+  clears 4.5:1 under white label text.
+- **Type.** One family, Nunito, at four weights. A second display face only put two
+  rounded fonts in competition; size and weight carry the hierarchy instead. Sizes
+  are a fixed rem scale — 12 / 14 / 16 / 17 / 18 / 22 / 28 / 32 — not the four dozen
+  ad-hoc `em` values that came before, and the scale shifts down one step below 768px.
+- **The font is self-hosted** from `fonts/`, not fetched from Google: the typography
+  is part of the design, so it can't depend on a third party being reachable, and
+  relative paths keep it working from `file://` too. One variable file per script,
+  so an English course pulls 39KB and nothing else — the `unicode-range` on each
+  face is what stops the browser fetching Cyrillic for a Latin page. A metric-matched
+  `Nunito Fallback` (measured, not guessed: same width to within 1%, and Nunito's
+  line box rather than Arial's shallower one) holds the layout still for the moment
+  before it paints — with the font blocked outright, every measured box on the path
+  screen still comes out to the same pixel. Nunito has no Hebrew or Arabic glyphs,
+  so RTL course content falls to a system face; pairing a Hebrew companion with it
+  is an open decision.
+- **Space** is a 4-based scale with no values in between. **Radius** is five steps:
+  6 for bars, 10 for inner boxes, 12 for buttons and inputs, 16 for cards, 20 for
+  modals.
+- **Depth means interactive.** The pressed-button bottom edge is the app's signature,
+  so only things you can actually press get one. Static cards use a hairline border
+  and the smallest shadow, which is what tells them apart from a button at a glance.
+- **Motion** is 120ms for a press, 180ms for hover and colour, 240ms for enter and
+  exit, and every one of them is switched off under `prefers-reduced-motion`.
+
+Components exist once: one button (four emphasis levels, two sizes, a loading state),
+one input, one chip, one card, one callout, one stat tile, one empty state, one
+overlay. Where the same thing used to be styled three times — three stat tiles, five
+chips, six callouts, three overlays — it is now one rule plus a modifier.
+
 ## Spaced repetition
 
 Completed lessons are scheduled for review using a simplified SM-2 algorithm based on
@@ -96,7 +142,7 @@ out; doing poorly resets it to a daily review.
 ## Architecture
 
 The frontend is `index.html` (`<style>` + markup) plus `app.js` (vanilla JS, no
-framework or build step), backed by a real Supabase project ("Mayan ai app",
+framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan ai app",
 `kgkdkkqoebnpahvetwzk`):
 
 - **Auth** — Supabase Auth (email + password). No API key ever reaches the browser.

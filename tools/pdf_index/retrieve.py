@@ -2,11 +2,13 @@
 
 Same scoring the browser uses in `app.js` (`retrieveExcerpt`), on purpose:
 tokens longer than two characters, TF-IDF with `log(1 + N/df)`, and a
-relevance floor so a budget is never filled with whatever ranked fourth. The
-difference is what it scores over. In the browser the corpus is a truncated
-prefix of the document; here it is the whole 300 pages, chunked inside
-chapter boundaries, so a passage arrives with its chapter and page attached
-and the model can be told where the answer came from.
+relevance floor so a budget is never filled with whatever ranked fourth.
+Both sides score the whole document, so both agree on what "relevant" means.
+
+What differs is where the chunks break. The browser breaks on paragraphs;
+this breaks on chapters as well, so no chunk straddles two of them and every
+passage arrives with its chapter and pages attached — without which the
+model cannot be told, and cannot say, where an answer came from.
 """
 
 from __future__ import annotations

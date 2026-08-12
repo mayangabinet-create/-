@@ -21,9 +21,10 @@ subscribing after that isn't wired up yet (see below).
 
 Hook → prediction → concept cards → worked example → guided practice → a mixed-format
 quiz (choice, true/false, ordering, categorizing, fill-the-blank, matching, find-the-mistake)
-→ a capstone challenge → summary → a memory check, plus an AI tutor dock available
-throughout. Diagrams (flow, compare, hierarchy, timeline, table, bar) are generated
-from structured specs the model returns — no image generation, no extra API calls.
+→ a capstone challenge → summary → a memory check, where the learner writes the idea
+in their own words and the model responds. Diagrams (flow, compare, hierarchy, timeline,
+table, bar) are generated from structured specs the model returns — no image generation,
+no extra API calls.
 
 Every lesson is grounded in the source document: the relevant passage is retrieved via
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come
@@ -96,8 +97,8 @@ or a duration — if a literal would appear twice, it becomes a token instead.
 - **Colour.** Six hues, each with a job, and nothing decorative. Green is the
   product: progress, and the primary action. Blue explains — diagrams, links, the
   focus ring. Gold marks the one node on the path you are meant to tap next. Amber
-  warns and marks a review as due. Red destroys or fails. Violet is the AI tutor and
-  *only* the AI tutor, so "this came from the model" is legible at a glance. Every
+  warns and marks a review as due. Red destroys or fails. Violet marks an analogy — a
+  deliberate aside from the main explanation, not new fact. Every
   `--*-text` value clears 4.5:1 on the surface it is paired with, and every fill
   clears 4.5:1 under white label text.
 - **Type.** One family, Nunito, at four weights. A second display face only put two
@@ -161,7 +162,8 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   request the client makes: the model, the number of concepts a course gets, how much
   of the document is read, and the monthly course/lesson quota are all rewritten from
   the `subscriptions` row. A modified client can send anything it likes and still gets
-  its own tier's answer.
+  its own tier's answer. Its source lives in `supabase/functions/ai-proxy` — the rules
+  in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
 ## Tiers
@@ -169,12 +171,24 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
 Held in `PLANS` in the Edge Function; `subscriptions.plan` picks the row, and an
 unrecognised value falls back to `basic` rather than the largest tier.
 
-| | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | model |
-|---|---|---|---|---|---|
-| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | Haiku |
-| basic | 3 | 10 | 5,000 | 2,400 | Haiku |
-| pro | 5 | 12 | 40,000 | 8,000 | Sonnet |
-| max | 8 | 15 | 120,000 | 16,000 | Opus plans, Sonnet writes |
+| | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | shared context (cached) | model |
+|---|---|---|---|---|---|---|
+| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
+| basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
+| pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Sonnet |
+| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Opus plans, Sonnet writes |
+
+**Shared context** is a digest of the whole document sent ahead of every lesson in a
+course, byte-identical each time so the API caches it: the first lesson pays a write
+premium of 1.25x, the rest read it back at about a tenth of input price. It is what
+lets a lesson see the document it came from rather than only its own retrieved
+passage.
+
+It is blank on the Haiku tiers on purpose. Haiku will not cache a prefix under 4,096
+tokens, and below that the API accepts the request, caches nothing, and charges the
+premium anyway. Turning it on there means first raising the budget past ~16,000
+characters, which costs real money per course — a decision worth making against the
+hit rate the paid tiers are about to start reporting rather than against a guess.
 
 ## Cost model
 
@@ -185,14 +199,16 @@ cumulative spend, call count, and this month's course/lesson quota, read from
 `ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
 out is visible before it happens rather than only when a build is refused.
 
-## Long PDFs
+## Addressing a long PDF by page
 
-The browser reads the first 20 pages of an upload and sends the model 5,000
-characters. `tools/pdf_index` is the offline path for documents where that is
-not enough: it extracts a 300-page PDF, strips the running headers, page
-numbers and contents pages, detects the chapters (Hebrew and English), and
-prints an index with page ranges plus only the passages a given question
-needs — a couple of thousand characters standing in for the whole book.
+*Reading the PDF* above is what the app does with an upload: read every page,
+condense it into a digest, plan a course from that. `tools/pdf_index` is an
+offline Python tool for the other question — not "what is this book about"
+but "what does page 43 say, and which chapter is it in".
+
+It strips the running headers, page numbers and contents pages, detects the
+chapters (Hebrew and English), and prints an index with real page ranges,
+plus only the passages a given question needs.
 
 ```sh
 pip install -r tools/requirements.txt
@@ -200,9 +216,10 @@ python3 -m tools.pdf_index index book.pdf
 python3 -m tools.pdf_index context book.pdf --query "מס רכישה על דירה שנייה"
 ```
 
-It is a command-line tool, not part of the app yet; `tools/README.md` covers
-what it does, how it decides what a heading is, and what wiring it into
-`ai-proxy` would take.
+The digest samples a whole document for one planning call; this answers one
+question at a time and cites the chapter and pages it answered from. It is a
+command line, separate from the app: `tools/README.md` covers how it decides
+what a heading is, and what wiring it into `ai-proxy` would take.
 
 ## What's not done yet
 

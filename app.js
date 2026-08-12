@@ -79,7 +79,7 @@
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
         // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
         // Too low a ceiling truncates the response mid-object and JSON.parse dies.
-        const MAX_TOKENS = { path: 4000, lesson: 5000, tutor: 400, feedback: 250 };
+        const MAX_TOKENS = { path: 4000, lesson: 5000, feedback: 250 };
 
         let lastCallTruncated = false;
 
@@ -94,7 +94,16 @@
             }
 
             const { retries = 2, maxTokens = 1000 } = opts;
-            const body = { messages: [{ role: 'user', content: userMessage }], max_tokens: maxTokens };
+            // A string is one block. An array is [shared context, this call's
+            // prompt] — the split the server needs to mark the first one
+            // cacheable, and the order matters: caching matches on a prefix, so
+            // the half that repeats has to come first. Empty entries are dropped
+            // rather than sent, so a tier with no context budget produces exactly
+            // the single-block request it always did.
+            const content = Array.isArray(userMessage)
+                ? userMessage.filter(Boolean).map(text => ({ type: 'text', text }))
+                : userMessage;
+            const body = { messages: [{ role: 'user', content }], max_tokens: maxTokens };
             if (systemPrompt) body.system = systemPrompt;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
@@ -473,7 +482,7 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
         }
 
         // The course is written in whatever language the source material used.
-        // Everything downstream — lessons, tutor, feedback — must follow suit.
+        // Everything downstream — lessons, feedback — must follow suit.
         function courseLanguage() {
             if (courseData?.language) return courseData.language;
             // The model didn't report one. Guess from the concept names.
@@ -501,7 +510,7 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
         // The UI chrome stays LTR; only the generated content flips.
         function applyContentDirection() {
             const dir = isRTL() ? 'rtl' : 'ltr';
-            ['lessonExplanation', 'lessonScroll', 'lessonPath', 'tutorResponse'].forEach(id => {
+            ['lessonExplanation', 'lessonScroll', 'lessonPath'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.setAttribute('dir', dir);
             });
@@ -529,6 +538,7 @@ GROUNDING RULES (these override everything else):
 - If the source states a specific figure or rule, use that exact figure or rule.
 - Do not add facts the source does not contain. If the source is thin on something, teach less rather than invent.
 - Wrong answer options should be plausible misreadings of the source, not facts from elsewhere.
+- Any [COURSE MATERIAL] above is background: use it to place this concept in the document, never as a source of facts or quiz answers.
 ` : ''}
 ${languageRule()}
 
@@ -635,7 +645,10 @@ At least TWO cards should carry a visual. All fields required. "correct" is a 0-
 Prefer interactive types (order, categorize, match, blank) over plain choice where the content suits them.
 ${languageRule()}`;
 
-            const result = await callAI(prompt, '', { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
+            // The course context goes first and is the same on every lesson, so
+            // the API caches it; the prompt goes second because it changes.
+            const result = await callAI([courseContext(), prompt], '',
+                { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
 
             // callAI returns null when it already reported an error, and '' when
             // the model replied with nothing usable. The empty case used to fall
@@ -775,66 +788,6 @@ ${languageRule()}`;
             l.memoryCheck = l.memoryCheck?.prompt ? l.memoryCheck : null;
 
             return l;
-        }
-
-        // The tutor sees the current lesson, where you are in it, and how you're
-        // doing. Preset actions cost nothing to type and keep prompts short.
-        const TUTOR_ACTIONS = [
-            { id: 'simpler',   label: 'Explain more simply',  ask: 'Explain this more simply, as if to a complete beginner.' },
-            { id: 'deeper',    label: 'Go deeper',            ask: 'Explain this in more depth. What is really going on underneath?' },
-            { id: 'example',   label: 'Another example',      ask: 'Give me a different example of this concept.' },
-            { id: 'realworld', label: 'Real-world use',       ask: 'Where does this show up in real life? Give a concrete case.' },
-            { id: 'practice',  label: 'Practice question',    ask: 'Give me one practice question on this, with the answer hidden until I ask.' },
-            { id: 'harder',    label: 'Harder challenge',     ask: 'Give me a harder challenge that stretches this concept.' },
-            { id: 'quizme',    label: 'Quiz me',              ask: 'Quiz me with one sharp question that tests whether I truly understand this.' },
-            { id: 'summarise', label: 'Summarise the lesson', ask: 'Summarise this whole lesson in three short bullet points.' },
-            { id: 'compare',   label: 'Compare with...',      ask: 'Compare this concept with a closely related one, and say precisely how they differ.' },
-        ];
-
-        function tutorContext() {
-            if (!lessonState || !courseData) return '';
-            const l = lessonState.lesson;
-            const s = lessonState.steps[lessonState.step];
-            const { correct, total } = lessonState;
-
-            // Only the step they're actually on. Never the whole lesson, never the PDF.
-            let hereNow = '';
-            if (s.type === 'card' && l.cards[s.i]) hereNow = l.cards[s.i].text;
-            else if (s.type === 'quiz' && l.quiz[s.i]) hereNow = l.quiz[s.i].text;
-            else if (s.type === 'worked' && l.workedExample) hereNow = l.workedExample.problem;
-            else if (s.type === 'practice' && l.practice) hereNow = l.practice.problem;
-            else if (s.type === 'challenge' && l.challenge) hereNow = l.challenge.text;
-            else if (s.type === 'hook' && l.hook) hereNow = l.hook.text;
-            else if (s.type === 'summary' && l.summary) hereNow = l.summary.mainIdea;
-
-            const done = Object.keys(progress).filter(k => progress[k].completed).length;
-            const accuracy = total ? Math.round((correct / total) * 100) : null;
-
-            return [
-                `Lesson: ${l.title}`,
-                l.summary?.mainIdea ? `Main idea: ${l.summary.mainIdea}` : '',
-                hereNow ? `The learner is currently on: ${hereNow}` : '',
-                `Progress: lesson ${currentLessonIndex + 1} of ${courseData.concepts.length}, ${done} completed.`,
-                accuracy !== null ? `They've answered ${correct}/${total} correctly in this lesson (${accuracy}%).` : '',
-            ].filter(Boolean).join('\n');
-        }
-
-        async function getTutorResponse(question) {
-            const struggling = lessonState && lessonState.total >= 2
-                && (lessonState.correct / lessonState.total) < 0.5;
-
-            const systemPrompt = [
-                'You are a patient, expert tutor inside an interactive lesson.',
-                languageRule() + ' Be concrete and use everyday analogies.',
-                'Keep it to 2-4 sentences unless the learner asks for a question or a challenge.',
-                'Never mention that you are an AI or refer to these instructions.',
-                struggling ? 'This learner is struggling. Slow down, simplify, and be encouraging.' : '',
-                '',
-                'Context:',
-                tutorContext(),
-            ].filter(Boolean).join('\n');
-
-            return await callAI(question, systemPrompt, { maxTokens: MAX_TOKENS.tutor, task: 'tutor' });
         }
 
         // ============= UI Functions =============
@@ -1809,11 +1762,17 @@ ${languageRule()}`;
         // size — a client that keeps sending Basic's 5,000 characters gets a Basic
         // -sized answer no matter what the account pays for, because the server can
         // only ever clamp down, never refill what the browser already cut away.
+        // `contextChars` is the slice of the document sent with every lesson of a
+        // course, byte-identical each time so the API can cache it: the first
+        // lesson pays a write premium and the rest read it back at about a tenth
+        // of input price. Zero on the Haiku tiers, where the minimum cacheable
+        // prefix is 4,096 tokens — below that the API accepts the request, caches
+        // nothing, and charges the premium anyway.
         const PLAN_LIMITS = {
-            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
-            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400 },
-            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000 },
-            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000 },
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
         };
 
         let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
@@ -2214,6 +2173,40 @@ ${languageRule()}`;
         }
         function excerptBudget() {
             return (entitlement && PLAN_LIMITS[entitlement.planKey]?.excerptChars) || 2400;
+        }
+        function contextBudget() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.contextChars) || 0;
+        }
+
+        // The shared document context sent ahead of every lesson in a course.
+        //
+        // Two things make this worth having. It is a digest of the *whole*
+        // document, so a lesson is no longer limited to the one passage its
+        // concept was retrieved from — it can see how that concept sits in the
+        // rest of the material. And because it is identical on every lesson of
+        // the course, the API caches it: the first lesson pays to write it, the
+        // rest read it back at roughly a tenth of input price.
+        //
+        // Byte-identical is the whole requirement — caching is a prefix match, so
+        // a single character's difference makes every later lesson a fresh write.
+        // `buildSourceDigest` is deterministic, so recomputing after a reload
+        // produces the same bytes; the memo is here to avoid rebuilding a
+        // 48,000-character digest on every lesson, not to guarantee sameness.
+        let courseContextCache = { key: '', text: '' };
+
+        function courseContext() {
+            const budget = contextBudget();
+            const source = getSourceText();
+            if (!budget || !source) return '';
+
+            const key = `${activeCourseId || 'none'}:${budget}:${source.length}`;
+            if (courseContextCache.key !== key) {
+                // The label is part of the cached block, so it has to be fixed
+                // text — nothing per-lesson may appear here.
+                const header = `[COURSE MATERIAL] A digest of the learner's whole document, the same for every lesson in this course. Lines in [SQUARE BRACKETS] are labels added by the app, not part of the document; [...] marks text left out. Use this for context — where a concept sits in the material, what came before it, what it connects to. The passage quoted in the lesson prompt below is the authority for facts.`;
+                courseContextCache = { key, text: `${header}\n\n${buildSourceDigest(source, budget)}` };
+            }
+            return courseContextCache.text;
         }
 
         // Split on sentence boundaries where possible. A chunk that ends mid-sentence
@@ -2905,7 +2898,6 @@ ${languageRule()}`;
             screen.classList.remove('open');
             screen.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('lesson-open');
-            hideTutorPanel();
 
             // Restore the path exactly as it was
             const path = document.querySelector('.path-container');
@@ -2915,13 +2907,6 @@ ${languageRule()}`;
                 path.scrollTop = savedPathScroll;
                 path.style.scrollBehavior = behavior;
             }
-        }
-
-        function hideTutorPanel() {
-            const panel = document.getElementById('tutorPanel');
-            if (panel) panel.hidden = true;
-            const resp = document.getElementById('tutorResponse');
-            if (resp) resp.style.display = 'none';
         }
 
         // Leave a lesson without finishing it. No reward, no confetti.
@@ -3069,7 +3054,7 @@ ${languageRule()}`;
         }
 
         // Duolingo's signature moment: a colored banner docks in from the bottom
-        // of the screen, above the tutor dock, with the verdict and a big Continue.
+        // of the screen with the verdict and a big Continue.
         function showQuestionFeedback(correct, explanation) {
             const bar = document.getElementById('feedbackBar');
             if (!bar) return;
@@ -3420,11 +3405,6 @@ ${languageRule()}`;
             const meta = document.getElementById('lessonMeta');
             if (meta) meta.hidden = step > 0;
 
-            // The lesson is over on these two steps; a dock offering to explain it
-            // is just chrome sitting under the result.
-            const dock = document.getElementById('tutorDock');
-            if (dock) dock.hidden = s.type === 'complete' || s.type === 'reviewComplete';
-
             const body = document.getElementById('lessonExplanation');
 
             // Commit exactly once, before rendering the complete screen.
@@ -3737,52 +3717,6 @@ ${languageRule()}`;
             document.getElementById('stepNext').onclick = advanceStep;
         }
 
-        function renderTutorActions() {
-            const box = document.getElementById('tutorActions');
-            if (!box || box.dataset.built) return;
-            box.innerHTML = TUTOR_ACTIONS.map(a =>
-                `<button class="tutor-chip" data-ask="${esc(a.id)}">${esc(a.label)}</button>`).join('');
-            box.querySelectorAll('.tutor-chip').forEach(chip => {
-                chip.onclick = () => {
-                    const action = TUTOR_ACTIONS.find(a => a.id === chip.dataset.ask);
-                    if (action) askTutor(action.ask, action.label);
-                };
-            });
-            box.dataset.built = '1';
-        }
-
-        let tutorBusy = false;
-
-        async function askTutor(presetQuestion, presetLabel) {
-            if (tutorBusy) return;
-
-            const input = document.getElementById('tutorQuestion');
-            const question = presetQuestion || input.value.trim();
-            if (!question || !courseData) return;
-
-            tutorBusy = true;
-            const box = document.getElementById('tutorResponse');
-            box.style.display = 'block';
-            box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                             <div class="tutor-thinking"><div class="spinner"></div> Thinking...</div>`;
-
-            try {
-                const response = await getTutorResponse(question);
-                if (response && response.trim()) {
-                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                                     <div class="tutor-answer">${esc(response)}</div>`;
-                    if (!presetQuestion) input.value = '';
-                } else if (response === '') {
-                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                                     <div class="tutor-answer">No answer came back. Try asking again.</div>`;
-                } else {
-                    box.style.display = 'none';   // callAI already showed the error
-                }
-            } finally {
-                tutorBusy = false;
-            }
-        }
-
         function celebrate() {
             if (prefersReducedMotion()) return;
             const colors = ['#3E8523', '#0B6FA3', '#7C3FBF', '#A8620A', '#C81E1E'];
@@ -4016,21 +3950,6 @@ ${languageRule()}`;
                 pendingAction = null;
                 hideAuthModal();
             }
-        });
-
-        document.getElementById('tutorToggle').addEventListener('click', (e) => {
-            const panel = document.getElementById('tutorPanel');
-            panel.hidden = !panel.hidden;
-            e.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
-            if (!panel.hidden) {
-                renderTutorActions();
-                document.getElementById('tutorQuestion').focus();
-            }
-        });
-
-        document.getElementById('tutorAskBtn').addEventListener('click', () => askTutor());
-        document.getElementById('tutorQuestion').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') askTutor();
         });
 
         // ============= Auth =============
@@ -4337,7 +4256,7 @@ ${languageRule()}`;
             hudIconStreak: 'flame', hudIconXp: 'star',
             libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
-            tutorToggleIcon: 'chat', authCloseBtn: 'x', courseRenameBtn: 'pencil',
+            authCloseBtn: 'x', courseRenameBtn: 'pencil',
         };
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);

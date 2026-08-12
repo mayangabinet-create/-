@@ -83,8 +83,8 @@
             /* ---- Colour -------------------------------------------------------
                Five hues, each with a job. Green is the product (progress, primary
                action). Blue explains (diagrams, links, focus). Amber warns and marks
-               a review as due. Red destroys or fails. Violet is the AI tutor, and
-               nothing else — so "this came from the model" is legible at a glance.
+               a review as due. Red destroys or fails. Violet marks an analogy — a
+               deliberate aside from the main explanation, not new fact.
                Every `-text` value clears 4.5:1 on its paired surface, every `fill`
                clears 4.5:1 under white label text. ---- */
             --brand:              #3E8523;
@@ -119,7 +119,7 @@
             --gold-ink:           #5C3A02;
             --gold-ring:          rgba(242, 179, 46, 0.55);
 
-            --accent:             #7C3FBF;   /* AI tutor only */
+            --accent:             #7C3FBF;   /* the analogy box */
             --accent-strong:      #6D34AB;
             --accent-tint:        #F4EDFD;
             --accent-tint-hover:  #ECE0FB;
@@ -540,7 +540,7 @@
             margin: var(--sp-2) 0 0; line-height: var(--lh-snug);
         }
 
-        .auth-input, .paste-area, .memory-input, .tutor-input input {
+        .auth-input, .paste-area, .memory-input {
             width: 100%;
             background: var(--surface);
             border: 1px solid var(--border-strong);
@@ -556,10 +556,10 @@
         }
         .auth-input { min-height: 48px; padding: var(--sp-3) var(--sp-4); }
         .auth-input::placeholder, .paste-area::placeholder,
-        .memory-input::placeholder, .tutor-input input::placeholder { color: var(--text-subtle); }
+        .memory-input::placeholder { color: var(--text-subtle); }
 
         .auth-input:hover, .paste-area:hover, .memory-input:hover { border-color: var(--border-strong); }
-        .auth-input:focus, .paste-area:focus, .memory-input:focus, .tutor-input input:focus {
+        .auth-input:focus, .paste-area:focus, .memory-input:focus {
             outline: none;
             border-color: var(--info);
             box-shadow: 0 0 0 3px var(--info-tint);
@@ -676,7 +676,7 @@
         .preview-why:empty { display: none; }
 
         /* ---- Chips: one pill, three roles ---- */
-        .meta-chip, .review-chip, .tutor-chip, .plan-status {
+        .meta-chip, .review-chip, .plan-status {
             display: inline-flex; align-items: center; gap: var(--sp-1);
             border-radius: var(--r-full);
             padding: var(--sp-1) var(--sp-3);
@@ -691,19 +691,12 @@
         .plan-status.is-warn { background: var(--warn-tint); color: var(--warn-text); }
 
         /* Interactive chips (tap targets, so full height) */
-        .tutor-chip, .order-chip, .cat-chip {
+        .order-chip, .cat-chip {
             min-height: var(--tap);
             cursor: pointer;
             transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease),
                         color var(--dur-2) var(--ease);
         }
-        .tutor-chip {
-            border-color: var(--border);
-            background: var(--surface);
-            padding: 0 var(--sp-3);
-            white-space: nowrap;
-        }
-        .tutor-chip:hover { background: var(--accent-tint); border-color: var(--accent-border); color: var(--accent-strong); }
 
         /* ---- Stat tile: one component where there used to be three near-copies
            (.stat-card on the path, .cstat on the completion screen, .astat on the
@@ -1591,53 +1584,6 @@
             --btn-bg: var(--danger); --btn-bg-hover: var(--danger-hover); --btn-edge: var(--danger-strong);
         }
 
-        /* Ask-AI dock, pinned above the fold */
-        .tutor-dock {
-            flex: none;
-            border-top: 1px solid var(--border);
-            background: var(--surface);
-            padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom, 0px));
-        }
-        .tutor-dock > * { max-width: var(--content-max); margin-inline: auto; }
-        .tutor-toggle {
-            display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
-            width: 100%; min-height: var(--tap);
-            background: var(--accent-tint);
-            border: 1px solid var(--accent-border);
-            color: var(--accent-strong); border-radius: var(--r-md);
-            font-size: var(--fs-sm); font-weight: 700;
-            cursor: pointer; transition: background var(--dur-2) var(--ease);
-        }
-        .tutor-toggle:hover { background: var(--accent-tint-hover); }
-        .tutor-panel { padding-top: var(--sp-3); }
-        /* Nine preset prompts wrapped to four rows of pills and swallowed half a
-           phone screen. They are quick shortcuts, not a menu to study, so on narrow
-           screens they become one scrolling row and wrap again when there is room. */
-        .tutor-actions {
-            display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3);
-            flex-wrap: nowrap; overflow-x: auto;
-            scrollbar-width: none;
-            padding-bottom: 2px;
-        }
-        .tutor-actions::-webkit-scrollbar { display: none; }
-        .tutor-chip { flex: none; }
-        @media (min-width: 640px) {
-            .tutor-actions { flex-wrap: wrap; overflow-x: visible; }
-        }
-        .tutor-input { display: flex; gap: var(--sp-2); }
-        .tutor-input input { min-height: var(--tap); padding: 0 var(--sp-3); }
-        .tutor-input .button { flex: none; }
-        .tutor-response {
-            margin-top: var(--sp-3);
-            background: var(--accent-tint);
-            border-inline-start: 3px solid var(--accent);
-            border-radius: var(--r-sm);
-            padding: var(--sp-4);
-            max-height: 180px;
-            overflow-y: auto;
-        }
-        .tutor-asked { font-size: var(--fs-sm); color: var(--accent-strong); font-weight: 700; margin-bottom: var(--sp-2); }
-        .tutor-answer { color: var(--text); line-height: var(--lh-prose); white-space: pre-wrap; font-size: var(--fs-sm); }
         .tutor-thinking { display: flex; align-items: center; gap: var(--sp-3); color: var(--text-muted); font-size: var(--fs-sm); }
 
         /* ========================== Lesson content ========================== */
@@ -1966,7 +1912,6 @@
         [dir="rtl"] .option,
         [dir="rtl"] .feedback-bar,
         [dir="rtl"] .summary-facts,
-        [dir="rtl"] .tutor-answer,
         [dir="rtl"] .vis-table th,
         [dir="rtl"] .vis-table td { text-align: right; }
 
@@ -2247,23 +2192,9 @@
             </div>
         </div>
 
-        <!-- Duolingo-style sliding feedback banner: docked above the tutor, filled after each grade -->
+        <!-- Duolingo-style sliding feedback banner: docked at the foot of the
+             lesson, filled after each grade -->
         <div class="feedback-bar" id="feedbackBar"></div>
-
-        <!-- Ask AI: available throughout the lesson -->
-        <div class="tutor-dock" id="tutorDock">
-            <button class="tutor-toggle" id="tutorToggle" aria-expanded="false" aria-controls="tutorPanel">
-                <span id="tutorToggleIcon"></span><span>Ask the tutor</span>
-            </button>
-            <div class="tutor-panel" id="tutorPanel" hidden>
-                <div class="tutor-actions" id="tutorActions"></div>
-                <div class="tutor-input">
-                    <input type="text" id="tutorQuestion" aria-label="Ask the tutor about this lesson" enterkeyhint="send" placeholder="Or ask anything about this lesson..." />
-                    <button class="button" id="tutorAskBtn">Ask</button>
-                </div>
-                <div id="tutorResponse" class="tutor-response" style="display: none;"></div>
-            </div>
-        </div>
     </div>
 
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.

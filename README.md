@@ -20,15 +20,75 @@ subscribing after that isn't wired up yet (see below).
 ## What a lesson contains
 
 Hook → prediction → concept cards → worked example → guided practice → a mixed-format
-quiz (choice, true/false, ordering, categorizing, fill-the-blank, matching, find-the-mistake)
-→ a capstone challenge → summary → a memory check, where the learner writes the idea
-in their own words and the model responds. Diagrams (flow, compare, hierarchy, timeline,
-table, bar) are generated from structured specs the model returns — no image generation,
-no extra API calls.
+quiz → a capstone challenge → summary → a memory check, where the learner writes the
+idea in their own words and the model responds.
 
 Every lesson is grounded in the source document: the relevant passage is retrieved via
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come
 from that passage, not general knowledge.
+
+## The lesson toolkit
+
+The model never draws and never computes. It returns a structured spec — *this is a
+right triangle with these side lengths*, *this quantity depends on that one*, *this word
+breaks into these letters* — and the app renders it. That split is the whole design:
+drawing is deterministic, costs no tokens and no second API call, and the arithmetic on
+screen is the app's, so a lesson cannot teach a sum the model got wrong. A spec the app
+cannot draw is dropped rather than shown broken.
+
+**Eighteen figure types.** `flow` and `cycle` for sequences, one-way and repeating.
+`compare` and `venn` for two things set against each other. `hierarchy` for a whole and
+its parts. `timeline` for events. `table` and `grid` for structured facts, the grid able
+to highlight cells. `bar`, `pie` and `plot` for magnitudes, proportions and one quantity
+against another. `numberline` for thresholds and ranges. `shape` for geometry —
+triangles, right triangles, squares, rectangles, circles and regular polygons, with
+named sides, angles and vertices. `formula` for a rule with every symbol explained, and
+`equation` for a derivation worked line by line. `gematria` for Hebrew letters as
+numbers. And three the learner touches: `reveal` (cards uncovered by tapping), `slider`
+(drag a value and watch what depends on it recompute), and any `shape` used as the
+target of a hotspot question.
+
+**Geometry is drawn from its own measurements.** Give `shape` the lengths 3, 4 and 5 and
+it draws a 3-4-5 triangle: the right angle is a right angle on screen, marked with the
+square that says so, and the longest side really is the longest. Lengths that cannot
+close into a triangle are refused and the figure falls back to a generic one of the
+right family, because a bent picture teaches worse than an unscaled one.
+
+**Gematria is computed, not quoted.** The letter values are a fixed table, so the app
+adds them up — in any of the four reckonings (הכרחי, גדול, סידורי, קטן) — and the
+learner can type their own word into the same widget. The model supplies the words and
+what the source says about them; it never supplies a total.
+
+**The slider evaluates real formulas, safely.** `eval` on model output is a
+code-execution hole, so the app parses a fixed grammar instead: numbers, variables,
+`+ - * / % ^`, parentheses and a closed list of functions. Anything outside it fails,
+and a slider whose formulas do not evaluate is not shown as a slider at all.
+
+**Nine question types.** choice, true/false, ordering, categorizing, fill-the-blank,
+matching, find-the-mistake — plus two new ones. `numeric` is a typed answer graded
+against a tolerance, for anything the learner is meant to *work out*: four options give a
+calculation away. `hotspot` is answered by tapping a part of a figure — *tap the
+hypotenuse* — and any question type may carry a figure it asks about.
+
+**The prompt writes itself.** `VISUALS` and `QUESTION_TYPES` in `app.js` are the single
+source of truth: each entry holds what the model is shown (`use` and `spec`), what a spec
+must survive to be drawn (`check`), and the renderer (`draw`). The catalogue in the
+lesson prompt is generated from those entries, so the model can never be offered a type
+the app cannot draw, and adding a type is one entry. The course plan also labels every
+concept with a `kind` — geometry, quantity, process, timeline, comparison,
+classification, definition, text — and the lesson prompt turns that label into a
+concrete instruction about what tends to teach that kind well, instead of leaving the
+model to choose from eighteen types unguided.
+
+`tests/lesson-visuals.js` covers all of it — the geometry, the evaluator's refusal to run
+anything but arithmetic, the gematria tables, what validation drops, and the size of the
+prompt itself. Like the pipeline tests it needs nothing but `node`.
+
+One constraint worth knowing before adding to the catalogue: the lesson prompt and the
+retrieved passage share one content block, and `ai-proxy` clamps that block to
+`excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
+which is where its own JSON schema lives. The template is currently a little under 10,000
+of the 12,000 characters allowed, and the test fails if a new entry pushes it over.
 
 ## Reading the PDF
 

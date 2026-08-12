@@ -79,7 +79,13 @@
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
         // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
         // Too low a ceiling truncates the response mid-object and JSON.parse dies.
-        const MAX_TOKENS = { path: 4000, lesson: 5000, feedback: 250 };
+        // A lesson now carries drawn figures and interactive widgets as well as
+        // prose, and a lesson cut off mid-JSON is a lesson the learner cannot
+        // open, so it asks for more room than it used to. The server clamps this
+        // to whatever `classify()` allows: asking for more than the deployed
+        // Edge Function grants is harmless — it comes back clamped, exactly as
+        // before — so the client and the function can be deployed in either order.
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250 };
 
         let lastCallTruncated = false;
 
@@ -446,6 +452,16 @@ TASK:
    - description (one sentence)
    - difficulty (1-5)
    - why it matters
+   - kind: what sort of thing it is, which decides how its lesson will be
+     taught. Exactly one of:
+       geometry       — figures, shapes, sides, angles, areas
+       quantity       — formulas, rates, money, measurements, anything calculated
+       process        — steps or stages in an order, including repeating cycles
+       timeline       — events fixed in time
+       comparison     — two or more things set against each other
+       classification — a set of things divided into groups
+       definition     — a term and what it means
+       text           — wording, sources, terminology, interpretation
 
 Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
 {
@@ -457,6 +473,7 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
       "name": "Concept name",
       "description": "One-sentence description",
       "difficulty": 2,
+      "kind": "definition",
       "importance": "Why this matters",
       "examples": ["Example 1", "Example 2"]
     }
@@ -464,7 +481,9 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
 }
 
 LANGUAGE: write every string above in the same language as the MATERIAL.
-If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.`;
+If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
+The two exceptions are "language" and "kind", which are labels the app reads:
+keep those in English, spelled exactly as listed above.`;
 
             const result = await callAI(extractPrompt, '', { maxTokens: MAX_TOKENS.path, task: 'path' });
             if (!result) return null;
@@ -518,11 +537,83 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
             if (preview) preview.setAttribute('dir', dir);
         }
 
-        async function generateLesson(concept) {
-            // Ground the lesson in the actual document, not the model's priors.
-            const excerpt = retrieveExcerpt(concept, getSourceText());
+        // The question types, in the same shape as VISUALS and for the same
+        // reason: the catalogue the model is shown is generated from the list the
+        // app can actually grade.
+        const QUESTION_TYPES = {
+            choice: {
+                use: 'one right answer among options',
+                spec: '{"type":"choice","text":"…","options":["A","B","C","D"],"correct":0,"explanation":"…"}',
+            },
+            boolean: {
+                use: 'a single claim to judge true or false',
+                spec: '{"type":"boolean","text":"A claim","answer":true,"explanation":"…"}',
+            },
+            numeric: {
+                use: 'a number the learner works out and types. Use this for anything calculable — options give a calculation away. "tolerance" is how far off is still right (0 for exact)',
+                spec: '{"type":"numeric","text":"…","answer":12.5,"tolerance":0.1,"unit":" cm","explanation":"…"}',
+            },
+            order: {
+                use: 'arrange into the correct sequence — steps, chronology, size. List items in the CORRECT order; the app shuffles them',
+                spec: '{"type":"order","text":"Put these in order","items":["first","second","third"],"explanation":"…"}',
+            },
+            categorize: {
+                use: 'sort items into buckets',
+                spec: '{"type":"categorize","text":"Sort these","buckets":["Group A","Group B"],"items":[{"text":"thing","bucket":"Group A"}],"explanation":"…"}',
+            },
+            match: {
+                use: 'pair items from two columns',
+                spec: '{"type":"match","text":"Match each to its partner","pairs":[{"left":"Heart","right":"Pumps blood"}],"explanation":"…"}',
+            },
+            blank: {
+                use: 'fill the gap in a sentence. Write the gap as ___',
+                spec: '{"type":"blank","text":"Water boils at ___ degrees.","options":["50","100","200"],"correct":1,"explanation":"…"}',
+            },
+            mistake: {
+                use: 'find the one wrong statement among correct ones',
+                spec: '{"type":"mistake","text":"Which statement is WRONG?","options":["true1","FALSE one","true2"],"correct":1,"explanation":"…"}',
+            },
+            hotspot: {
+                use: 'tap a part of a figure. "visual" must be a shape; "target" names the part — side:N, vertex:N or angle:N, numbered as in that shape',
+                spec: '{"type":"hotspot","text":"Tap the hypotenuse","visual":{"type":"shape","shape":"right-triangle","sides":[3,4,5],"sideLabels":["3","4","5"]},"target":"side:2","explanation":"…"}',
+            },
+        };
 
-            const prompt = `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
+        function questionCatalogue() {
+            return Object.entries(QUESTION_TYPES)
+                .map(([name, def]) => `  "${name}" — ${def.use}\n      ${def.spec}`)
+                .join('\n');
+        }
+
+        // What tends to teach each kind of concept well. The course plan labels
+        // every concept with a kind; this turns that label into a short, concrete
+        // instruction instead of leaving the model to pick from eighteen types
+        // with no guidance — which is how every lesson ended up as four bullet
+        // lists and a multiple-choice question.
+        const KIND_PLAYBOOK = {
+            geometry: 'shape (draw the figure, and give real "sides" so it is drawn to scale), formula, hotspot questions on the figure, numeric answers, and a slider when one measurement drives another.',
+            quantity: 'formula with every symbol explained, equation worked line by line, slider to show what depends on what, numberline for thresholds and ranges, plot/bar/pie for magnitudes — and numeric questions, not multiple choice.',
+            process: 'flow for a one-way sequence, cycle when it returns to its start, and order questions.',
+            timeline: 'timeline, plus order questions over the same events.',
+            comparison: 'compare or venn, a table of the differing fields, and categorize questions.',
+            classification: 'hierarchy, venn or grid, and categorize questions.',
+            definition: 'reveal cards so the learner recalls before reading, hierarchy for the parts of the definition, match and blank questions.',
+            text: 'table of the terms and what they mean, reveal cards, match and mistake questions.',
+        };
+
+        // Built as its own function so its size can be measured. The server
+        // clamps this block to `excerptChars + TEMPLATE_ALLOWANCE`, and a prompt
+        // that overruns is truncated silently — from the tail, which is where
+        // the JSON schema and the quantity rules are. `tests/lesson-visuals.js`
+        // asserts the template still fits on every tier.
+        function buildLessonPrompt(concept, excerpt) {
+            // A course planned by an older build has no kind, and a model can
+            // still hand back a stray capital or a plural. Neither is worth
+            // failing over — the playbook line is simply left out.
+            const kindKey = String(concept.kind || '').trim().toLowerCase();
+            const kind = KIND_PLAYBOOK[kindKey] ? kindKey : null;
+
+            return `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
 
 Description: ${concept.description}
 Why it matters: ${concept.importance}
@@ -546,21 +637,28 @@ Principles:
 - Never a wall of text. Each card = ONE idea, 2-3 sentences.
 - Assume no prior knowledge.
 - Open with curiosity, not a definition.
+- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence, a
+  structure or a comparison in it, draw it. Prose that describes a figure the
+  app could have drawn is the single worst thing this lesson can contain.
 - Questions test real understanding. Distractors must be mistakes a real learner would make.
 - Vary the position of the correct answer. Never always first.
 
-VISUALS: wherever a diagram would genuinely aid understanding, attach one to that card.
-Choose the type that fits the content. Omit the "visual" field entirely if a diagram adds nothing.
+VISUALS — attach one to a card, a worked example, a summary or a question by
+setting its "visual" field. Omit the field where a diagram adds nothing. The app
+draws these itself from the spec, so they cost nothing and are always legible.
+Never invent a type that is not on this list; an unknown type is discarded.
 
-Visual types:
-  "flow"    — a process or sequence.        { "type":"flow", "steps":["Step one","Step two","Step three"] }
-  "compare" — two things side by side.      { "type":"compare", "left":{"title":"A","points":["..."]}, "right":{"title":"B","points":["..."]} }
-  "hierarchy" — a concept and its parts.    { "type":"hierarchy", "root":"Main idea", "children":["Part one","Part two"] }
-  "timeline" — events in order.             { "type":"timeline", "events":[{"label":"1990","text":"What happened"}] }
-  "table"   — structured facts.             { "type":"table", "headers":["Col A","Col B"], "rows":[["a1","b1"],["a2","b2"]] }
-  "bar"     — comparing quantities.         { "type":"bar", "unit":"%", "bars":[{"label":"X","value":40},{"label":"Y","value":75}] }
+${visualCatalogue()}
 
-Keep visual labels short — under 6 words each. 2-5 items per visual.
+Rules for visuals: labels under 6 words, 2-5 items each. Numbers you put in a
+"shape", "slider" or "gematria" spec must be real — the app draws and computes
+them exactly as given, so a wrong number becomes a wrong picture.
+${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}
+
+QUESTION TYPES — every question needs "type", "text" and "explanation". Any
+question may also carry a "visual" (a figure it asks about).
+
+${questionCatalogue()}
 
 Return valid JSON only (no markdown, no surrounding prose):
 
@@ -588,42 +686,8 @@ Return valid JSON only (no markdown, no surrounding prose):
     "correct": 0,
     "feedback": { "correct": "Why this is right", "incorrect": "The common mistake here, and why it is wrong" }
   },
-  "quiz": [
-    // Choose the BEST interaction type for each concept. Mix at least 3 different
-    // types across the 4-5 questions. Never repeat the same type twice in a row.
-    // Every type needs an "explanation". Pick from:
-    //
-    // choice   — one right answer among options.
-    //   { "type":"choice", "text":"Question", "options":["A","B","C","D"], "correct":0, "explanation":"..." }
-    //
-    // boolean  — a statement that is true or false.
-    //   { "type":"boolean", "text":"A claim to judge", "answer":true, "explanation":"..." }
-    //
-    // order    — arrange items into the correct sequence (steps, chronology, size).
-    //   { "type":"order", "text":"Put these in order", "items":["first","second","third"], "explanation":"..." }
-    //   (list items in the CORRECT order; the app shuffles them for the learner)
-    //
-    // categorize — sort items into buckets.
-    //   { "type":"categorize", "text":"Sort these", "buckets":["Group A","Group B"],
-    //     "items":[{"text":"thing","bucket":"Group A"}], "explanation":"..." }
-    //
-    // blank    — fill the gap by choosing the right word. Use ___ in the sentence.
-    //   { "type":"blank", "text":"Water boils at ___ degrees.", "options":["50","100","200"], "correct":1, "explanation":"..." }
-    //
-    // match    — pair items from two columns.
-    //   { "type":"match", "text":"Match each to its partner",
-    //     "pairs":[{"left":"Heart","right":"Pumps blood"}], "explanation":"..." }
-    //
-    // mistake  — find the one wrong statement among several correct ones.
-    //   { "type":"mistake", "text":"Which statement is WRONG?", "options":["true1","FALSE one","true2"], "correct":1, "explanation":"..." }
-    //
-    // Every fact must come from the SOURCE MATERIAL. Distractors must be plausible
-    // misreadings of the source, not facts from elsewhere.
-    { "type":"choice", "text":"Question", "options":["A","B","C","D"], "correct":0, "explanation":"..." }
-  ],
+  "quiz": [ { "type":"choice", "text":"…", "options":["A","B","C","D"], "correct":0, "explanation":"…" } ],
   "challenge": {
-    // The capstone. Combine several ideas. Use any question type from the quiz
-    // list above (include its "type" field and matching fields).
     "type": "choice",
     "text": "One larger problem combining several ideas from this lesson",
     "options": ["A","B","C","D"],
@@ -640,10 +704,20 @@ Return valid JSON only (no markdown, no surrounding prose):
   "memoryCheck": { "prompt": "Explain this concept as if teaching a friend." }
 }
 
-Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions using a MIX of types.
-At least TWO cards should carry a visual. All fields required. "correct" is a 0-based index.
-Prefer interactive types (order, categorize, match, blank) over plain choice where the content suits them.
+Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions.
+Required, and checked: at least TWO visuals in the lesson, of at least TWO
+different types; at least ONE of them interactive (slider or reveal) or a
+figure the learner is asked about (shape with a hotspot question); at least
+THREE different question types across the quiz, never the same type twice in a
+row; and where the material is quantitative, at least one numeric question.
+"correct" is a 0-based index.
 ${languageRule()}`;
+        }
+
+        async function generateLesson(concept) {
+            // Ground the lesson in the actual document, not the model's priors.
+            const excerpt = retrieveExcerpt(concept, getSourceText());
+            const prompt = buildLessonPrompt(concept, excerpt);
 
             // The course context goes first and is the same on every lesson, so
             // the API caches it; the prompt goes second because it changes.
@@ -695,6 +769,11 @@ ${languageRule()}`;
             const clamp = (i, n) => (Number.isInteger(i) && i >= 0 && i < n) ? i : 0;
             // Legacy questions had no type; treat them as choice.
             const type = q.type || 'choice';
+            // Any question may carry a figure — the triangle the question is
+            // about, the formula it applies. An unusable one is dropped and the
+            // question still stands.
+            const base = { text: String(q.text), explanation: q.explanation || '',
+                           visual: validVisual(q.visual) };
 
             switch (type) {
                 case 'choice':
@@ -702,20 +781,16 @@ ${languageRule()}`;
                 case 'mistake': {
                     const options = arr(q.options).filter(o => o != null).map(String);
                     if (options.length < 2) return null;
-                    return { type, text: String(q.text), options,
-                             correct: clamp(q.correct, options.length),
-                             explanation: q.explanation || '' };
+                    return { ...base, type, options, correct: clamp(q.correct, options.length) };
                 }
                 case 'boolean': {
                     if (typeof q.answer !== 'boolean') return null;
-                    return { type, text: String(q.text), answer: q.answer,
-                             explanation: q.explanation || '' };
+                    return { ...base, type, answer: q.answer };
                 }
                 case 'order': {
                     const items = arr(q.items).filter(o => o != null).map(String);
                     if (items.length < 2) return null;
-                    return { type, text: String(q.text), items,   // stored in correct order
-                             explanation: q.explanation || '' };
+                    return { ...base, type, items };   // stored in correct order
                 }
                 case 'categorize': {
                     const buckets = arr(q.buckets).filter(o => o != null).map(String);
@@ -723,16 +798,37 @@ ${languageRule()}`;
                         .filter(it => it && it.text != null && buckets.includes(it.bucket))
                         .map(it => ({ text: String(it.text), bucket: String(it.bucket) }));
                     if (buckets.length < 2 || items.length < 2) return null;
-                    return { type, text: String(q.text), buckets, items,
-                             explanation: q.explanation || '' };
+                    return { ...base, type, buckets, items };
                 }
                 case 'match': {
                     const pairs = arr(q.pairs)
                         .filter(p => p && p.left != null && p.right != null)
                         .map(p => ({ left: String(p.left), right: String(p.right) }));
                     if (pairs.length < 2) return null;
-                    return { type, text: String(q.text), pairs,
-                             explanation: q.explanation || '' };
+                    return { ...base, type, pairs };
+                }
+                case 'numeric': {
+                    // A typed number, graded against a tolerance. Without a
+                    // finite answer there is nothing to grade against, so the
+                    // question is dropped rather than marked wrong forever.
+                    const answer = num(q.answer, NaN);
+                    if (!isFinite(answer)) return null;
+                    const tolerance = Math.abs(num(q.tolerance, 0));
+                    return { ...base, type, answer, tolerance,
+                             unit: q.unit ? String(q.unit) : '' };
+                }
+                case 'hotspot': {
+                    // Tap the named part of a figure. Only a shape has parts, and
+                    // the target has to name one that exists.
+                    const visual = validVisual(q.visual);
+                    if (!visual || visual.type !== 'shape') return null;
+                    const target = String(q.target || '');
+                    const m = /^(side|vertex|angle):(\d+)$/.exec(target);
+                    if (!m) return null;
+                    const geo = shapeGeometry(visual);
+                    const parts = geo?.kind === 'circle' ? 1 : (geo?.points?.length || 0);
+                    if (!parts || Number(m[2]) >= parts) return null;
+                    return { ...base, type, visual, target };
                 }
                 default:
                     // Unknown type: salvage as choice if it has options, else drop.
@@ -744,18 +840,14 @@ ${languageRule()}`;
         }
 
         // Drop any visual the renderer couldn't draw, before it reaches the UI.
+        // The check lives in the VISUALS registry beside the renderer that
+        // depends on it, so a type can never be validated by one rule and drawn
+        // by another. A check that throws on a hostile spec fails closed.
         function validVisual(v) {
             if (!v || typeof v !== 'object' || !v.type) return null;
-            const ok = {
-                flow: v => Array.isArray(v.steps) && v.steps.filter(Boolean).length >= 2,
-                compare: v => v.left && v.right && Array.isArray(v.left.points) && Array.isArray(v.right.points),
-                hierarchy: v => v.root && Array.isArray(v.children) && v.children.filter(Boolean).length >= 1,
-                timeline: v => Array.isArray(v.events) && v.events.some(e => e && (e.label || e.text)),
-                table: v => Array.isArray(v.headers) && v.headers.length
-                            && Array.isArray(v.rows) && v.rows.some(r => Array.isArray(r) && r.length),
-                bar: v => Array.isArray(v.bars) && v.bars.some(b => b && typeof b.value === 'number' && isFinite(b.value)),
-            }[v.type];
-            return (ok && ok(v)) ? v : null;
+            const def = VISUALS[v.type];
+            if (!def) return null;
+            try { return def.check(v) ? v : null; } catch (_) { return null; }
         }
 
         // Models drift from the schema. Fill gaps so the step engine never crashes.
@@ -2059,24 +2151,57 @@ ${languageRule()}`;
         }
 
         // ============= Visual renderer =============
-        // The model emits a structured spec; we draw it. No image generation,
-        // no extra API calls, and the output is deterministic.
-        function renderVisual(v) {
+        // The model never draws. It returns a structured spec — "a right triangle
+        // with these side labels", "these quantities compare like this", "this
+        // word breaks into these letters" — and the app draws it: deterministic,
+        // no image generation, no second API call, and a spec the app cannot draw
+        // is dropped rather than shown broken.
+        //
+        // Every type lives in one entry of VISUALS (defined below the renderers),
+        // which is the single source of truth for three things that used to be
+        // written out separately and drifted apart: what the model is told it may
+        // return (`use` + `spec`, which build the prompt catalogue), what survives
+        // validation (`check`), and what is drawn (`draw`). Adding a type is one
+        // entry, and the prompt updates itself.
+        function renderVisual(v, opts = {}) {
             if (!v || !v.type) return '';
-            const fns = {
-                flow: visFlow, compare: visCompare, hierarchy: visHierarchy,
-                timeline: visTimeline, table: visTable, bar: visBar,
-            };
-            const fn = fns[v.type];
-            if (!fn) return '';
+            const def = VISUALS[v.type];
+            if (!def) return '';
             try {
-                const inner = fn(v);
-                return inner ? `<figure class="visual">${inner}</figure>` : '';
+                const inner = def.draw(v, opts);
+                return inner ? `<figure class="visual visual-${esc(v.type)}">${inner}</figure>` : '';
             } catch (err) {
                 console.warn('Visual render failed:', v.type, err);
                 return '';   // a broken diagram must never break the lesson
             }
         }
+
+        // Interactive visuals are drawn as strings like every other one, so they
+        // arrive in the DOM inert. This gives them their behaviour, once, after
+        // whatever inserted them has finished — a step body, a question, a
+        // preview. A widget that throws while wiring stays a static picture
+        // instead of taking the lesson down with it.
+        function wireVisuals(root) {
+            const scope = root || document;
+            scope.querySelectorAll('[data-vis-interactive]').forEach(el => {
+                if (el.dataset.visWired) return;
+                el.dataset.visWired = '1';
+                const wirer = { slider: wireSlider, reveal: wireReveal, gematria: wireGematria }[el.dataset.visInteractive];
+                if (!wirer) return;
+                try { wirer(el); } catch (err) {
+                    console.warn('Visual wiring failed:', el.dataset.visInteractive, err);
+                }
+            });
+        }
+
+        // esc() is for text nodes; an attribute value also has to survive quotes.
+        function escAttr(s) {
+            return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Interactive widgets need an id to tie a label to its control, and the
+        // same lesson can hold several of them.
+        let visualSeq = 0;
 
         function visFlow(v) {
             const steps = (v.steps || []).filter(Boolean);
@@ -2153,6 +2278,792 @@ ${languageRule()}`;
                     <div class="bar-value">${esc(String(b.value))}${esc(unit)}</div>
                 </div>`;
             }).join('')}</div>`;
+        }
+
+        // ---- A safe arithmetic evaluator ----------------------------------
+        // Interactive visuals recompute a formula as the learner drags a slider,
+        // and the formula comes from the model. `eval` on model output is a
+        // code-execution hole, so this parses a fixed grammar instead: numbers,
+        // named variables, + - * / % ^, parentheses and a closed list of
+        // functions. Anything outside that throws, and the widget degrades to
+        // showing the formula rather than a wrong number.
+        const EXPR_FUNCS = {
+            sqrt: Math.sqrt, abs: Math.abs, round: Math.round, floor: Math.floor,
+            ceil: Math.ceil, min: Math.min, max: Math.max, pow: Math.pow,
+            sin: Math.sin, cos: Math.cos, tan: Math.tan, log: Math.log,
+            ln: Math.log, log10: Math.log10, exp: Math.exp,
+        };
+        const EXPR_CONSTS = { pi: Math.PI, e: Math.E };
+
+        function evalExpr(src, vars = {}) {
+            // Models write maths with typographic operators. Normalise them once
+            // here so the parser below only ever sees ASCII.
+            // A thousands separator is dropped, an argument separator is not:
+            // "1,000" is one number, `max(1, 5)` is two. Only a comma wedged
+            // between a digit and three more digits is treated as punctuation.
+            const s = String(src == null ? '' : src)
+                .replace(/[−–—]/g, '-').replace(/[×·∙]/g, '*').replace(/[÷]/g, '/')
+                .replace(/(\d),(?=\d{3}(\D|$))/g, '$1');
+            let i = 0;
+
+            const ws = () => { while (i < s.length && /\s/.test(s[i])) i++; };
+            const eat = tok => { ws(); if (s.startsWith(tok, i)) { i += tok.length; return true; } return false; };
+
+            function parseExpr() {
+                let left = parseTerm();
+                for (;;) {
+                    if (eat('+')) left += parseTerm();
+                    else if (eat('-')) left -= parseTerm();
+                    else return left;
+                }
+            }
+            function parseTerm() {
+                let left = parseUnary();
+                for (;;) {
+                    // `**` before `*`, or `x**2` eats the first star and then
+                    // trips over the second.
+                    if (eat('**')) left = Math.pow(left, parseUnary());
+                    else if (eat('*')) left *= parseUnary();
+                    else if (eat('/')) left /= parseUnary();
+                    else if (eat('%')) left %= parseUnary();
+                    else return left;
+                }
+            }
+            function parseUnary() {
+                if (eat('-')) return -parseUnary();
+                if (eat('+')) return parseUnary();
+                return parsePower();
+            }
+            function parsePower() {
+                const base = parseAtom();
+                if (eat('^')) return Math.pow(base, parseUnary());   // right-associative
+                return base;
+            }
+            function parseAtom() {
+                ws();
+                if (eat('(')) {
+                    const value = parseExpr();
+                    if (!eat(')')) throw new Error('unbalanced parenthesis');
+                    return value;
+                }
+                const rest = s.slice(i);
+                const number = /^\d+(\.\d+)?/.exec(rest);
+                if (number) { i += number[0].length; return Number(number[0]); }
+
+                const ident = /^[A-Za-z_][A-Za-z_0-9]*/.exec(rest);
+                if (!ident) throw new Error('unexpected character: ' + (s[i] || 'end of input'));
+                const name = ident[0];
+                i += name.length;
+
+                if (eat('(')) {
+                    const fn = EXPR_FUNCS[name.toLowerCase()];
+                    if (!fn) throw new Error('unknown function: ' + name);
+                    const args = [];
+                    if (!eat(')')) {
+                        do { args.push(parseExpr()); } while (eat(','));
+                        if (!eat(')')) throw new Error('unbalanced call');
+                    }
+                    return fn(...args);
+                }
+                if (Object.prototype.hasOwnProperty.call(vars, name)) return Number(vars[name]);
+                const lower = name.toLowerCase();
+                if (Object.prototype.hasOwnProperty.call(vars, lower)) return Number(vars[lower]);
+                if (lower in EXPR_CONSTS) return EXPR_CONSTS[lower];
+                throw new Error('unknown name: ' + name);
+            }
+
+            const value = parseExpr();
+            ws();
+            if (i < s.length) throw new Error('trailing input: ' + s.slice(i));
+            if (typeof value !== 'number' || !isFinite(value)) throw new Error('not a finite number');
+            return value;
+        }
+
+        // The same evaluator where failure is an answer rather than an exception.
+        function tryExpr(src, vars) {
+            try { return evalExpr(src, vars); } catch (_) { return null; }
+        }
+
+        const num = (v, fallback = 0) => {
+            const n = typeof v === 'string' ? Number(v) : v;
+            return typeof n === 'number' && isFinite(n) ? n : fallback;
+        };
+
+        // Numbers a learner reads, not numbers a float produces: 2.5 stays 2.5,
+        // 2.4999999999 becomes 2.5, and 6.0 becomes 6.
+        function fmtNum(n, decimals = 2) {
+            if (typeof n !== 'number' || !isFinite(n)) return '';
+            const rounded = Number(n.toFixed(Math.max(0, Math.min(6, decimals))));
+            return String(rounded);
+        }
+
+        // ---- Geometry ------------------------------------------------------
+        // A shape is drawn from its own measurements wherever the model supplies
+        // them: given sides 3, 4, 5 the app draws a 3-4-5 triangle, so the right
+        // angle the learner is being asked to find is a right angle on screen and
+        // the longest side really is the longest one. Without usable lengths it
+        // falls back to a regular figure of the right family — still a truthful
+        // picture of "a triangle", just not to scale.
+        const SHAPE_W = 320, SHAPE_H = 230, SHAPE_PAD = 42;
+
+        function regularPolygon(n) {
+            const pts = [];
+            for (let k = 0; k < n; k++) {
+                // The half-step rotation is what puts a flat side at the bottom
+                // instead of standing a square on its corner.
+                const t = Math.PI / 2 + Math.PI / n + (k * 2 * Math.PI) / n;
+                pts.push([Math.cos(t), Math.sin(t)]);
+            }
+            return pts;
+        }
+
+        // Sides are the drawn edges in order: edge 0 joins vertex 0 to vertex 1,
+        // edge 1 joins 1 to 2, edge 2 joins 2 back to 0. Three lengths that
+        // cannot close into a triangle return null rather than a bent picture.
+        function triangleFromSides(sides) {
+            const [a, b, c] = sides.map(Number);
+            if (![a, b, c].every(x => isFinite(x) && x > 0)) return null;
+            if (a + b <= c || b + c <= a || a + c <= b) return null;
+            const x = (c * c - b * b + a * a) / (2 * a);
+            const y2 = c * c - x * x;
+            if (!(y2 > 0)) return null;
+            return [[0, 0], [a, 0], [x, Math.sqrt(y2)]];
+        }
+
+        function shapeGeometry(v) {
+            const kind = String(v.shape || 'triangle').toLowerCase().replace(/\s+/g, '-');
+            const sides = Array.isArray(v.sides) ? v.sides.map(Number) : [];
+
+            if (kind === 'circle') return { kind: 'circle' };
+            if (kind === 'triangle' || kind === 'right-triangle') {
+                const measured = sides.length === 3 ? triangleFromSides(sides) : null;
+                if (measured) return { kind: 'polygon', points: measured };
+                return { kind: 'polygon', points: kind === 'right-triangle'
+                    ? [[0, 0], [1.6, 0], [0, 1.2]]        // right angle at vertex 0
+                    : [[0, 0], [2, 0], [0.75, 1.4]] };
+            }
+            if (kind === 'square') {
+                const s = sides[0] > 0 ? sides[0] : 1;
+                return { kind: 'polygon', points: [[0, 0], [s, 0], [s, s], [0, s]] };
+            }
+            if (kind === 'rectangle') {
+                const w = num(v.width, sides[0] > 0 ? sides[0] : 2);
+                const h = num(v.height, sides[1] > 0 ? sides[1] : 1.2);
+                return { kind: 'polygon', points: [[0, 0], [w, 0], [w, h], [0, h]] };
+            }
+            if (kind === 'polygon') {
+                const n = Math.round(num(v.n, (v.vertices || []).length || 5));
+                return { kind: 'polygon', points: regularPolygon(Math.min(12, Math.max(3, n))) };
+            }
+            return null;
+        }
+
+        // Scale to the drawing box and flip: the geometry above is written with y
+        // growing upward, SVG's y grows downward.
+        function fitPoints(points) {
+            const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(...ys), maxY = Math.max(...ys);
+            const spanX = Math.max(maxX - minX, 1e-6), spanY = Math.max(maxY - minY, 1e-6);
+            const scale = Math.min((SHAPE_W - SHAPE_PAD * 2) / spanX, (SHAPE_H - SHAPE_PAD * 2) / spanY);
+            const offX = (SHAPE_W - spanX * scale) / 2, offY = (SHAPE_H - spanY * scale) / 2;
+            return points.map(([x, y]) => [
+                offX + (x - minX) * scale,
+                SHAPE_H - offY - (y - minY) * scale,
+            ]);
+        }
+
+        const unit = ([x, y]) => { const m = Math.hypot(x, y) || 1; return [x / m, y / m]; };
+
+        function vertexAngles(pts) {
+            return pts.map((p, i) => {
+                const prev = pts[(i - 1 + pts.length) % pts.length];
+                const next = pts[(i + 1) % pts.length];
+                const u = [prev[0] - p[0], prev[1] - p[1]];
+                const w = [next[0] - p[0], next[1] - p[1]];
+                const mag = Math.hypot(...u) * Math.hypot(...w);
+                if (!mag) return 0;
+                const cos = Math.max(-1, Math.min(1, (u[0] * w[0] + u[1] * w[1]) / mag));
+                return (Math.acos(cos) * 180) / Math.PI;
+            });
+        }
+
+        // `opts.interactive` turns the parts into targets a hotspot question can
+        // be answered by tapping. Nothing else changes — the same figure is used
+        // to explain and to test.
+        function visShape(v, opts = {}) {
+            const geo = shapeGeometry(v);
+            if (!geo) return '';
+
+            const hot = !!opts.interactive;
+            const highlight = String(v.highlight || '');
+            const partAttrs = id =>
+                `data-part="${escAttr(id)}"${hot ? ' tabindex="0" role="button"' : ''}` +
+                (highlight === id ? ' class="is-highlight"' : '');
+
+            const label = (x, y, text, cls) =>
+                `<text class="geo-label ${cls}" x="${x.toFixed(1)}" y="${y.toFixed(1)}">${esc(text)}</text>`;
+
+            let body = '';
+
+            if (geo.kind === 'circle') {
+                const cx = SHAPE_W / 2, cy = SHAPE_H / 2;
+                const r = Math.min(SHAPE_W, SHAPE_H) / 2 - SHAPE_PAD;
+                const radiusLabel = v.radiusLabel || (v.sideLabels || [])[0] || '';
+                body = `
+                    <circle class="geo-face geo-outline" cx="${cx}" cy="${cy}" r="${r}"></circle>
+                    <g class="geo-part${hot ? ' is-hot' : ''}" ${partAttrs('side:0')}>
+                        <line class="geo-edge" x1="${cx}" y1="${cy}" x2="${cx + r}" y2="${cy}"></line>
+                    </g>
+                    <circle class="geo-vertex" cx="${cx}" cy="${cy}" r="3.5"></circle>
+                    ${radiusLabel ? label(cx + r / 2, cy - 10, radiusLabel, 'geo-side-label') : ''}
+                    ${(v.vertices || [])[0] ? label(cx, cy + 20, v.vertices[0], 'geo-vertex-label') : ''}`;
+            } else {
+                const pts = fitPoints(geo.points);
+                const centre = pts.reduce((acc, p) => [acc[0] + p[0] / pts.length, acc[1] + p[1] / pts.length], [0, 0]);
+                const angles = vertexAngles(pts);
+                const sideLabels = Array.isArray(v.sideLabels) ? v.sideLabels
+                    : (Array.isArray(v.sides) ? v.sides.map(String) : []);
+                const angleLabels = Array.isArray(v.angles) ? v.angles : [];
+                const vertexLabels = Array.isArray(v.vertices) ? v.vertices : [];
+
+                const edges = pts.map((p, i) => {
+                    const q = pts[(i + 1) % pts.length];
+                    const mid = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+                    const out = unit([mid[0] - centre[0], mid[1] - centre[1]]);
+                    const text = sideLabels[i];
+                    return `<g class="geo-part${hot ? ' is-hot' : ''}" ${partAttrs('side:' + i)}>
+                        <line class="geo-edge" x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${q[0].toFixed(1)}" y2="${q[1].toFixed(1)}"></line>
+                        ${hot ? `<line class="geo-edge-hit" x1="${p[0].toFixed(1)}" y1="${p[1].toFixed(1)}" x2="${q[0].toFixed(1)}" y2="${q[1].toFixed(1)}"></line>` : ''}
+                        ${text ? label(mid[0] + out[0] * 16, mid[1] + out[1] * 16 + 4, text, 'geo-side-label') : ''}
+                    </g>`;
+                }).join('');
+
+                const corners = pts.map((p, i) => {
+                    const prev = pts[(i - 1 + pts.length) % pts.length];
+                    const next = pts[(i + 1) % pts.length];
+                    const u = unit([prev[0] - p[0], prev[1] - p[1]]);
+                    const w = unit([next[0] - p[0], next[1] - p[1]]);
+                    const bis = unit([u[0] + w[0], u[1] + w[1]]);
+                    const away = unit([p[0] - centre[0], p[1] - centre[1]]);
+                    // A right angle gets the square that marks it as one, drawn
+                    // from the two edges rather than assumed to point any way.
+                    const square = Math.abs(angles[i] - 90) < 0.6
+                        ? `<polyline class="geo-right-angle" points="${
+                            [[p[0] + u[0] * 13, p[1] + u[1] * 13],
+                             [p[0] + (u[0] + w[0]) * 13, p[1] + (u[1] + w[1]) * 13],
+                             [p[0] + w[0] * 13, p[1] + w[1] * 13]]
+                                .map(pt => pt.map(n => n.toFixed(1)).join(',')).join(' ')}"></polyline>`
+                        : '';
+                    const angleText = angleLabels[i];
+                    return `<g class="geo-part${hot ? ' is-hot' : ''}" ${partAttrs('vertex:' + i)}>
+                        <circle class="geo-vertex" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="${hot ? 11 : 3.5}"></circle>
+                        ${square}
+                        ${vertexLabels[i] ? label(p[0] + away[0] * 17, p[1] + away[1] * 17 + 4, vertexLabels[i], 'geo-vertex-label') : ''}
+                    </g>
+                    ${angleText ? `<g class="geo-part${hot ? ' is-hot' : ''}" ${partAttrs('angle:' + i)}>
+                        ${label(p[0] + bis[0] * 27, p[1] + bis[1] * 27 + 4, angleText, 'geo-angle-label')}
+                    </g>` : ''}`;
+                }).join('');
+
+                body = `<polygon class="geo-face" points="${pts.map(p => p.map(n => n.toFixed(1)).join(',')).join(' ')}"></polygon>
+                        ${edges}${corners}`;
+            }
+
+            return `<svg class="vis-shape" viewBox="0 0 ${SHAPE_W} ${SHAPE_H}" role="img"
+                         aria-label="${escAttr(v.caption || v.shape || 'diagram')}">${body}</svg>
+                    ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+        }
+
+        // ---- Formulas and derivations --------------------------------------
+        function visFormula(v) {
+            if (!v.expression) return '';
+            const where = (v.where || []).filter(w => w && w.symbol && w.meaning);
+            return `<div class="vis-formula">
+                <div class="formula-expr">${esc(v.expression)}</div>
+                ${where.length ? `<dl class="formula-where">${where.map(w =>
+                    `<div class="formula-term"><dt>${esc(w.symbol)}</dt><dd>${esc(w.meaning)}</dd></div>`).join('')}</dl>` : ''}
+                ${v.note ? `<div class="vis-note">${esc(v.note)}</div>` : ''}
+            </div>`;
+        }
+
+        function visEquation(v) {
+            const lines = (v.lines || []).filter(l => l && l.expr);
+            if (lines.length < 2) return '';
+            return `<ol class="vis-equation">${lines.map(l => `
+                <li class="eq-line">
+                    <span class="eq-expr">${esc(l.expr)}</span>
+                    ${l.note ? `<span class="eq-note">${esc(l.note)}</span>` : ''}
+                </li>`).join('')}</ol>`;
+        }
+
+        // ---- Quantities -----------------------------------------------------
+        function visNumberline(v) {
+            const min = num(v.min, 0), max = num(v.max, 10);
+            if (!(max > min)) return '';
+            const W = 320, H = 96, PAD = 28, AXIS = 58;
+            const at = t => PAD + ((Math.max(min, Math.min(max, t)) - min) / (max - min)) * (W - PAD * 2);
+
+            // Enough ticks to read the scale, never so many they collide.
+            let step = num(v.step, 0);
+            if (!(step > 0) || (max - min) / step > 20) step = (max - min) / 5;
+            const ticks = [];
+            for (let t = min; t <= max + step / 1000 && ticks.length <= 21; t += step) ticks.push(t);
+
+            const ranges = (v.ranges || []).filter(r => r && isFinite(num(r.from, NaN)) && isFinite(num(r.to, NaN)))
+                .map(r => {
+                    const x1 = at(Math.min(num(r.from), num(r.to))), x2 = at(Math.max(num(r.from), num(r.to)));
+                    return `<rect class="nl-range" x="${x1.toFixed(1)}" y="${AXIS - 7}" width="${Math.max(2, x2 - x1).toFixed(1)}" height="14" rx="4"></rect>
+                            ${r.label ? `<text class="nl-range-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${AXIS + 30}">${esc(r.label)}</text>` : ''}`;
+                }).join('');
+
+            const points = (v.points || []).filter(p => p && isFinite(num(p.value, NaN))).map(p => {
+                const x = at(num(p.value));
+                return `<circle class="nl-point" cx="${x.toFixed(1)}" cy="${AXIS}" r="6"></circle>
+                        ${p.label ? `<text class="nl-point-label" x="${x.toFixed(1)}" y="${AXIS - 16}">${esc(p.label)}</text>` : ''}`;
+            }).join('');
+
+            return `<svg class="vis-numberline" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(v.caption || 'number line')}">
+                <line class="nl-axis" x1="${PAD}" y1="${AXIS}" x2="${W - PAD}" y2="${AXIS}"></line>
+                ${ranges}
+                ${ticks.map(t => `<g><line class="nl-tick" x1="${at(t).toFixed(1)}" y1="${AXIS - 5}" x2="${at(t).toFixed(1)}" y2="${AXIS + 5}"></line>
+                    <text class="nl-tick-label" x="${at(t).toFixed(1)}" y="${AXIS + 19}">${esc(fmtNum(t, 2))}</text></g>`).join('')}
+                ${points}
+            </svg>
+            ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+        }
+
+        const plotPoints = s => (s.points || [])
+            .map(p => Array.isArray(p) ? [num(p[0], NaN), num(p[1], NaN)] : [num(p?.x, NaN), num(p?.y, NaN)])
+            .filter(p => isFinite(p[0]) && isFinite(p[1]));
+
+        function visPlot(v) {
+            const series = (v.series || []).filter(s => s && plotPoints(s).length >= 2).slice(0, 2);
+            if (!series.length) return '';
+            const W = 320, H = 220, L = 44, R = 14, T = 16, B = 40;
+            const all = series.flatMap(plotPoints);
+            const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+            const minX = Math.min(...xs), maxX = Math.max(...xs);
+            const minY = Math.min(0, ...ys), maxY = Math.max(...ys);
+            const sx = x => L + ((x - minX) / Math.max(maxX - minX, 1e-6)) * (W - L - R);
+            const sy = y => H - B - ((y - minY) / Math.max(maxY - minY, 1e-6)) * (H - T - B);
+
+            const lines = series.map((s, i) => {
+                const pts = plotPoints(s).sort((a, b) => a[0] - b[0]);
+                const path = pts.map(p => `${sx(p[0]).toFixed(1)},${sy(p[1]).toFixed(1)}`).join(' ');
+                return `<polyline class="plot-line plot-line-${i}" points="${path}"></polyline>
+                        ${pts.map(p => `<circle class="plot-dot plot-dot-${i}" cx="${sx(p[0]).toFixed(1)}" cy="${sy(p[1]).toFixed(1)}" r="3.5"></circle>`).join('')}`;
+            }).join('');
+
+            const legend = series.some(s => s.label)
+                ? `<div class="plot-legend">${series.map((s, i) =>
+                    `<span class="plot-key"><span class="plot-swatch plot-swatch-${i}"></span>${esc(s.label || `Series ${i + 1}`)}</span>`).join('')}</div>`
+                : '';
+
+            return `<svg class="vis-plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(v.caption || 'plot')}">
+                <line class="plot-axis" x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"></line>
+                <line class="plot-axis" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"></line>
+                <text class="plot-tick" x="${L - 6}" y="${H - B + 4}" text-anchor="end">${esc(fmtNum(minY, 1))}</text>
+                <text class="plot-tick" x="${L - 6}" y="${T + 10}" text-anchor="end">${esc(fmtNum(maxY, 1))}</text>
+                <text class="plot-tick" x="${L}" y="${H - B + 18}">${esc(fmtNum(minX, 1))}</text>
+                <text class="plot-tick" x="${W - R}" y="${H - B + 18}" text-anchor="end">${esc(fmtNum(maxX, 1))}</text>
+                ${v.xLabel ? `<text class="plot-axis-label" x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle">${esc(v.xLabel)}</text>` : ''}
+                ${v.yLabel ? `<text class="plot-axis-label" x="${-(T + H - B) / 2}" y="14" transform="rotate(-90)" text-anchor="middle">${esc(v.yLabel)}</text>` : ''}
+                ${lines}
+            </svg>${legend}`;
+        }
+
+        function visPie(v) {
+            const slices = (v.slices || []).filter(s => s && num(s.value, -1) > 0).slice(0, 6);
+            const total = slices.reduce((t, s) => t + num(s.value), 0);
+            if (slices.length < 2 || !(total > 0)) return '';
+            const R = 78, C = 90;
+            const point = deg => {
+                const rad = ((deg - 90) * Math.PI) / 180;
+                return [C + R * Math.cos(rad), C + R * Math.sin(rad)];
+            };
+            let angle = 0;
+            const paths = slices.map((s, i) => {
+                const sweep = (num(s.value) / total) * 360;
+                const [x1, y1] = point(angle);
+                const [x2, y2] = point(angle + sweep);
+                angle += sweep;
+                const large = sweep > 180 ? 1 : 0;
+                return `<path class="pie-slice pie-slice-${i}" d="M ${C} ${C} L ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} Z"></path>`;
+            }).join('');
+
+            return `<div class="vis-pie">
+                <svg viewBox="0 0 ${C * 2} ${C * 2}" role="img" aria-label="${escAttr(v.caption || 'proportions')}">${paths}</svg>
+                <ul class="pie-legend">${slices.map((s, i) => `
+                    <li><span class="pie-swatch pie-slice-${i}"></span>
+                        <span class="pie-key">${esc(s.label || '')}</span>
+                        <span class="pie-val">${esc(fmtNum(num(s.value), 1))}${esc(v.unit || '')} · ${Math.round((num(s.value) / total) * 100)}%</span>
+                    </li>`).join('')}</ul>
+            </div>`;
+        }
+
+        // ---- Sets, cycles, grids -------------------------------------------
+        function visVenn(v) {
+            if (!v.left || !v.right) return '';
+            const region = (r, cls) => {
+                const pts = (r?.points || []).filter(Boolean);
+                if (!r?.title && !pts.length) return '';
+                return `<div class="venn-region ${cls}">
+                    <div class="venn-region-title">${esc(r.title || '')}</div>
+                    ${pts.length ? `<ul>${pts.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+                </div>`;
+            };
+            return `<div class="vis-venn">
+                <svg viewBox="0 0 300 150" role="img" aria-label="${escAttr(v.caption || 'overlapping sets')}">
+                    <circle class="venn-circle" cx="115" cy="75" r="62"></circle>
+                    <circle class="venn-circle" cx="185" cy="75" r="62"></circle>
+                    <text class="venn-label" x="78" y="80">${esc((v.left.title || '').slice(0, 14))}</text>
+                    <text class="venn-label venn-label-both" x="150" y="80">${esc((v.overlap?.title || 'both').slice(0, 10))}</text>
+                    <text class="venn-label" x="222" y="80">${esc((v.right.title || '').slice(0, 14))}</text>
+                </svg>
+                <div class="venn-regions">
+                    ${region(v.left, 'venn-a')}
+                    ${region(v.overlap, 'venn-both')}
+                    ${region(v.right, 'venn-b')}
+                </div>
+            </div>`;
+        }
+
+        // A loop drawn as a ring puts every label at a different angle and makes
+        // the longest one unreadable. The same information reads better as the
+        // flow it is, with the return arrow made explicit at the end.
+        function visCycle(v) {
+            const steps = (v.steps || []).filter(Boolean);
+            if (steps.length < 2) return '';
+            return `<div class="vis-cycle">
+                <div class="cycle-ring">${steps.map((s, i) => `
+                    <div class="cycle-node"><span class="cycle-index">${i + 1}</span>${esc(s)}</div>
+                    <div class="cycle-arrow" aria-hidden="true">→</div>`).join('')}
+                    <div class="cycle-node cycle-restart">${esc(steps[0])}</div>
+                </div>
+                <div class="cycle-note">${v.note ? esc(v.note) : 'and round again'}</div>
+            </div>`;
+        }
+
+        function visGrid(v) {
+            const rows = (v.cells || []).filter(r => Array.isArray(r));
+            if (!rows.length) return '';
+            const cols = v.colHeaders || [];
+            const rowHeads = v.rowHeaders || [];
+            const marked = new Set((v.highlight || [])
+                .filter(h => Array.isArray(h) && h.length === 2).map(h => `${h[0]}:${h[1]}`));
+            return `<div class="vis-table-wrap"><table class="vis-table vis-grid">
+                ${cols.length ? `<thead><tr>${rowHeads.length ? '<th></th>' : ''}${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>` : ''}
+                <tbody>${rows.map((row, r) => `<tr>
+                    ${rowHeads.length ? `<th scope="row">${esc(rowHeads[r] || '')}</th>` : ''}
+                    ${row.map((cell, c) => `<td class="${marked.has(`${r}:${c}`) ? 'is-highlight' : ''}">${esc(cell)}</td>`).join('')}
+                </tr>`).join('')}</tbody>
+            </table></div>
+            ${v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : ''}`;
+        }
+
+        // ---- Gematria --------------------------------------------------------
+        // The numeric value of Hebrew letters is a fixed table, so the app
+        // computes it rather than trusting the model's arithmetic: a lesson on
+        // gematria that adds up wrong is worse than no lesson. The model supplies
+        // the words and what they mean; the sums are ours.
+        const GEMATRIA_LETTERS = [
+            ['א', 1], ['ב', 2], ['ג', 3], ['ד', 4], ['ה', 5], ['ו', 6], ['ז', 7], ['ח', 8], ['ט', 9],
+            ['י', 10], ['כ', 20], ['ל', 30], ['מ', 40], ['נ', 50], ['ס', 60], ['ע', 70], ['פ', 80], ['צ', 90],
+            ['ק', 100], ['ר', 200], ['ש', 300], ['ת', 400],
+        ];
+        // Final forms carry their base value in the standard reckoning; only
+        // mispar gadol gives them 500-900.
+        const GEMATRIA_FINALS = { 'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ' };
+        const GEMATRIA_FINAL_HIGH = { 'ך': 500, 'ם': 600, 'ן': 700, 'ף': 800, 'ץ': 900 };
+        const GEMATRIA_BASE = Object.fromEntries(GEMATRIA_LETTERS);
+        const GEMATRIA_ORDINAL = Object.fromEntries(GEMATRIA_LETTERS.map(([ch], i) => [ch, i + 1]));
+
+        function gematriaValue(ch, method = 'standard') {
+            const base = GEMATRIA_FINALS[ch] || ch;
+            if (!(base in GEMATRIA_BASE)) return null;
+            if (method === 'gadol' && ch in GEMATRIA_FINAL_HIGH) return GEMATRIA_FINAL_HIGH[ch];
+            if (method === 'ordinal') return GEMATRIA_ORDINAL[base];
+            if (method === 'katan') {
+                // Trailing zeros dropped: ת(400) → 4, כ(20) → 2, ז(7) → 7.
+                let n = GEMATRIA_BASE[base];
+                while (n >= 10 && n % 10 === 0) n /= 10;
+                return n;
+            }
+            return GEMATRIA_BASE[base];
+        }
+
+        function gematriaBreakdown(word, method = 'standard') {
+            const letters = [];
+            let total = 0;
+            for (const ch of String(word || '')) {
+                const value = gematriaValue(ch, method);
+                if (value == null) continue;          // vowels, spaces, punctuation
+                letters.push({ letter: ch, value });
+                total += value;
+            }
+            return { letters, total };
+        }
+
+        const GEMATRIA_METHOD_NAMES = {
+            standard: 'מספר הכרחי', gadol: 'מספר גדול',
+            ordinal: 'מספר סידורי', katan: 'מספר קטן',
+        };
+
+        function gematriaTiles(word, method) {
+            const { letters, total } = gematriaBreakdown(word, method);
+            if (!letters.length) return '';
+            return `<div class="gem-row" dir="rtl">
+                ${letters.map(l => `<span class="gem-tile"><span class="gem-letter">${esc(l.letter)}</span><span class="gem-value">${l.value}</span></span>`).join('<span class="gem-plus" aria-hidden="true">+</span>')}
+                <span class="gem-equals" aria-hidden="true">=</span>
+                <span class="gem-total">${total}</span>
+            </div>`;
+        }
+
+        function visGematria(v) {
+            const method = ['standard', 'gadol', 'ordinal', 'katan'].includes(v.method) ? v.method : 'standard';
+            const words = (v.words || []).filter(w => w && w.word && gematriaBreakdown(w.word, method).letters.length);
+            if (!words.length) return '';
+            return `<div class="vis-gematria" data-vis-interactive="gematria" data-method="${escAttr(method)}">
+                <div class="gem-method">${esc(GEMATRIA_METHOD_NAMES[method])}</div>
+                ${words.map(w => `<div class="gem-word">
+                    ${gematriaTiles(w.word, method)}
+                    ${w.note ? `<div class="gem-note">${esc(w.note)}</div>` : ''}
+                </div>`).join('')}
+                <div class="gem-try">
+                    <label class="gem-try-label" for="${'gemTry' + (++visualSeq)}">Try a word</label>
+                    <input class="text-input gem-input" id="${'gemTry' + visualSeq}" dir="rtl" autocomplete="off" placeholder="…">
+                    <div class="gem-out" aria-live="polite"></div>
+                </div>
+            </div>`;
+        }
+
+        function wireGematria(el) {
+            const input = el.querySelector('.gem-input');
+            const out = el.querySelector('.gem-out');
+            if (!input || !out) return;
+            const method = el.dataset.method || 'standard';
+            input.oninput = () => { out.innerHTML = gematriaTiles(input.value.trim(), method); };
+        }
+
+        // ---- Tap to reveal ---------------------------------------------------
+        function visReveal(v) {
+            const items = (v.items || []).filter(i => i && i.label && i.text);
+            if (items.length < 2) return '';
+            return `<div class="vis-reveal" data-vis-interactive="reveal">
+                ${items.map(it => `
+                    <button type="button" class="reveal-card" aria-expanded="false">
+                        <span class="reveal-label">${esc(it.label)}</span>
+                        <span class="reveal-hint">Tap to reveal</span>
+                        <span class="reveal-text" hidden>${esc(it.text)}</span>
+                    </button>`).join('')}
+            </div>`;
+        }
+
+        function wireReveal(el) {
+            el.querySelectorAll('.reveal-card').forEach(card => {
+                card.onclick = () => {
+                    const text = card.querySelector('.reveal-text');
+                    const hint = card.querySelector('.reveal-hint');
+                    const open = text.hidden;
+                    text.hidden = !open;
+                    if (hint) hint.hidden = open;
+                    card.classList.toggle('is-open', open);
+                    card.setAttribute('aria-expanded', String(open));
+                };
+            });
+        }
+
+        // ---- Drag a value, watch the numbers move ---------------------------
+        // The one thing a static diagram cannot do: show that a quantity depends
+        // on another one. The model supplies the range and the formulas; the app
+        // evaluates them, so the arithmetic on screen is always right even when
+        // the model's own arithmetic would not have been.
+        function sliderSpec(v) {
+            const min = num(v.min, 0);
+            const max = num(v.max, min + 10);
+            if (!(max > min)) return null;
+            const step = num(v.step, 0) > 0 ? num(v.step) : Number(((max - min) / 20).toPrecision(2));
+            const value = Math.min(max, Math.max(min, num(v.value, (min + max) / 2)));
+            const variable = /^[A-Za-z_][A-Za-z_0-9]*$/.test(String(v.variable || '')) ? String(v.variable) : 'x';
+            const constants = {};
+            if (v.constants && typeof v.constants === 'object') {
+                for (const [k, val] of Object.entries(v.constants)) {
+                    if (/^[A-Za-z_][A-Za-z_0-9]*$/.test(k) && isFinite(num(val, NaN))) constants[k] = num(val);
+                }
+            }
+            const outputs = (v.outputs || [])
+                .filter(o => o && o.expr && tryExpr(o.expr, { ...constants, [variable]: value }) !== null)
+                .slice(0, 3)
+                .map(o => ({ label: String(o.label || ''), expr: String(o.expr),
+                             unit: o.unit ? String(o.unit) : '', decimals: Math.max(0, Math.min(4, num(o.decimals, 2))) }));
+            if (!outputs.length) return null;   // nothing computable: not a slider
+            return { variable, label: String(v.label || variable), min, max, step, value,
+                     unit: v.unit ? String(v.unit) : '', constants, outputs, note: v.note ? String(v.note) : '' };
+        }
+
+        function visSlider(v) {
+            const spec = sliderSpec(v);
+            if (!spec) return '';
+            const id = 'slider' + (++visualSeq);
+            return `<div class="vis-slider" data-vis-interactive="slider" data-spec="${escAttr(JSON.stringify(spec))}">
+                <div class="slider-head">
+                    <label class="slider-label" for="${id}">${esc(spec.label)}</label>
+                    <output class="slider-value" data-slider-out>${esc(fmtNum(spec.value, 2))}${esc(spec.unit)}</output>
+                </div>
+                <input class="slider-input" id="${id}" type="range"
+                       min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${spec.value}">
+                <div class="slider-outputs">${spec.outputs.map((o, i) => `
+                    <div class="slider-out">
+                        <span class="slider-out-label">${esc(o.label)}</span>
+                        <span class="slider-out-value" data-out="${i}"></span>
+                    </div>`).join('')}</div>
+                ${spec.note ? `<div class="vis-note">${esc(spec.note)}</div>` : ''}
+            </div>`;
+        }
+
+        function wireSlider(el) {
+            const spec = JSON.parse(el.dataset.spec);
+            const input = el.querySelector('.slider-input');
+            const readout = el.querySelector('[data-slider-out]');
+            if (!input) return;
+
+            const update = () => {
+                const value = Number(input.value);
+                if (readout) readout.textContent = fmtNum(value, 2) + spec.unit;
+                spec.outputs.forEach((o, i) => {
+                    const cell = el.querySelector(`[data-out="${i}"]`);
+                    if (!cell) return;
+                    const result = tryExpr(o.expr, { ...spec.constants, [spec.variable]: value });
+                    cell.textContent = result === null ? '—' : fmtNum(result, o.decimals) + o.unit;
+                });
+            };
+            input.oninput = update;
+            update();
+        }
+
+        // ---- The registry ----------------------------------------------------
+        // `use` and `spec` are what the model is shown; `check` is what a spec
+        // must survive to be drawn; `draw` draws it. One entry per type, so the
+        // catalogue in the prompt can never describe a type the app cannot draw.
+        const VISUALS = {
+            flow: {
+                use: 'a process or sequence of steps',
+                spec: '{"type":"flow","steps":["Step one","Step two","Step three"]}',
+                check: v => Array.isArray(v.steps) && v.steps.filter(Boolean).length >= 2,
+                draw: visFlow,
+            },
+            cycle: {
+                use: 'a process that returns to its start (a loop, a repeating cycle)',
+                spec: '{"type":"cycle","steps":["Stage one","Stage two","Stage three"],"note":"optional"}',
+                check: v => Array.isArray(v.steps) && v.steps.filter(Boolean).length >= 2,
+                draw: visCycle,
+            },
+            compare: {
+                use: 'two things side by side',
+                spec: '{"type":"compare","left":{"title":"A","points":["…"]},"right":{"title":"B","points":["…"]}}',
+                check: v => v.left && v.right && Array.isArray(v.left.points) && Array.isArray(v.right.points),
+                draw: visCompare,
+            },
+            venn: {
+                use: 'two categories that overlap — what belongs to each, and what to both',
+                spec: '{"type":"venn","left":{"title":"A","points":["…"]},"right":{"title":"B","points":["…"]},"overlap":{"title":"both","points":["…"]}}',
+                check: v => v.left?.title && v.right?.title,
+                draw: visVenn,
+            },
+            hierarchy: {
+                use: 'a whole and its parts',
+                spec: '{"type":"hierarchy","root":"Main idea","children":["Part one","Part two"]}',
+                check: v => v.root && Array.isArray(v.children) && v.children.filter(Boolean).length >= 1,
+                draw: visHierarchy,
+            },
+            timeline: {
+                use: 'events in chronological order',
+                spec: '{"type":"timeline","events":[{"label":"1990","text":"What happened"}]}',
+                check: v => Array.isArray(v.events) && v.events.some(e => e && (e.label || e.text)),
+                draw: visTimeline,
+            },
+            table: {
+                use: 'structured facts with the same fields repeated',
+                spec: '{"type":"table","headers":["Col A","Col B"],"rows":[["a1","b1"],["a2","b2"]]}',
+                check: v => Array.isArray(v.headers) && v.headers.length
+                            && Array.isArray(v.rows) && v.rows.some(r => Array.isArray(r) && r.length),
+                draw: visTable,
+            },
+            grid: {
+                use: 'a labelled grid — a times table, a case matrix, a Punnett square. "highlight" marks [row,col] cells',
+                spec: '{"type":"grid","rowHeaders":["r1","r2"],"colHeaders":["c1","c2"],"cells":[["a","b"],["c","d"]],"highlight":[[0,1]]}',
+                check: v => Array.isArray(v.cells) && v.cells.some(r => Array.isArray(r) && r.length),
+                draw: visGrid,
+            },
+            bar: {
+                use: 'comparing quantities of the same kind',
+                spec: '{"type":"bar","unit":"%","bars":[{"label":"X","value":40},{"label":"Y","value":75}]}',
+                check: v => Array.isArray(v.bars) && v.bars.some(b => b && typeof b.value === 'number' && isFinite(b.value)),
+                draw: visBar,
+            },
+            pie: {
+                use: 'parts of one whole (percentages of a total, a budget split)',
+                spec: '{"type":"pie","unit":"%","slices":[{"label":"A","value":40},{"label":"B","value":60}]}',
+                check: v => Array.isArray(v.slices) && v.slices.filter(s => s && num(s.value, -1) > 0).length >= 2,
+                draw: visPie,
+            },
+            shape: {
+                use: 'geometry — a figure with named sides, angles and vertices. shape: triangle | right-triangle | square | rectangle | circle | polygon. "sides" are the real lengths of edge 0 (vertex 0→1), edge 1 (1→2), edge 2 (2→0); give them and the figure is drawn to scale and the right angle is really a right angle. sideLabels / angles / vertices label those same parts in the same order',
+                spec: '{"type":"shape","shape":"right-triangle","sides":[3,4,5],"sideLabels":["a = 3","b = 4","c = 5"],"angles":["","90°",""],"vertices":["A","B","C"],"caption":"optional"}',
+                check: v => !!shapeGeometry(v),
+                draw: visShape,
+            },
+            formula: {
+                use: 'a rule or formula, with every symbol in it explained',
+                spec: '{"type":"formula","expression":"A = (b × h) / 2","where":[{"symbol":"b","meaning":"base"},{"symbol":"h","meaning":"height"}],"note":"optional"}',
+                check: v => !!v.expression,
+                draw: visFormula,
+            },
+            equation: {
+                use: 'a calculation or derivation worked line by line, each line saying what changed',
+                spec: '{"type":"equation","lines":[{"expr":"2x + 4 = 10","note":"start"},{"expr":"2x = 6","note":"subtract 4"},{"expr":"x = 3","note":"divide by 2"}]}',
+                check: v => Array.isArray(v.lines) && v.lines.filter(l => l && l.expr).length >= 2,
+                draw: visEquation,
+            },
+            numberline: {
+                use: 'where values sit on a scale — a threshold, a bracket, a range that satisfies a condition',
+                spec: '{"type":"numberline","min":0,"max":100,"step":20,"points":[{"value":65,"label":"pass"}],"ranges":[{"from":65,"to":100,"label":"passing"}]}',
+                check: v => num(v.max, 0) > num(v.min, 0),
+                draw: visNumberline,
+            },
+            plot: {
+                use: 'how one quantity changes with another (at most two series)',
+                spec: '{"type":"plot","xLabel":"years","yLabel":"₪","series":[{"label":"balance","points":[[0,1000],[1,1050],[2,1102]]}]}',
+                check: v => Array.isArray(v.series) && v.series.some(s => s && plotPoints(s).length >= 2),
+                draw: visPlot,
+            },
+            gematria: {
+                use: 'Hebrew letters as numbers. Give the words and what they mean — the app computes every value and total itself, so never write the sums yourself. method: standard | gadol | ordinal | katan',
+                spec: '{"type":"gematria","method":"standard","words":[{"word":"אמת","note":"what the source says about it"}]}',
+                check: v => Array.isArray(v.words) && v.words.some(w => w && w.word && gematriaBreakdown(w.word, v.method).letters.length),
+                draw: visGematria,
+            },
+            reveal: {
+                use: 'INTERACTIVE. Cards the learner taps to uncover — a term whose meaning should be recalled before it is read',
+                spec: '{"type":"reveal","items":[{"label":"Term","text":"What it means"},{"label":"Term 2","text":"…"}]}',
+                check: v => Array.isArray(v.items) && v.items.filter(i => i && i.label && i.text).length >= 2,
+                draw: visReveal,
+            },
+            slider: {
+                use: 'INTERACTIVE. A quantity the learner drags while dependent values recompute live. "outputs" are formulas in the slider variable and any "constants"; use it whenever one number depends on another',
+                spec: '{"type":"slider","variable":"b","label":"Base (cm)","min":1,"max":12,"step":1,"value":4,"unit":" cm","constants":{"h":6},"outputs":[{"label":"Area","expr":"b * h / 2","unit":" cm²","decimals":1}]}',
+                check: v => !!sliderSpec(v),
+                draw: visSlider,
+            },
+        };
+
+        // What the model is allowed to return, written out of the registry so the
+        // prompt and the renderer can never disagree.
+        function visualCatalogue() {
+            return Object.entries(VISUALS)
+                .map(([name, def]) => `  "${name}" — ${def.use}\n      ${def.spec}`)
+                .join('\n');
         }
 
         // ============= Grounding lessons in the source =============
@@ -2943,17 +3854,22 @@ ${languageRule()}`;
         }
 
         // Returns the inner HTML for a question body (without the eyebrow).
+        // A figure attached to the question is drawn above it — for a hotspot
+        // question the figure *is* the answer sheet, so that one draws its own.
         function renderQuestion(q, idPrefix) {
             const p = idPrefix || 'q';
+            const figure = (q.visual && q.type !== 'hotspot') ? renderVisual(q.visual) : '';
             switch (q.type) {
-                case 'boolean':    return renderBoolean(q, p);
-                case 'order':      return renderOrder(q, p);
-                case 'categorize': return renderCategorize(q, p);
-                case 'match':      return renderMatch(q, p);
-                case 'blank':      return renderBlank(q, p);
+                case 'boolean':    return figure + renderBoolean(q, p);
+                case 'order':      return figure + renderOrder(q, p);
+                case 'categorize': return figure + renderCategorize(q, p);
+                case 'match':      return figure + renderMatch(q, p);
+                case 'blank':      return figure + renderBlank(q, p);
+                case 'numeric':    return figure + renderNumeric(q, p);
+                case 'hotspot':    return renderHotspot(q, p);
                 case 'choice':
                 case 'mistake':
-                default:           return renderChoice(q, p);
+                default:           return figure + renderChoice(q, p);
             }
         }
 
@@ -3011,6 +3927,25 @@ ${languageRule()}`;
                     <div class="cat-buckets" id="catBuckets">${buckets}</div>`;
         }
 
+        // A typed number. Multiple choice on a calculation gives the answer away
+        // — four options and one of them is right — so anything the learner is
+        // meant to *work out* is asked this way instead.
+        function renderNumeric(q, p) {
+            return `<h2 class="question-text">${esc(q.text)}</h2>
+                    <div class="numeric-row">
+                        <input class="text-input numeric-input" id="numericInput" type="text"
+                               inputmode="decimal" autocomplete="off" placeholder="Your answer">
+                        ${q.unit ? `<span class="numeric-unit">${esc(q.unit)}</span>` : ''}
+                    </div>
+                    <button class="button numeric-submit" id="numericSubmit">Check</button>`;
+        }
+
+        function renderHotspot(q, p) {
+            return `<h2 class="question-text">${esc(q.text)}</h2>
+                    <div class="step-note">Tap the part of the figure</div>
+                    <div class="hotspot-figure" id="hotspotFigure">${renderVisual(q.visual, { interactive: true })}</div>`;
+        }
+
         function renderMatch(q, p) {
             // Two columns; tap left then right to connect. Right side shuffled.
             const left = q.pairs.map((pair, i) =>
@@ -3046,11 +3981,75 @@ ${languageRule()}`;
                 case 'order':      return wireOrder(q, done);
                 case 'categorize': return wireCategorize(q, done);
                 case 'match':      return wireMatch(q, done);
+                case 'numeric':    return wireNumeric(q, done);
+                case 'hotspot':    return wireHotspot(q, done);
                 case 'blank':
                 case 'choice':
                 case 'mistake':
                 default:           return wireChoice(q, done);
             }
+        }
+
+        // What a learner types is not what a parser wants: thousands separators,
+        // a comma for the decimal point, the unit typed out after the number, a
+        // percent sign. Read the number out of it rather than rejecting it.
+        function parseLearnerNumber(raw) {
+            const cleaned = String(raw || '')
+                .replace(/[−–—]/g, '-')
+                .replace(/[\s '`״׳]/g, '')
+                .replace(/,(?=\d{3}\b)/g, '')     // 1,200 → 1200
+                .replace(/,/g, '.');              // 3,5 → 3.5
+            const m = /-?\d+(\.\d+)?/.exec(cleaned);
+            return m ? Number(m[0]) : null;
+        }
+
+        function wireNumeric(q, done) {
+            const input = document.getElementById('numericInput');
+            const submit = document.getElementById('numericSubmit');
+            if (!input || !submit) return;
+
+            const grade = () => {
+                const value = parseLearnerNumber(input.value);
+                if (value === null) { input.classList.add('shake'); setTimeout(() => input.classList.remove('shake'), 400); return; }
+                // A tolerance of zero still needs a float epsilon: 0.1 + 0.2 is
+                // not 0.3 in any language, and the learner typed 0.3.
+                const isRight = Math.abs(value - q.answer) <= (q.tolerance || 1e-9);
+                input.disabled = true;
+                submit.disabled = true;
+                input.classList.add(isRight ? 'is-correct' : 'is-incorrect');
+                const shown = fmtNum(q.answer, 4) + (q.unit || '');
+                done(isRight, isRight ? q.explanation
+                    : [`The answer is ${shown}.`, q.explanation].filter(Boolean).join(' '));
+            };
+
+            submit.onclick = grade;
+            input.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); grade(); } };
+            input.focus({ preventScroll: true });
+        }
+
+        function wireHotspot(q, done) {
+            const figure = document.getElementById('hotspotFigure');
+            if (!figure) return;
+            const parts = [...figure.querySelectorAll('[data-part]')];
+
+            const pick = el => {
+                if (figure.classList.contains('is-answered')) return;
+                figure.classList.add('is-answered');
+                const isRight = el.dataset.part === q.target;
+                parts.forEach(p => {
+                    if (p.dataset.part === q.target) p.classList.add('is-right');
+                    else if (p === el) p.classList.add('is-wrong');
+                    p.removeAttribute('tabindex');
+                });
+                done(isRight);
+            };
+
+            parts.forEach(el => {
+                el.onclick = () => pick(el);
+                el.onkeydown = e => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(el); }
+                };
+            });
         }
 
         // Duolingo's signature moment: a colored banner docks in from the bottom
@@ -3430,6 +4429,8 @@ ${languageRule()}`;
                 reviewComplete: () => stepReviewComplete(),
             };
             body.innerHTML = renderers[s.type]();
+            // Interactive diagrams arrive inert, whichever step drew them.
+            wireVisuals(body);
             wireStep(s);
             const scroller = document.getElementById('lessonScroll');
             if (scroller) {

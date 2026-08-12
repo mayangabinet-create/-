@@ -48,7 +48,10 @@ console.log("\n== classification ==");
   ok("just under the course line buys nothing", classify(3499).kind === "free");
   ok("a free call is capped at 1000 output", classify(250).cap === 1000);
   ok("garbage max_tokens is free work", classify(undefined).kind === "free");
-  ok("a huge max_tokens is still capped", classify(999999).cap === 5000);
+  ok("a huge max_tokens is still capped", classify(999999).cap === 6000);
+  // A client from before the cap rose asks for 5000 and must still buy a
+  // lesson: the threshold is what classifies, the cap is only the ceiling.
+  ok("an older client still buys a lesson at 5000", classify(5000).cap === 6000);
   // The dock is gone from the client, but the client being served still sends
   // this label. A server that stops accepting it 400s a request that worked
   // yesterday — the allowlist has to lag the client, not lead it.

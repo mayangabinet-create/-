@@ -89,14 +89,20 @@ export function minCacheChars(model) {
 
 /**
  * What is being bought, derived from `max_tokens` rather than the client's
- * `task` label: a course plan asks for 4000 and a lesson for 5000, while
+ * `task` label: a course plan asks for 4000 and a lesson for 6000, while
  * feedback (250) sits far below. Anything under the course threshold is
  * clamped to 1000 output tokens, so a request crafted just below the line
  * cannot buy a lesson's worth of generation for free.
+ *
+ * The lesson cap rose from 5000 with the drawn-figure lesson format: a lesson
+ * that runs out of output tokens mid-JSON is a lesson that will not open. The
+ * threshold did not move, so a client still asking for 5000 classifies as a
+ * lesson exactly as it did — old clients keep working, they just don't use the
+ * extra room.
  */
 export function classify(maxTokens) {
   const n = Number(maxTokens) || 0;
-  if (n >= 4500) return { kind: "lesson", cap: 5000 };
+  if (n >= 4500) return { kind: "lesson", cap: 6000 };
   if (n >= 3500) return { kind: "course", cap: 4000 };
   return { kind: "free", cap: 1000 };
 }

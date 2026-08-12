@@ -12,11 +12,15 @@
         // unguarded call here would throw and silently take the whole app down
         // instead of just the parts that need a network call.
         if (!window.supabase) {
+            // The one screen that has to render when nothing else did. It uses the
+            // page's own tokens — they live in index.html's <style>, which has
+            // already parsed by the time this runs — so even the failure state is
+            // part of the same design rather than a bare browser-looking page.
             document.body.innerHTML = `
-                <div style="max-width:420px;margin:15vh auto;text-align:center;padding:24px;font-family:'Nunito',sans-serif;color:#3C3C3C;">
-                    <h2 style="font-family:'Baloo 2',sans-serif;margin-bottom:12px;">Couldn't load the app</h2>
-                    <p style="color:#777;margin-bottom:20px;">A required script didn't load. Check your internet connection, or try disabling an ad-blocker/VPN for this site, then try again.</p>
-                    <button onclick="location.reload()" style="padding:12px 28px;border-radius:12px;border:none;background:#1CB0F6;color:#fff;font-weight:800;font-size:1em;cursor:pointer;">Try again</button>
+                <div style="max-width:38ch;margin:15vh auto;text-align:center;padding:var(--sp-6);font-family:var(--font);color:var(--text);">
+                    <h2 style="font-size:var(--fs-h2);margin-bottom:var(--sp-3);">Couldn't load the app</h2>
+                    <p style="color:var(--text-muted);line-height:var(--lh-body);margin-bottom:var(--sp-5);">A required script didn't load. Check your internet connection, or try turning off an ad-blocker or VPN for this site, then try again.</p>
+                    <button onclick="location.reload()" style="min-height:48px;padding:0 var(--sp-5);border:none;border-bottom:var(--press) solid var(--brand-strong);border-radius:var(--r-md);background:var(--brand);color:var(--text-inverse);font-family:var(--font);font-weight:700;font-size:var(--fs-body);cursor:pointer;">Try again</button>
                 </div>`;
             throw new Error('supabase-js failed to load from CDN');
         }

@@ -1,7 +1,7 @@
 # AI Learning Path
 
-Two files — `index.html` (markup + styles) and `app.js` — in Duolingo's visual
-language, with no build step and no framework. Sign in, name your course, upload a
+Two files — `index.html` (markup + styles) and `app.js` — plus a `fonts/` folder,
+with no build step and no framework. Sign in, name your course, upload a
 PDF (or paste text), and the app turns it into a Duolingo-style learning path: 10-20
 concepts extracted and ordered by prerequisite, each opening a multi-step interactive
 lesson grounded in your own document. Courses can be renamed any time, from the card
@@ -67,10 +67,21 @@ or a duration — if a literal would appear twice, it becomes a token instead.
   *only* the AI tutor, so "this came from the model" is legible at a glance. Every
   `--*-text` value clears 4.5:1 on the surface it is paired with, and every fill
   clears 4.5:1 under white label text.
-- **Type.** One family (Nunito) at four weights. A second display face only put two
+- **Type.** One family, Nunito, at four weights. A second display face only put two
   rounded fonts in competition; size and weight carry the hierarchy instead. Sizes
   are a fixed rem scale — 12 / 14 / 16 / 17 / 18 / 22 / 28 / 32 — not the four dozen
   ad-hoc `em` values that came before, and the scale shifts down one step below 768px.
+- **The font is self-hosted** from `fonts/`, not fetched from Google: the typography
+  is part of the design, so it can't depend on a third party being reachable, and
+  relative paths keep it working from `file://` too. One variable file per script,
+  so an English course pulls 39KB and nothing else — the `unicode-range` on each
+  face is what stops the browser fetching Cyrillic for a Latin page. A metric-matched
+  `Nunito Fallback` (measured, not guessed: same width to within 1%, and Nunito's
+  line box rather than Arial's shallower one) holds the layout still for the moment
+  before it paints — with the font blocked outright, every measured box on the path
+  screen still comes out to the same pixel. Nunito has no Hebrew or Arabic glyphs,
+  so RTL course content falls to a system face; pairing a Hebrew companion with it
+  is an open decision.
 - **Space** is a 4-based scale with no values in between. **Radius** is five steps:
   6 for bars, 10 for inner boxes, 12 for buttons and inputs, 16 for cards, 20 for
   modals.
@@ -97,7 +108,7 @@ out; doing poorly resets it to a daily review.
 ## Architecture
 
 The frontend is `index.html` (`<style>` + markup) plus `app.js` (vanilla JS, no
-framework or build step), backed by a real Supabase project ("Mayan ai app",
+framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan ai app",
 `kgkdkkqoebnpahvetwzk`):
 
 - **Auth** — Supabase Auth (email + password). No API key ever reaches the browser.

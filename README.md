@@ -50,6 +50,41 @@ ever left showing underneath something else.
 Each screen's empty state carries the button that resolves it: no courses yet ends
 in "Create a course", signed out ends in "Sign in".
 
+On a phone the tabs are a bottom bar; from 900px up the same four buttons become a
+left rail, so a wide window buys content width instead of stretching a phone layout
+across it.
+
+## Design system
+
+Everything visual is defined once, in the token block at the top of `index.html`'s
+`<style>`. Below that block nothing hard-codes a colour, a radius, a spacing value
+or a duration — if a literal would appear twice, it becomes a token instead.
+
+- **Colour.** Six hues, each with a job, and nothing decorative. Green is the
+  product: progress, and the primary action. Blue explains — diagrams, links, the
+  focus ring. Gold marks the one node on the path you are meant to tap next. Amber
+  warns and marks a review as due. Red destroys or fails. Violet is the AI tutor and
+  *only* the AI tutor, so "this came from the model" is legible at a glance. Every
+  `--*-text` value clears 4.5:1 on the surface it is paired with, and every fill
+  clears 4.5:1 under white label text.
+- **Type.** One family (Nunito) at four weights. A second display face only put two
+  rounded fonts in competition; size and weight carry the hierarchy instead. Sizes
+  are a fixed rem scale — 12 / 14 / 16 / 17 / 18 / 22 / 28 / 32 — not the four dozen
+  ad-hoc `em` values that came before, and the scale shifts down one step below 768px.
+- **Space** is a 4-based scale with no values in between. **Radius** is five steps:
+  6 for bars, 10 for inner boxes, 12 for buttons and inputs, 16 for cards, 20 for
+  modals.
+- **Depth means interactive.** The pressed-button bottom edge is the app's signature,
+  so only things you can actually press get one. Static cards use a hairline border
+  and the smallest shadow, which is what tells them apart from a button at a glance.
+- **Motion** is 120ms for a press, 180ms for hover and colour, 240ms for enter and
+  exit, and every one of them is switched off under `prefers-reduced-motion`.
+
+Components exist once: one button (four emphasis levels, two sizes, a loading state),
+one input, one chip, one card, one callout, one stat tile, one empty state, one
+overlay. Where the same thing used to be styled three times — three stat tiles, five
+chips, six callouts, three overlays — it is now one rule plus a modifier.
+
 ## Spaced repetition
 
 Completed lessons are scheduled for review using a simplified SM-2 algorithm based on

@@ -43,7 +43,6 @@
         }
         const ICONS = {
             flame: svgIcon('<path d="M12 2c1 3-3 4.5-3 8.5a3 3 0 006 0c0-1-.6-1.8-.6-1.8 2 1.2 3.6 3.4 3.6 6a6 6 0 01-12 0C6 10 9.5 7 12 2z"/>', { fill: true }),
-            gem: svgIcon('<path d="M3 8.5L7 3h10l4 5.5L12 21z"/><path d="M3 8.5h18M8.5 3L12 8.5 15.5 3M7 3l5 5.5M17 3l-5 5.5"/>'),
             star: svgIcon('<path d="M12 2.5l3 6.4 6.9.7-5.2 4.8 1.5 6.8L12 17.7 5.8 21.2l1.5-6.8-5.2-4.8 6.9-.7z"/>', { fill: true }),
             home: svgIcon('<path d="M3 11.5L12 4l9 7.5"/><path d="M5.5 10v9a1 1 0 001 1H10v-6h4v6h3.5a1 1 0 001-1v-9"/>'),
             book: svgIcon('<path d="M4 5a2 2 0 012-2h13v16H6a2 2 0 00-2 2V5z"/><path d="M4 19a2 2 0 012-2h13"/>'),
@@ -687,7 +686,9 @@ ${languageRule()}`;
             if (bodyHtml !== null) bodyEl.innerHTML = bodyHtml;
             else bodyEl.textContent = body;
             confirmBtn.textContent = confirmText;
-            confirmBtn.classList.toggle('reset-button', danger);
+            // A destructive confirm gets a red confirm button, not an outlined one:
+            // the button that does the damage should look like it.
+            confirmBtn.classList.toggle('button-danger', danger);
             card.classList.toggle('dialog-danger', danger);
             cancelBtn.hidden = cancelText === null;
             cancelBtn.textContent = cancelText || 'Cancel';
@@ -767,6 +768,17 @@ ${languageRule()}`;
 
         // Brief confirmation for things that worked. Never blocks, never covers the
         // header, disappears on its own.
+        // One loading state for every button that kicks off async work, instead of
+        // each call site swapping textContent and hoping to restore it. The label
+        // stays in the DOM (masked by the spinner) so the width doesn't jump and
+        // the accessible name survives.
+        function setButtonBusy(btn, busy) {
+            if (!btn) return;
+            btn.classList.toggle('is-loading', busy);
+            btn.disabled = busy;
+            btn.setAttribute('aria-busy', String(busy));
+        }
+
         function toast(message, kind = 'success') {
             const stack = document.getElementById('toastStack');
             if (!stack) return;
@@ -881,7 +893,6 @@ ${languageRule()}`;
         // rhythm (a banner every N nodes, a star node ending each unit) — the
         // underlying course/progress data has no notion of units.
         const UNIT_SIZE = 5;
-        const UNIT_COLORS = ['#58CC02', '#1CB0F6', '#CE82FF', '#FF9600', '#FF4B4B'];
 
         function displayLearningPath() {
             setScreen('path');
@@ -907,7 +918,6 @@ ${languageRule()}`;
                     const unitNum = Math.floor(index / UNIT_SIZE) + 1;
                     const banner = document.createElement('div');
                     banner.className = 'unit-banner';
-                    banner.style.background = UNIT_COLORS[(unitNum - 1) % UNIT_COLORS.length];
                     banner.innerHTML = `
                         <div class="unit-banner-label">Unit ${unitNum}</div>
                         <div class="unit-banner-title">${esc(concept.name)}</div>`;
@@ -916,7 +926,10 @@ ${languageRule()}`;
 
                 const isCheckpoint = (index + 1) % UNIT_SIZE === 0 || index === courseData.concepts.length - 1;
 
-                const node = document.createElement('div');
+                // A real <button>: the path is the app's main navigation and every
+                // node in it used to be a <div> that only a mouse could reach.
+                const node = document.createElement('button');
+                node.type = 'button';
                 node.className = 'lesson-node';
                 node.classList.add('locked');
                 if (isCheckpoint) node.classList.add('checkpoint');
@@ -941,12 +954,20 @@ ${languageRule()}`;
                 else if (node.classList.contains('completed') && !isCheckpoint) icon = ICONS.check;
                 else icon = ICONS.star;
 
+                // The circle carries an icon, not a number, so the accessible name
+                // has to spell out which lesson this is and what state it is in.
+                const state = node.classList.contains('completed') ? 'completed'
+                    : node.classList.contains('current') ? 'start here'
+                    : 'not started yet';
+                node.setAttribute('aria-label',
+                    `Lesson ${index + 1}: ${concept.name} — ${state}${dueNow ? ', due for review' : ''}`);
+
                 node.innerHTML = `
-                    <div class="lesson-circle">
+                    <span class="lesson-circle" aria-hidden="true">
                         <span>${icon}</span>
-                        ${dueNow ? '<span class="due-dot" title="Due for review"></span>' : ''}
-                    </div>
-                    <div class="lesson-label">${concept.name.substring(0, 18)}</div>
+                        ${dueNow ? '<span class="due-dot"></span>' : ''}
+                    </span>
+                    <span class="lesson-label" aria-hidden="true">${esc(concept.name)}</span>
                 `;
 
                 // Celebrate nodes that just became available
@@ -1323,13 +1344,20 @@ ${languageRule()}`;
         }
 
         // Gems are a cosmetic currency derived from XP — no separate ledger to keep in sync.
+        // Two numbers that move on their own. "Gems" was XP divided by twenty — the
+        // same fact twice, dressed as a third stat, so it's gone. The HUD itself is
+        // hidden until there is something in it, rather than showing a row of zeroes
+        // to someone who hasn't started.
         function renderHud() {
             const streakEl = document.getElementById('hudStreak');
             if (!streakEl) return;
             const totalXp = Object.values(progress).reduce((sum, p) => sum + (p?.xp || 0), 0);
-            streakEl.textContent = getStreak();
+            const streak = getStreak();
+            streakEl.textContent = streak;
             document.getElementById('hudXp').textContent = totalXp;
-            document.getElementById('hudGems').textContent = Math.floor(totalXp / 20);
+
+            const hud = document.getElementById('duoHud');
+            if (hud) hud.hidden = !currentUser || (!streak && !totalXp);
         }
 
         // Build the segmented step-progress pills once we know how many steps a
@@ -1355,8 +1383,12 @@ ${languageRule()}`;
             const el = document.getElementById('topbarHearts');
             if (!el || !lessonState) return;
             const left = lessonState.heartsLeft ?? 5;
+            // Five full hearts say nothing has happened yet — five saturated red
+            // shapes to carry no information. The row appears the moment one is lost.
+            el.hidden = left >= 5;
+            el.setAttribute('aria-label', `${left} of 5 hearts left`);
             el.innerHTML = Array.from({ length: 5 }, (_, i) =>
-                `<span class="heart${i < left ? '' : ' lost'}">${ICONS.heart}</span>`).join('');
+                `<span class="heart${i < left ? '' : ' lost'}" aria-hidden="true">${ICONS.heart}</span>`).join('');
         }
 
         // ============= Usage & cost tracking =============
@@ -1549,7 +1581,7 @@ ${languageRule()}`;
                     <p class="account-card-note">
                         ${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free — only new generation counts.
                     </p>
-                    <button class="button" id="acctPlans">${ent?.active ? 'Change plan' : 'See plans'}</button>
+                    <button class="button button-secondary" id="acctPlans">${ent?.active ? 'Change plan' : 'See plans'}</button>
                 </section>
 
                 <section class="account-card">
@@ -2103,26 +2135,50 @@ ${languageRule()}`;
             count.textContent = `${library.length} of ${MAX_COURSES} kept`
                 + (monthly ? ` · ${usage.coursesMonth} of ${monthly.courses} built this month` : '');
             empty.hidden = library.length > 0;
+            // The empty state carries its own primary action; two "New course"
+            // buttons on one screen is one too many.
+            const newBtn = document.getElementById('newCourseBtn');
+            if (newBtn) newBtn.hidden = library.length === 0;
             grid.innerHTML = library.map(c => {
                 const pct = courseProgressPct(c.id);
                 const rtl = RTL_LANGUAGES.includes(c.language);
+                const done = c.completedCount || 0;
                 return `
-                <div class="course-card" data-id="${esc(c.id)}">
-                    <button class="course-delete" data-del="${esc(c.id)}" aria-label="Delete course" title="Delete">×</button>
-                    <button class="course-rename" data-rename="${esc(c.id)}" aria-label="Rename course" title="Rename">${ICONS.pencil}</button>
-                    <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
-                    <div class="course-meta">${c.conceptCount} lessons · ${esc(c.language)}</div>
-                    <div class="course-bar"><div class="course-bar-fill" style="width:${pct}%"></div></div>
-                    <div class="course-pct">${pct}% complete</div>
+                <div class="course-card" data-id="${esc(c.id)}" role="button" tabindex="0"
+                     aria-label="Open ${esc(c.title)} — ${pct}% complete">
+                    <div class="course-card-head">
+                        <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
+                        <div class="course-card-actions">
+                            <button type="button" class="course-rename" data-rename="${esc(c.id)}"
+                                    aria-label="Rename ${esc(c.title)}" title="Rename">${ICONS.pencil}</button>
+                            <button type="button" class="course-delete" data-del="${esc(c.id)}"
+                                    aria-label="Delete ${esc(c.title)}" title="Delete">${ICONS.trash}</button>
+                        </div>
+                    </div>
+                    <div class="course-meta">${done} of ${c.conceptCount} lessons · ${esc(c.language)}</div>
+                    <div class="course-progress-row">
+                        <div class="course-bar"><div class="course-bar-fill" style="width:${pct}%"></div></div>
+                        <span class="course-pct">${pct}%</span>
+                    </div>
                 </div>`;
             }).join('');
 
             grid.querySelectorAll('.course-card').forEach(card => {
-                card.onclick = async (e) => {
+                const open = async (e) => {
                     // closest(), not e.target.dataset — a tap usually lands on the
                     // icon's <svg>/<path>, not on the button carrying the data attribute.
                     if (e.target.closest('[data-del], [data-rename]')) return;
                     await openCourse(card.dataset.id);
+                };
+                card.onclick = open;
+                // A card holds its own buttons, so it can't be a <button> itself
+                // without nesting them. role=button plus the two keys a button
+                // answers to is the accessible equivalent.
+                card.onkeydown = (e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    if (e.target !== card) return;
+                    e.preventDefault();
+                    open(e);
                 };
             });
             grid.querySelectorAll('[data-rename]').forEach(btn => {
@@ -2184,6 +2240,7 @@ ${languageRule()}`;
 
         // ============= Lesson preview =============
         let previewIndex = null;
+        let previewRelease = null;
 
         function openPreview(index) {
             const concept = courseData.concepts[index];
@@ -2221,13 +2278,17 @@ ${languageRule()}`;
             const ov = document.getElementById('previewOverlay');
             ov.classList.add('show');
             ov.setAttribute('aria-hidden', 'false');
-            document.getElementById('previewStart').focus();
+            // Tab used to walk straight out of the open dialog into the path behind
+            // it, the way it already couldn't in the other two dialogs.
+            previewRelease = trapFocus(document.getElementById('previewCard'),
+                document.getElementById('previewStart'));
         }
 
         function closePreview() {
             const ov = document.getElementById('previewOverlay');
             ov.classList.remove('show');
             ov.setAttribute('aria-hidden', 'true');
+            if (previewRelease) { previewRelease(); previewRelease = null; }
             previewIndex = null;
         }
 
@@ -2318,10 +2379,13 @@ ${languageRule()}`;
             }
         }
 
+        // Answers are <button>s, not clickable <div>s: the whole quiz — the core of
+        // the product — used to be unreachable by keyboard and announced as plain
+        // text to a screen reader.
         function renderChoice(q, p) {
             const opts = q.options.map((o, i) =>
-                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
-            return `<div class="question-text">${esc(q.text)}</div>
+                `<button type="button" class="option" data-answer="${i}">${esc(o)}</button>`).join('');
+            return `<h2 class="question-text">${esc(q.text)}</h2>
                     <div class="options" id="answerOpts">${opts}</div>`;
         }
 
@@ -2329,17 +2393,17 @@ ${languageRule()}`;
             // Render the sentence with the gap highlighted, options below.
             const sentence = esc(q.text).replace(/_{2,}|＿+/g, '<span class="blank-gap">?</span>');
             const opts = q.options.map((o, i) =>
-                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
-            return `<div class="question-text blank-sentence">${sentence}</div>
+                `<button type="button" class="option" data-answer="${i}">${esc(o)}</button>`).join('');
+            return `<h2 class="question-text blank-sentence">${sentence}</h2>
                     <div class="step-note">Choose the word that fills the gap</div>
                     <div class="options" id="answerOpts">${opts}</div>`;
         }
 
         function renderBoolean(q, p) {
-            return `<div class="question-text">${esc(q.text)}</div>
+            return `<h2 class="question-text">${esc(q.text)}</h2>
                     <div class="bool-row" id="answerOpts">
-                        <div class="option bool-opt" data-answer="true">${ICONS.check} True</div>
-                        <div class="option bool-opt" data-answer="false">${ICONS.x} False</div>
+                        <button type="button" class="option bool-opt" data-answer="true">${ICONS.check} True</button>
+                        <button type="button" class="option bool-opt" data-answer="false">${ICONS.x} False</button>
                     </div>`;
         }
 
@@ -2348,7 +2412,7 @@ ${languageRule()}`;
             const shuffled = shuffle(q.items.map((text, idx) => ({ text, idx })));
             const pool = shuffled.map(it =>
                 `<button class="order-chip" data-idx="${it.idx}">${esc(it.text)}</button>`).join('');
-            return `<div class="question-text">${esc(q.text)}</div>
+            return `<h2 class="question-text">${esc(q.text)}</h2>
                     <div class="step-note">Tap in the correct order</div>
                     <ol class="order-slots" id="orderSlots"></ol>
                     <div class="order-pool" id="orderPool">${pool}</div>
@@ -2363,7 +2427,7 @@ ${languageRule()}`;
                  </div>`).join('');
             const pool = shuffle(q.items.map((it, idx) => ({ it, idx }))).map(({ it, idx }) =>
                 `<button class="cat-chip" data-idx="${idx}">${esc(it.text)}</button>`).join('');
-            return `<div class="question-text">${esc(q.text)}</div>
+            return `<h2 class="question-text">${esc(q.text)}</h2>
                     <div class="step-note">Tap an item, then tap its group</div>
                     <div class="cat-pool" id="catPool">${pool}</div>
                     <div class="cat-buckets" id="catBuckets">${buckets}</div>`;
@@ -2375,7 +2439,7 @@ ${languageRule()}`;
                 `<button class="match-item match-left" data-left="${i}">${esc(pair.left)}</button>`).join('');
             const right = shuffle(q.pairs.map((pair, i) => ({ text: pair.right, i })))
                 .map(r => `<button class="match-item match-right" data-right="${r.i}">${esc(r.text)}</button>`).join('');
-            return `<div class="question-text">${esc(q.text)}</div>
+            return `<h2 class="question-text">${esc(q.text)}</h2>
                     <div class="step-note">Tap a term, then tap its match</div>
                     <div class="match-grid">
                         <div class="match-col" id="matchLeft">${left}</div>
@@ -2417,11 +2481,23 @@ ${languageRule()}`;
             const bar = document.getElementById('feedbackBar');
             if (!bar) return;
             bar.className = 'feedback-bar show ' + (correct ? 'feedback-ok' : 'feedback-bad');
+            // The inner wrapper is what the grid row animates against, so a long
+            // explanation grows the banner instead of being clipped by a fixed
+            // max-height the way it used to be.
             bar.innerHTML = `
-                <div class="feedback-head">${correct ? ICONS.check + ' Nice!' : ICONS.x + ' Not quite'}</div>
-                <div class="feedback-body">${explanation ? esc(explanation) : ''}</div>
-                <button class="button step-next" id="stepNext">Continue</button>`;
-            document.getElementById('stepNext').onclick = advanceStep;
+                <div>
+                    <div class="feedback-inner">
+                        <div class="feedback-head">${correct ? ICONS.check + ' Nice!' : ICONS.x + ' Not quite'}</div>
+                        <div class="feedback-body">${explanation ? esc(explanation) : ''}</div>
+                        <button class="button step-next" id="stepNext">Continue</button>
+                    </div>
+                </div>`;
+            const next = document.getElementById('stepNext');
+            next.onclick = advanceStep;
+            // The verdict is the only thing that matters at this moment; put the
+            // keyboard on the button that moves past it.
+            if (!prefersReducedMotion()) setTimeout(() => next.focus({ preventScroll: true }), 60);
+            else next.focus({ preventScroll: true });
         }
 
         function lockOptions() {
@@ -2570,7 +2646,9 @@ ${languageRule()}`;
             const rightBtns = [...document.querySelectorAll('.match-right')];
             let selLeft = null;
             const matched = {};   // left index -> right index
-            const palette = ['#1CB0F6', '#CE82FF', '#58CC02', '#FFC800', '#FF4B4B', '#FF9600'];
+            // Pair colours are functional — they only have to be told apart — but
+            // they still come from the app's palette rather than a sixth set of hues.
+            const palette = ['#0B6FA3', '#7C3FBF', '#3E8523', '#A8620A', '#C81E1E', '#0F766E'];
 
             leftBtns.forEach(btn => {
                 btn.onclick = () => {
@@ -2743,6 +2821,17 @@ ${languageRule()}`;
             const feedbackBar = document.getElementById('feedbackBar');
             if (feedbackBar) { feedbackBar.className = 'feedback-bar'; feedbackBar.innerHTML = ''; }
 
+            // "7 min · Difficulty · 16 steps" answers "should I start this?" — a
+            // question you only ask once. Leaving it above every question ate the
+            // top of a phone screen on all sixteen steps.
+            const meta = document.getElementById('lessonMeta');
+            if (meta) meta.hidden = step > 0;
+
+            // The lesson is over on these two steps; a dock offering to explain it
+            // is just chrome sitting under the result.
+            const dock = document.getElementById('tutorDock');
+            if (dock) dock.hidden = s.type === 'complete' || s.type === 'reviewComplete';
+
             const body = document.getElementById('lessonExplanation');
 
             // Commit exactly once, before rendering the complete screen.
@@ -2785,10 +2874,10 @@ ${languageRule()}`;
 
         function stepPrediction(l) {
             const opts = l.prediction.options.map((o, i) =>
-                `<div class="option" data-pick="${i}">${esc(o)}</div>`).join('');
+                `<button type="button" class="option" data-pick="${i}">${esc(o)}</button>`).join('');
             return `
                 <div class="step-eyebrow">Guess before we explain</div>
-                <div class="question-text">${esc(l.prediction.question)}</div>
+                <h2 class="question-text">${esc(l.prediction.question)}</h2>
                 <div class="step-note">${"No wrong answer \u2014 just think for a second."}</div>
                 <div class="options" id="predictOpts">${opts}</div>`;
         }
@@ -2829,10 +2918,10 @@ ${languageRule()}`;
         function stepPractice(l) {
             const p = l.practice;
             const opts = p.options.map((o, i) =>
-                `<div class="option" data-answer="${i}">${esc(o)}</div>`).join('');
+                `<button type="button" class="option" data-answer="${i}">${esc(o)}</button>`).join('');
             return `
                 <div class="step-eyebrow">Guided practice</div>
-                <div class="question-text">${esc(p.problem)}</div>
+                <h2 class="question-text">${esc(p.problem)}</h2>
                 <div class="options" id="answerOpts">${opts}</div>
                 ${p.hint ? `<button class="button button-secondary hint-btn" id="hintBtn">Show hint</button>
                 <div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}`;
@@ -2868,10 +2957,10 @@ ${languageRule()}`;
         function stepMemory(l) {
             return `
                 <div class="step-eyebrow">Memory check</div>
-                <div class="question-text">${esc(l.memoryCheck.prompt)}</div>
-                <textarea class="memory-input" id="memoryInput" placeholder="Write it in your own words..."></textarea>
+                <h2 class="question-text">${esc(l.memoryCheck.prompt)}</h2>
+                <textarea class="memory-input" id="memoryInput" placeholder="Write it in your own words…"></textarea>
                 <button class="button" id="memorySubmit">Check my answer</button>
-                <div class="feedback" id="memoryFeedback" hidden></div>`;
+                <div class="feedback" id="memoryFeedback" role="status" aria-live="polite" hidden></div>`;
         }
 
         function stepReviewQuestion(i) {
@@ -2897,7 +2986,9 @@ ${languageRule()}`;
                     <div class="step-note">${practice
                         ? 'Extra practice doesn\'t change your review schedule — your due dates are exactly where they were.'
                         : 'Lessons you remembered well come back later. Shaky ones come back tomorrow.'}</div>
-                    <button class="button button-secondary" id="backToPath">Back to path</button>
+                    <div class="complete-actions">
+                        <button class="button" id="backToPath">Back to path</button>
+                    </div>
                 </div>`;
         }
 
@@ -2937,10 +3028,13 @@ ${languageRule()}`;
                         <div class="cstat"><div class="cstat-val">${correct}/${total}</div><div class="cstat-lbl">Correct</div></div>
                         <div class="cstat"><div class="cstat-val">${mins}m</div><div class="cstat-lbl">Time</div></div>
                     </div>
-                    ${isLast
-                        ? `<div class="step-note">You finished the whole course. Well done.</div>`
-                        : `<button class="button" id="continueNext">Next lesson</button>`}
-                    <button class="button button-secondary" id="backToPath">Back to path</button>
+                    ${isLast ? `<div class="step-note">You finished the whole course. Well done.</div>` : ''}
+                    <!-- One obvious next step, with the way back underneath it —
+                         not two buttons of equal weight side by side. -->
+                    <div class="complete-actions">
+                        ${isLast ? '' : `<button class="button" id="continueNext">Next lesson</button>`}
+                        <button class="button ${isLast ? '' : 'button-secondary'}" id="backToPath">Back to path</button>
+                    </div>
                 </div>`;
         }
 
@@ -3031,7 +3125,9 @@ ${languageRule()}`;
 
             fb.hidden = false;
             fb.className = 'feedback';
-            fb.innerHTML = `<div class="spinner"></div> Thinking...`;
+            fb.innerHTML = `<div class="tutor-thinking">
+                <span class="spinner" aria-hidden="true"></span><span>Reading your answer…</span>
+            </div>`;
 
             const l = lessonState.lesson;
             const sys = "You are a tutor. Gently evaluate the learner's explanation: name what they got right, then what is missing. 2-3 sentences. " + languageRule();
@@ -3096,7 +3192,7 @@ ${languageRule()}`;
 
         function celebrate() {
             if (prefersReducedMotion()) return;
-            const colors = ['#58CC02', '#1CB0F6', '#CE82FF', '#FFC800', '#FF4B4B'];
+            const colors = ['#3E8523', '#0B6FA3', '#7C3FBF', '#A8620A', '#C81E1E'];
             for (let i = 0; i < 40; i++) {
                 const c = document.createElement('div');
                 c.className = 'confetti';
@@ -3139,17 +3235,18 @@ ${languageRule()}`;
             if (file) handleFileUpload(file);
         });
 
-        document.getElementById('uploadSection').addEventListener('dragover', (e) => {
+        // Drag state is a class, not an inline colour: `drop` never cleared the
+        // inline border the way `dragleave` did, so the zone stayed highlighted
+        // after every successful drop.
+        const dropZone = document.getElementById('uploadSection');
+        dropZone.addEventListener('dragover', (e) => {
             e.preventDefault();
-            document.getElementById('uploadSection').style.borderColor = '#1CB0F6';
+            dropZone.classList.add('is-dragging');
         });
-
-        document.getElementById('uploadSection').addEventListener('dragleave', () => {
-            document.getElementById('uploadSection').style.borderColor = '';
-        });
-
-        document.getElementById('uploadSection').addEventListener('drop', (e) => {
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('is-dragging'));
+        dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
+            dropZone.classList.remove('is-dragging');
             if (e.dataTransfer.files[0]) {
                 handleFileUpload(e.dataTransfer.files[0]);
             }
@@ -3157,16 +3254,29 @@ ${languageRule()}`;
 
         function selectSource(mode) {
             const file = mode === 'file';
-            document.getElementById('uploadSection').hidden = !file;
+            document.getElementById('uploadPanel').hidden = !file;
             document.getElementById('textPasteSection').hidden = file;
-            document.getElementById('tabFile').classList.toggle('active', file);
-            document.getElementById('tabPaste').classList.toggle('active', !file);
-            document.getElementById('tabFile').setAttribute('aria-selected', String(file));
-            document.getElementById('tabPaste').setAttribute('aria-selected', String(!file));
+            [['tabFile', file], ['tabPaste', !file]].forEach(([id, on]) => {
+                const tab = document.getElementById(id);
+                tab.classList.toggle('active', on);
+                tab.setAttribute('aria-selected', String(on));
+                // Roving tabindex: a tablist is one stop in the tab order, and the
+                // arrow keys move between the tabs inside it.
+                tab.tabIndex = on ? 0 : -1;
+            });
         }
+
+        document.querySelector('#sourcePicker .source-tabs').addEventListener('keydown', (e) => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+            e.preventDefault();
+            const next = document.getElementById('tabFile').classList.contains('active') ? 'paste' : 'file';
+            selectSource(next);
+            document.getElementById(next === 'file' ? 'tabFile' : 'tabPaste').focus();
+        });
 
         document.getElementById('libraryBtn').addEventListener('click', showLibrary);
         document.getElementById('newCourseBtn').addEventListener('click', showNewCourse);
+        document.getElementById('emptyNewCourseBtn').addEventListener('click', showNewCourse);
         document.getElementById('backToLibraryBtn').addEventListener('click', showLibrary);
 
         // ============= Screens & bottom nav =============
@@ -3197,6 +3307,10 @@ ${languageRule()}`;
             // it is just chrome eating the top third of a phone.
             const tagline = document.getElementById('t_subtitle');
             if (tagline) tagline.hidden = !!currentUser && name !== 'home';
+
+            // The HUD hides itself when it has nothing to say, so it has to be
+            // re-evaluated on every screen change and not only when the path renders.
+            renderHud();
 
             const main = document.querySelector('.main-content');
             if (main) main.scrollTop = 0;
@@ -3243,21 +3357,22 @@ ${languageRule()}`;
             // The loading overlay already blocks the screen, but the button keeps its
             // own state so it is never left looking pressable while work is running.
             const btn = document.getElementById('submitTextBtn');
-            const label = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = 'Building…';
+            setButtonBusy(btn, true);
             try {
                 await processLearningMaterial(text);
             } finally {
-                btn.disabled = false;
-                btn.textContent = label;
+                setButtonBusy(btn, false);
             }
         });
 
-        document.getElementById('courseTitle').addEventListener('click', async () => {
+        // The title itself and the pencil beside it do the same thing — the pencil
+        // exists so the affordance is visible without a caption explaining it.
+        const renameActiveCourse = async () => {
             if (!activeCourseId || !courseData) return;
             await promptRename(activeCourseId, courseData.courseName);
-        });
+        };
+        document.getElementById('courseTitle').addEventListener('click', renameActiveCourse);
+        document.getElementById('courseRenameBtn').addEventListener('click', renameActiveCourse);
 
         // Wrapped, not passed by reference: the handler would otherwise hand the
         // click event straight into the options object.
@@ -3352,9 +3467,12 @@ ${languageRule()}`;
             const isUp = mode === 'signup';
             document.getElementById('authTabIn').classList.toggle('active', !isUp);
             document.getElementById('authTabUp').classList.toggle('active', isUp);
-            document.getElementById('authTabIn').setAttribute('aria-selected', String(!isUp));
-            document.getElementById('authTabUp').setAttribute('aria-selected', String(isUp));
+            document.getElementById('authTabIn').setAttribute('aria-pressed', String(!isUp));
+            document.getElementById('authTabUp').setAttribute('aria-pressed', String(isUp));
             document.getElementById('authTitle').textContent = isUp ? 'Create your account' : 'Welcome back';
+            document.getElementById('authSubtitle').textContent = isUp
+                ? 'Fourteen days free, no card. Your courses sync to every device you sign in on.'
+                : 'Your courses, progress and review schedule live on your account.';
             document.getElementById('authSubmitBtn').textContent = isUp ? 'Sign up' : 'Sign in';
             const err = document.getElementById('authError');
             err.hidden = true;
@@ -3370,7 +3488,7 @@ ${languageRule()}`;
             pwToggle.setAttribute('aria-label', 'Show password');
 
             // "Forgot password" only makes sense once an account exists.
-            document.getElementById('authForgotBtn').closest('div').hidden = isUp;
+            document.getElementById('authForgotBtn').closest('.auth-forgot-row').hidden = isUp;
         }
 
         // Checkout isn't wired up yet (no Stripe), but the tiers are real — the
@@ -3459,6 +3577,9 @@ ${languageRule()}`;
             entitlement = null;
             dueOverview = null;
             document.getElementById('signInPromptBtn').hidden = false;
+            // Left over from the signed-in session: a "back to my courses" button
+            // that now only leads to the sign-in wall.
+            document.getElementById('backToLibraryBtn').hidden = true;
             hideAuthModal();
             setScreen('home');
             renderReviewBanner();
@@ -3496,23 +3617,36 @@ ${languageRule()}`;
         document.getElementById('authTabUp').addEventListener('click', () => setAuthMode('signup'));
 
         async function submitAuth() {
-            const email = document.getElementById('authEmail').value.trim();
-            const password = document.getElementById('authPassword').value;
+            const emailEl = document.getElementById('authEmail');
+            const passwordEl = document.getElementById('authPassword');
+            const email = emailEl.value.trim();
+            const password = passwordEl.value;
             const isUp = document.getElementById('authTabUp').classList.contains('active');
             const err = document.getElementById('authError');
             err.className = 'error-message';
             err.hidden = true;
-
-            if (!email || !password) {
-                err.textContent = 'Enter an email and password.';
+            // The message says what's wrong; the field says *where*. Marking the
+            // field is also what tells someone using a magnifier which box to fix.
+            [emailEl, passwordEl].forEach(el => {
+                el.classList.remove('is-invalid');
+                el.removeAttribute('aria-invalid');
+            });
+            const markInvalid = (el, message) => {
+                el.classList.add('is-invalid');
+                el.setAttribute('aria-invalid', 'true');
+                err.textContent = message;
                 err.hidden = false;
-                return;
+                el.focus();
+            };
+
+            if (!email) return markInvalid(emailEl, 'Enter the email address for your account.');
+            if (!password) return markInvalid(passwordEl, 'Enter your password.');
+            if (isUp && password.length < 6) {
+                return markInvalid(passwordEl, 'Pick a password of at least 6 characters.');
             }
 
             const btn = document.getElementById('authSubmitBtn');
-            const originalBtnText = btn.textContent;
-            btn.disabled = true;
-            btn.textContent = isUp ? 'Creating account…' : 'Signing in…';
+            setButtonBusy(btn, true);
             try {
                 const { data, error } = isUp
                     ? await supabaseClient.auth.signUp({ email, password })
@@ -3542,8 +3676,7 @@ ${languageRule()}`;
                 err.textContent = 'Connection problem. Check your internet and try again.';
                 err.hidden = false;
             } finally {
-                btn.disabled = false;
-                btn.textContent = originalBtnText;
+                setButtonBusy(btn, false);
             }
         }
 
@@ -3592,10 +3725,10 @@ ${languageRule()}`;
         // Static icon slots that never change — filled once here rather than
         // duplicating the SVG markup inline in the HTML.
         const staticIcons = {
-            hudIconStreak: 'flame', hudIconGems: 'gem', hudIconXp: 'star',
+            hudIconStreak: 'flame', hudIconXp: 'star',
             libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
-            tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
+            tutorToggleIcon: 'chat', authCloseBtn: 'x', courseRenameBtn: 'pencil',
         };
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);

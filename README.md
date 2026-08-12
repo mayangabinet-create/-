@@ -139,14 +139,16 @@ cumulative spend, call count, and this month's course/lesson quota, read from
 `ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
 out is visible before it happens rather than only when a build is refused.
 
-## Long PDFs
+## Addressing a long PDF by page
 
-The browser reads the first 20 pages of an upload and sends the model 5,000
-characters. `tools/pdf_index` is the offline path for documents where that is
-not enough: it extracts a 300-page PDF, strips the running headers, page
-numbers and contents pages, detects the chapters (Hebrew and English), and
-prints an index with page ranges plus only the passages a given question
-needs — a couple of thousand characters standing in for the whole book.
+*Reading the PDF* above is what the app does with an upload: read every page,
+condense it into a digest, plan a course from that. `tools/pdf_index` is an
+offline Python tool for the other question — not "what is this book about"
+but "what does page 43 say, and which chapter is it in".
+
+It strips the running headers, page numbers and contents pages, detects the
+chapters (Hebrew and English), and prints an index with real page ranges,
+plus only the passages a given question needs.
 
 ```sh
 pip install -r tools/requirements.txt
@@ -154,9 +156,10 @@ python3 -m tools.pdf_index index book.pdf
 python3 -m tools.pdf_index context book.pdf --query "מס רכישה על דירה שנייה"
 ```
 
-It is a command-line tool, not part of the app yet; `tools/README.md` covers
-what it does, how it decides what a heading is, and what wiring it into
-`ai-proxy` would take.
+The digest samples a whole document for one planning call; this answers one
+question at a time and cites the chapter and pages it answered from. It is a
+command line, separate from the app: `tools/README.md` covers how it decides
+what a heading is, and what wiring it into `ai-proxy` would take.
 
 ## What's not done yet
 

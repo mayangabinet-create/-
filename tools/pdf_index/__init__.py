@@ -1,10 +1,11 @@
 """Turn a long PDF into an index plus the passages worth sending to Claude.
 
-The browser reads the first 20 pages of an upload and sends the model 5,000
-characters of it. That is fine for a handout and wrong for a 300-page book:
-the model sees chapter 1 and nothing else, and quizzes on chapter 1 forever.
+The app reads an upload in the browser and condenses it into a digest for
+the planning call — an outline plus passages sampled across the document.
+That answers "what is this book about". It does not answer "what does page
+43 say", because a digest has no pages in it.
 
-This package does the offline half of the job:
+This package is the offline half, and page numbers are the point of it:
 
     PDF -> page text -> cleaning -> heading/chapter detection -> index
         -> the chapters a question actually needs -> Claude

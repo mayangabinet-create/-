@@ -1,12 +1,13 @@
 # `pdf_index` — a 300-page PDF, reduced to what Claude needs to read
 
-The app's browser path reads the first 20 pages of an upload and sends the
-model 5,000 characters of it (`extractConceptsFromPDF` in `app.js`, then
-`generateLessonPath`). On a handout that is the whole document. On a
-300-page book it is chapter one, and every lesson and quiz the model writes
-comes from chapter one, because it never saw anything else.
+The app's browser path (see *Reading the PDF* in the root README) reads every
+page of an upload and hands the planning call a digest: an outline of the
+document's headings plus passages sampled across it, sized to the account's
+tier. That is the right shape for planning one course from one upload.
 
-This is the offline path for those documents:
+This is the offline counterpart, for when a document needs to be addressed
+rather than summarised — a chapter index with real page ranges, and
+retrieval that answers one question and cites the pages it came from:
 
 ```
 PDF (300 pages)
@@ -129,10 +130,13 @@ up.
 The scoring is deliberately the same as `retrieveExcerpt` in `app.js`:
 tokens over two characters, TF-IDF with `log(1 + N/df)`, and a floor at 55%
 of the best chunk's score so a budget is never padded with the merely
-adjacent. What differs is the corpus. In the browser it is a truncated
-prefix of the document; here it is all 300 pages, chunked inside chapter
-boundaries, so a passage arrives knowing which chapter and pages it came
-from.
+adjacent. Both sides score the whole stored document, so they agree on what
+"relevant" means.
+
+What differs is where the chunk boundaries fall. In the browser they follow
+the paragraphs the extractor found; here they stop at chapter boundaries, so
+a chunk never straddles two chapters and every passage arrives knowing which
+chapter and pages it came from — which is what makes a citation possible.
 
 ## Testing
 
@@ -153,7 +157,13 @@ reportlab or a PDF reader is missing.
 - **No API calls.** It prints the context block; sending it is the app's
   job, and the Anthropic key lives in the `ai-proxy` Edge Function, not
   here.
-- **Not wired into the browser.** `app.js` still reads 20 pages client-side.
-  Using this from the app means running it server-side — the natural home is
+- **Not wired into the app.** `app.js` has its own extraction and digest in
+  JavaScript; this is a separate Python path and nothing in the app calls it.
+  Using it from the app means running it server-side — the natural home is
   next to `ai-proxy`, which already holds the tier limits that decide how
   much of a document an account may read.
+- **Some of this exists twice.** Reading direction, running-header removal and
+  hyphen rejoining are solved on both sides now, in two languages, by two
+  different methods — `app.js` has glyph geometry and font sizes to work
+  from, this has only the text. Worth collapsing if the pipeline ever moves
+  server-side; not worth collapsing before then.

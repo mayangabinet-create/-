@@ -1103,26 +1103,6 @@
             .feedback-bar.show { max-height: 320px; }
         }
 
-        /* Ask-AI dock, pinned above the fold */
-        .tutor-dock {
-            flex: none;
-            border-top: 2px solid var(--duo-border);
-            background: var(--duo-card);
-            padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
-        }
-        .tutor-dock > * { max-width: 720px; margin-inline: auto; }
-        .tutor-toggle {
-            width: 100%; padding: 12px;
-            background: #F3E4FF;
-            border: 2px solid var(--duo-purple);
-            color: var(--duo-purple-dark); border-radius: 14px;
-            font-family: 'Baloo 2', sans-serif; font-size: 0.94em; font-weight: 700;
-            cursor: pointer; transition: all 0.15s ease;
-        }
-        .tutor-toggle:hover { background: #ECD5FF; }
-        .tutor-panel { padding-top: 12px; }
-        .tutor-panel .tutor-response { margin-top: 12px; max-height: 160px; overflow-y: auto; }
-
         @media (max-width: 768px) {
             .lesson-scroll { padding: 10px 16px 0; }
             .lesson-topbar { padding: 12px 14px 8px; }
@@ -1137,26 +1117,6 @@
             .lesson-scroll { scroll-behavior: auto; }
         }
 
-        .tutor-actions {
-            display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 12px;
-        }
-        .tutor-chip {
-            padding: 7px 13px; border-radius: 999px;
-            background: var(--duo-bg); border: 2px solid var(--duo-border);
-            color: var(--duo-text); font-family: 'Nunito', sans-serif; font-weight: 700; font-size: 0.8em;
-            cursor: pointer; transition: all 0.15s ease; white-space: nowrap;
-        }
-        .tutor-chip:hover {
-            background: #F3E4FF; border-color: var(--duo-purple); color: var(--duo-purple-dark);
-        }
-        .tutor-chip:active { transform: scale(0.96); }
-        .tutor-asked {
-            font-size: 0.8em; color: var(--duo-purple-dark); font-weight: 700;
-            margin-bottom: 8px; letter-spacing: 0.01em;
-        }
-        .tutor-answer { color: var(--duo-text); line-height: 1.65; white-space: pre-wrap; }
-        .tutor-thinking { display: flex; align-items: center; gap: 10px; color: var(--duo-text-light); }
-
         /* Generated content follows the course language; the chrome does not. */
         [dir="rtl"] .concept-text,
         [dir="rtl"] .question-text,
@@ -1170,7 +1130,6 @@
         [dir="rtl"] .option,
         [dir="rtl"] .feedback-bar,
         [dir="rtl"] .summary-facts,
-        [dir="rtl"] .tutor-answer,
         [dir="rtl"] .vis-table th,
         [dir="rtl"] .vis-table td { text-align: right; }
 
@@ -1519,33 +1478,6 @@
         }
 
         .button-secondary:hover { background: var(--duo-bg); }
-
-        /* Tutor Chat */
-        .tutor-section { margin-top: 30px; background: var(--duo-bg); border-radius: 16px; padding: 20px; }
-        .tutor-title { color: var(--duo-purple-dark); font-family: 'Baloo 2', sans-serif; font-weight: 700; margin-bottom: 15px; }
-        .tutor-input { display: flex; gap: 10px; }
-        .tutor-input input {
-            flex: 1;
-            background: var(--duo-card);
-            border: 2px solid var(--duo-border);
-            border-radius: 12px;
-            padding: 10px 15px;
-            color: var(--duo-text);
-            font-family: 'Nunito', sans-serif;
-            font-size: 16px;
-        }
-        .tutor-input input:focus { outline: none; border-color: var(--duo-purple); }
-        .tutor-input button { padding: 10px 20px; }
-
-        .tutor-response {
-            margin-top: 15px;
-            background: var(--duo-bg);
-            padding: 15px;
-            border-radius: 12px;
-            border-left: 3px solid var(--duo-purple);
-            max-height: 200px;
-            overflow-y: auto;
-        }
 
         /* Progress Bar */
         .progress-bar { flex: none; background: var(--duo-border); height: 10px; border-radius: 8px; overflow: hidden; margin: 10px 0; }
@@ -1898,23 +1830,9 @@
             </div>
         </div>
 
-        <!-- Duolingo-style sliding feedback banner: docked above the tutor, filled after each grade -->
+        <!-- Duolingo-style sliding feedback banner: docked at the foot of the
+             lesson, filled after each grade -->
         <div class="feedback-bar" id="feedbackBar"></div>
-
-        <!-- Ask AI: available throughout the lesson -->
-        <div class="tutor-dock" id="tutorDock">
-            <button class="tutor-toggle" id="tutorToggle" aria-expanded="false" aria-controls="tutorPanel">
-                <span id="tutorToggleIcon"></span><span>Ask the tutor</span>
-            </button>
-            <div class="tutor-panel" id="tutorPanel" hidden>
-                <div class="tutor-actions" id="tutorActions"></div>
-                <div class="tutor-input">
-                    <input type="text" id="tutorQuestion" aria-label="Ask the tutor about this lesson" enterkeyhint="send" placeholder="Or ask anything about this lesson..." />
-                    <button class="button" id="tutorAskBtn">Ask</button>
-                </div>
-                <div id="tutorResponse" class="tutor-response" style="display: none;"></div>
-            </div>
-        </div>
     </div>
 
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.

@@ -21,9 +21,10 @@ subscribing after that isn't wired up yet (see below).
 
 Hook → prediction → concept cards → worked example → guided practice → a mixed-format
 quiz (choice, true/false, ordering, categorizing, fill-the-blank, matching, find-the-mistake)
-→ a capstone challenge → summary → a memory check, plus an AI tutor dock available
-throughout. Diagrams (flow, compare, hierarchy, timeline, table, bar) are generated
-from structured specs the model returns — no image generation, no extra API calls.
+→ a capstone challenge → summary → a memory check, where the learner writes the idea
+in their own words and the model responds. Diagrams (flow, compare, hierarchy, timeline,
+table, bar) are generated from structured specs the model returns — no image generation,
+no extra API calls.
 
 Every lesson is grounded in the source document: the relevant passage is retrieved via
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come

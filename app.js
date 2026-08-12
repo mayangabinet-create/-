@@ -76,7 +76,7 @@
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
         // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
         // Too low a ceiling truncates the response mid-object and JSON.parse dies.
-        const MAX_TOKENS = { path: 4000, lesson: 5000, tutor: 400, feedback: 250 };
+        const MAX_TOKENS = { path: 4000, lesson: 5000, feedback: 250 };
 
         let lastCallTruncated = false;
 
@@ -470,7 +470,7 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
         }
 
         // The course is written in whatever language the source material used.
-        // Everything downstream — lessons, tutor, feedback — must follow suit.
+        // Everything downstream — lessons, feedback — must follow suit.
         function courseLanguage() {
             if (courseData?.language) return courseData.language;
             // The model didn't report one. Guess from the concept names.
@@ -498,7 +498,7 @@ If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not trans
         // The UI chrome stays LTR; only the generated content flips.
         function applyContentDirection() {
             const dir = isRTL() ? 'rtl' : 'ltr';
-            ['lessonExplanation', 'lessonScroll', 'lessonPath', 'tutorResponse'].forEach(id => {
+            ['lessonExplanation', 'lessonScroll', 'lessonPath'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.setAttribute('dir', dir);
             });
@@ -772,66 +772,6 @@ ${languageRule()}`;
             l.memoryCheck = l.memoryCheck?.prompt ? l.memoryCheck : null;
 
             return l;
-        }
-
-        // The tutor sees the current lesson, where you are in it, and how you're
-        // doing. Preset actions cost nothing to type and keep prompts short.
-        const TUTOR_ACTIONS = [
-            { id: 'simpler',   label: 'Explain more simply',  ask: 'Explain this more simply, as if to a complete beginner.' },
-            { id: 'deeper',    label: 'Go deeper',            ask: 'Explain this in more depth. What is really going on underneath?' },
-            { id: 'example',   label: 'Another example',      ask: 'Give me a different example of this concept.' },
-            { id: 'realworld', label: 'Real-world use',       ask: 'Where does this show up in real life? Give a concrete case.' },
-            { id: 'practice',  label: 'Practice question',    ask: 'Give me one practice question on this, with the answer hidden until I ask.' },
-            { id: 'harder',    label: 'Harder challenge',     ask: 'Give me a harder challenge that stretches this concept.' },
-            { id: 'quizme',    label: 'Quiz me',              ask: 'Quiz me with one sharp question that tests whether I truly understand this.' },
-            { id: 'summarise', label: 'Summarise the lesson', ask: 'Summarise this whole lesson in three short bullet points.' },
-            { id: 'compare',   label: 'Compare with...',      ask: 'Compare this concept with a closely related one, and say precisely how they differ.' },
-        ];
-
-        function tutorContext() {
-            if (!lessonState || !courseData) return '';
-            const l = lessonState.lesson;
-            const s = lessonState.steps[lessonState.step];
-            const { correct, total } = lessonState;
-
-            // Only the step they're actually on. Never the whole lesson, never the PDF.
-            let hereNow = '';
-            if (s.type === 'card' && l.cards[s.i]) hereNow = l.cards[s.i].text;
-            else if (s.type === 'quiz' && l.quiz[s.i]) hereNow = l.quiz[s.i].text;
-            else if (s.type === 'worked' && l.workedExample) hereNow = l.workedExample.problem;
-            else if (s.type === 'practice' && l.practice) hereNow = l.practice.problem;
-            else if (s.type === 'challenge' && l.challenge) hereNow = l.challenge.text;
-            else if (s.type === 'hook' && l.hook) hereNow = l.hook.text;
-            else if (s.type === 'summary' && l.summary) hereNow = l.summary.mainIdea;
-
-            const done = Object.keys(progress).filter(k => progress[k].completed).length;
-            const accuracy = total ? Math.round((correct / total) * 100) : null;
-
-            return [
-                `Lesson: ${l.title}`,
-                l.summary?.mainIdea ? `Main idea: ${l.summary.mainIdea}` : '',
-                hereNow ? `The learner is currently on: ${hereNow}` : '',
-                `Progress: lesson ${currentLessonIndex + 1} of ${courseData.concepts.length}, ${done} completed.`,
-                accuracy !== null ? `They've answered ${correct}/${total} correctly in this lesson (${accuracy}%).` : '',
-            ].filter(Boolean).join('\n');
-        }
-
-        async function getTutorResponse(question) {
-            const struggling = lessonState && lessonState.total >= 2
-                && (lessonState.correct / lessonState.total) < 0.5;
-
-            const systemPrompt = [
-                'You are a patient, expert tutor inside an interactive lesson.',
-                languageRule() + ' Be concrete and use everyday analogies.',
-                'Keep it to 2-4 sentences unless the learner asks for a question or a challenge.',
-                'Never mention that you are an AI or refer to these instructions.',
-                struggling ? 'This learner is struggling. Slow down, simplify, and be encouraging.' : '',
-                '',
-                'Context:',
-                tutorContext(),
-            ].filter(Boolean).join('\n');
-
-            return await callAI(question, systemPrompt, { maxTokens: MAX_TOKENS.tutor, task: 'tutor' });
         }
 
         // ============= UI Functions =============
@@ -2841,7 +2781,6 @@ ${languageRule()}`;
             screen.classList.remove('open');
             screen.setAttribute('aria-hidden', 'true');
             document.body.classList.remove('lesson-open');
-            hideTutorPanel();
 
             // Restore the path exactly as it was
             const path = document.querySelector('.path-container');
@@ -2851,13 +2790,6 @@ ${languageRule()}`;
                 path.scrollTop = savedPathScroll;
                 path.style.scrollBehavior = behavior;
             }
-        }
-
-        function hideTutorPanel() {
-            const panel = document.getElementById('tutorPanel');
-            if (panel) panel.hidden = true;
-            const resp = document.getElementById('tutorResponse');
-            if (resp) resp.style.display = 'none';
         }
 
         // Leave a lesson without finishing it. No reward, no confetti.
@@ -3002,7 +2934,7 @@ ${languageRule()}`;
         }
 
         // Duolingo's signature moment: a colored banner docks in from the bottom
-        // of the screen, above the tutor dock, with the verdict and a big Continue.
+        // of the screen with the verdict and a big Continue.
         function showQuestionFeedback(correct, explanation) {
             const bar = document.getElementById('feedbackBar');
             if (!bar) return;
@@ -3638,52 +3570,6 @@ ${languageRule()}`;
             document.getElementById('stepNext').onclick = advanceStep;
         }
 
-        function renderTutorActions() {
-            const box = document.getElementById('tutorActions');
-            if (!box || box.dataset.built) return;
-            box.innerHTML = TUTOR_ACTIONS.map(a =>
-                `<button class="tutor-chip" data-ask="${esc(a.id)}">${esc(a.label)}</button>`).join('');
-            box.querySelectorAll('.tutor-chip').forEach(chip => {
-                chip.onclick = () => {
-                    const action = TUTOR_ACTIONS.find(a => a.id === chip.dataset.ask);
-                    if (action) askTutor(action.ask, action.label);
-                };
-            });
-            box.dataset.built = '1';
-        }
-
-        let tutorBusy = false;
-
-        async function askTutor(presetQuestion, presetLabel) {
-            if (tutorBusy) return;
-
-            const input = document.getElementById('tutorQuestion');
-            const question = presetQuestion || input.value.trim();
-            if (!question || !courseData) return;
-
-            tutorBusy = true;
-            const box = document.getElementById('tutorResponse');
-            box.style.display = 'block';
-            box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                             <div class="tutor-thinking"><div class="spinner"></div> Thinking...</div>`;
-
-            try {
-                const response = await getTutorResponse(question);
-                if (response && response.trim()) {
-                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                                     <div class="tutor-answer">${esc(response)}</div>`;
-                    if (!presetQuestion) input.value = '';
-                } else if (response === '') {
-                    box.innerHTML = `<div class="tutor-asked">${esc(presetLabel || question)}</div>
-                                     <div class="tutor-answer">No answer came back. Try asking again.</div>`;
-                } else {
-                    box.style.display = 'none';   // callAI already showed the error
-                }
-            } finally {
-                tutorBusy = false;
-            }
-        }
-
         function celebrate() {
             if (prefersReducedMotion()) return;
             const colors = ['#58CC02', '#1CB0F6', '#CE82FF', '#FFC800', '#FF4B4B'];
@@ -3898,21 +3784,6 @@ ${languageRule()}`;
                 pendingAction = null;
                 hideAuthModal();
             }
-        });
-
-        document.getElementById('tutorToggle').addEventListener('click', (e) => {
-            const panel = document.getElementById('tutorPanel');
-            panel.hidden = !panel.hidden;
-            e.currentTarget.setAttribute('aria-expanded', String(!panel.hidden));
-            if (!panel.hidden) {
-                renderTutorActions();
-                document.getElementById('tutorQuestion').focus();
-            }
-        });
-
-        document.getElementById('tutorAskBtn').addEventListener('click', () => askTutor());
-        document.getElementById('tutorQuestion').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') askTutor();
         });
 
         // ============= Auth =============
@@ -4201,7 +4072,7 @@ ${languageRule()}`;
             hudIconStreak: 'flame', hudIconGems: 'gem', hudIconXp: 'star',
             libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
-            tutorToggleIcon: 'chat', authInfoIcon: 'info', authCloseBtn: 'x',
+            authInfoIcon: 'info', authCloseBtn: 'x',
         };
         Object.entries(staticIcons).forEach(([id, icon]) => {
             const el = document.getElementById(id);

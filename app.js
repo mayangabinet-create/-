@@ -665,30 +665,26 @@ ${languageRule()}
 
 Principles:
 - Never a wall of text. Each card = ONE idea, 2-3 sentences.
-- Assume no prior knowledge.
-- Open with curiosity, not a definition.
+- Assume no prior knowledge. Open with curiosity, not a definition.
 - SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
   comparison in it, draw it. Prose describing a figure the app could have drawn
   is the worst thing this lesson can contain.
-- Questions test real understanding. Distractors must be mistakes a real learner would make.
+- Distractors must be mistakes a real learner would make.
 - Vary the position of the correct answer. Never always first.
 
 VISUALS — attach one to a card, worked example, summary or question in its
-"visual" field; omit the field where a diagram adds nothing. The app draws them
-from the spec. Never invent a type not on this list — it is discarded.
+"visual" field; omit it where a diagram adds nothing. Never invent a type not on
+this list — it is discarded.
 
 ${visualCatalogue()}
 
 Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
-"gematria" are drawn and computed exactly as given — a wrong number becomes a
-wrong picture.
+"gematria" are drawn exactly as given — a wrong number is a wrong picture.
 ${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${templates ? `
-TEMPLATES — prefer these over writing a spec yourself. In the "visual" field
-write { "template": "<id>", "params": { … } } and the app builds the figure and
-every calculation in it: the hypotenuse, the roots, the interest, the truth
-table. Give the numbers the SOURCE MATERIAL uses, never the results — working
-those out is the app's job and it will not get them wrong. One template may
-produce several figures.
+TEMPLATES — prefer these over writing a spec yourself. In "visual" write
+{ "template": "<id>", "params": { … } } and the app builds the figure and every
+calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
+— working those out is the app's job. One template may produce several figures.
 
 ${templates}
 ` : ''}
@@ -702,42 +698,30 @@ Return valid JSON only (no markdown, no surrounding prose):
 {
   "title": "${concept.name}",
   "estimatedMinutes": 6,
-  "hook": { "text": "A surprising question or fact that creates curiosity. 1-2 sentences. Not a definition." },
-  "prediction": {
-    "question": "A guess-before-we-explain question. Not graded, just provokes thought.",
-    "options": ["Guess A", "Guess B", "Guess C"]
+  "hook": { "text": "A surprising fact or question. 1-2 sentences. Not a definition." },
+  "prediction": { "question": "A guess before we explain. Not graded.", "options": ["A","B","C"] },
+  "explore": {
+    "instruction": "What to DO — drag it, tap it, uncover it",
+    "visual": { "…": "a touchable spec: slider, reveal, or a figure with parts" },
+    "insight": "What they should notice. Shown after they touch it."
   },
-  "cards": [
-    { "idea": "Short heading", "text": "2-3 sentences explaining ONE idea", "analogy": "An everyday analogy, or null", "visual": null }
-  ],
+  "cards": [ { "idea": "Heading", "text": "2-3 sentences, ONE idea", "analogy": "An everyday one, or null", "visual": null } ],
   "workedExample": {
-    "problem": "A concrete problem with numbers or a real situation",
-    "steps": [ { "action": "What you do at this step", "why": "Why it is correct" } ],
-    "answer": "The final answer",
-    "visual": null
+    "problem": "A concrete problem", "answer": "The final answer", "visual": null,
+    "steps": [ { "action": "What you do", "why": "Why it is correct" } ]
   },
   "practice": {
-    "problem": "A similar problem the learner solves alone",
-    "hint": "A hint, revealed only on request",
-    "options": ["A","B","C","D"],
-    "correct": 0,
-    "feedback": { "correct": "Why this is right", "incorrect": "The common mistake here, and why it is wrong" }
+    "problem": "A similar one they solve alone", "hint": "Revealed on request",
+    "options": ["A","B","C","D"], "correct": 0,
+    "feedback": { "correct": "Why this is right", "incorrect": "The common mistake, and why" }
   },
-  "quiz": [ { "type":"choice", "text":"…", "options":["A","B","C","D"], "correct":0, "explanation":"…" } ],
-  "challenge": {
-    "type": "choice",
-    "text": "One larger problem combining several ideas from this lesson",
-    "options": ["A","B","C","D"],
-    "correct": 0,
-    "explanation": "A full explanation of the solution"
-  },
-  "summary": {
-    "mainIdea": "The central idea in one sentence",
-    "keyFacts": ["Fact 1", "Fact 2", "Fact 3"],
-    "commonMistake": "The most common mistake",
-    "realWorld": "Where this shows up in daily life",
-    "visual": null
-  },
+  "quiz": [ { "type":"choice", "text":"…", "options":["A","B","C","D"], "correct":0,
+              "hint":"One short nudge for a second try. Must NOT give the answer away.",
+              "explanation":"…" } ],
+  "challenge": { "type":"choice", "text":"One larger problem combining several ideas",
+    "options":["A","B","C","D"], "correct":0, "explanation":"The full solution" },
+  "summary": { "mainIdea": "The central idea in one sentence", "keyFacts": ["1","2","3"],
+    "commonMistake": "The most common mistake", "realWorld": "Where it shows up", "visual": null },
   "memoryCheck": { "prompt": "Explain this concept as if teaching a friend." }
 }
 
@@ -746,6 +730,18 @@ Required: at least TWO visuals of TWO different types, one of them interactive
 (slider, reveal, or a shape with a hotspot question); at least THREE question
 types across the quiz, never the same twice in a row; and a numeric question
 wherever the material is quantitative. "correct" is a 0-based index.
+
+"explore" comes BEFORE the explanation and matters most: the learner does
+something, sees what happens, and is told why afterwards. Its "visual" must be
+touchable — a slider that moves a result, reveal cards, a figure with parts to
+tap. One they can only look at is a card; write it as a card and omit this.
+Omit it rather than invent an interaction the material does not support.
+
+"hint" is shown only after a wrong answer, for a second try: point at the
+mistake, never give the answer.
+
+Two quiz questions must test the SAME idea in different clothes — other numbers,
+another context, another representation — so memorising one answer is not enough.
 ${languageRule()}`;
         }
 
@@ -807,7 +803,12 @@ ${languageRule()}`;
             // Any question may carry a figure — the triangle the question is
             // about, the formula it applies. An unusable one is dropped and the
             // question still stands.
+            // `hint` is what the learner is shown between the two attempts, so
+            // it has to survive normalisation like the explanation does — a
+            // question that arrives without one still gets a second try, just a
+            // blunter nudge.
             const base = { text: String(q.text), explanation: q.explanation || '',
+                           hint: q.hint ? String(q.hint) : '',
                            visual: validVisual(q.visual) };
 
             switch (type) {
@@ -900,6 +901,12 @@ ${languageRule()}`;
             l.estimatedMinutes = l.estimatedMinutes || 6;
             l.hook = l.hook?.text ? l.hook : null;
             l.prediction = (l.prediction?.question && arr(l.prediction.options).length) ? l.prediction : null;
+            // An explore step with no figure to touch is a card with extra
+            // steps, and one whose figure failed validation would be an
+            // instruction to drag something that is not on the screen.
+            l.explore = (l.explore?.instruction && validVisual(l.explore.visual))
+                ? { ...l.explore, visual: validVisual(l.explore.visual) }
+                : null;
             l.cards = arr(l.cards).filter(c => c && c.text);
             l.cards.forEach(c => { c.visual = validVisual(c.visual); });
             l.workedExample = (l.workedExample?.problem && arr(l.workedExample.steps).length) ? l.workedExample : null;
@@ -1510,6 +1517,7 @@ ${languageRule()}`;
                 correct: 0, total: 0,
                 heartsLeft: 5,
                 startedAt: Date.now(),
+                attempts: {},
                 review: { items, byLesson: {}, practice },
                 result: null,
             };
@@ -5244,7 +5252,23 @@ ${languageRule()}`;
         // Each wirer calls finishQuestion(correct, explanation) when the learner
         // has committed an answer.
         function wireQuestion(q, onGraded) {
+            // A first wrong answer is not the end of the question. Say what the
+            // mistake was and hand it back — a learner who is told the answer
+            // straight away has been shown it, not taught it, and the second
+            // attempt is where the understanding actually happens.
+            //
+            // The retry is free: no heart, nothing counted. The second attempt
+            // is the one that scores, so the lesson still means something.
+            const attemptKey = lessonState.step;
+            if (!lessonState.attempts) lessonState.attempts = {};
+            const attempt = () => lessonState.attempts[attemptKey] || 0;
+
             const done = (correct, explanationOverride) => {
+                if (!correct && attempt() === 0) {
+                    lessonState.attempts[attemptKey] = 1;
+                    showRetry(q, explanationOverride);
+                    return;
+                }
                 lessonState.total++;
                 if (correct) {
                     lessonState.correct++;
@@ -5355,6 +5379,29 @@ ${languageRule()}`;
             // keyboard on the button that moves past it.
             if (!prefersReducedMotion()) setTimeout(() => next.focus({ preventScroll: true }), 60);
             else next.focus({ preventScroll: true });
+        }
+
+        // Between the two attempts: what went wrong, and a way back in. No
+        // Continue here on purpose — the only way past this question is to
+        // answer it again.
+        function showRetry(q, explanationOverride) {
+            const bar = document.getElementById('feedbackBar');
+            if (!bar) return;
+            const nudge = q.hint || explanationOverride
+                || 'Look again at what the question is actually asking.';
+            bar.className = 'feedback-bar show feedback-retry';
+            bar.innerHTML = `
+                <div>
+                    <div class="feedback-inner">
+                        <div class="feedback-head">${ICONS.x} Not quite — one more go</div>
+                        <div class="feedback-body">${esc(nudge)}</div>
+                        <button class="button step-next" id="stepRetry">Try again</button>
+                    </div>
+                </div>`;
+            const again = document.getElementById('stepRetry');
+            again.onclick = () => renderStep();      // re-renders and re-wires this step
+            if (!prefersReducedMotion()) setTimeout(() => again.focus({ preventScroll: true }), 60);
+            else again.focus({ preventScroll: true });
         }
 
         function lockOptions() {
@@ -5598,6 +5645,7 @@ ${languageRule()}`;
                 const steps = [];
                 if (lesson.hook) steps.push({ type: 'hook' });
                 if (lesson.prediction) steps.push({ type: 'prediction' });
+                if (lesson.explore) steps.push({ type: 'explore' });
                 lesson.cards.forEach((_, i) => steps.push({ type: 'card', i }));
                 if (lesson.workedExample) steps.push({ type: 'worked' });
                 if (lesson.practice) steps.push({ type: 'practice' });
@@ -5623,6 +5671,7 @@ ${languageRule()}`;
                     heartsLeft: 5,
                     startedAt: Date.now(),
                     answered: {},
+                    attempts: {},
                     result: null
                 };
 
@@ -5697,6 +5746,7 @@ ${languageRule()}`;
             const renderers = {
                 hook: () => stepHook(lesson),
                 prediction: () => stepPrediction(lesson),
+                explore: () => stepExplore(lesson),
                 card: () => stepCard(lesson, s.i),
                 worked: () => stepWorked(lesson),
                 practice: () => stepPractice(lesson),
@@ -5734,6 +5784,26 @@ ${languageRule()}`;
                 <h2 class="question-text">${esc(l.prediction.question)}</h2>
                 <div class="step-note">${"No wrong answer \u2014 just think for a second."}</div>
                 <div class="options" id="predictOpts">${opts}</div>`;
+        }
+
+        // The Brilliant half of the lesson: do it, then be told why.
+        //
+        // Continue stays disabled until the learner actually touches the figure.
+        // That is the whole difference between an interaction and an
+        // illustration — a step you can click past without touching is one you
+        // did not do, and the insight underneath it would be an answer to a
+        // question nobody asked.
+        function stepExplore(l) {
+            return `
+                <div class="step-eyebrow">Try it</div>
+                <h2 class="question-text">${esc(l.explore.instruction)}</h2>
+                <div class="explore-figure">${renderVisual(l.explore.visual)}</div>
+                ${l.explore.insight
+                    ? `<div class="explore-insight" id="exploreInsight" hidden>
+                           <span class="analogy-label">What just happened</span>${esc(l.explore.insight)}
+                       </div>`
+                    : ''}
+                <button class="button step-next" id="stepNext" disabled>Continue</button>`;
         }
 
         function stepCard(l, i) {
@@ -5906,6 +5976,30 @@ ${languageRule()}`;
                         setTimeout(advanceStep, 550);
                     };
                 });
+            }
+
+            if (s.type === 'explore') {
+                const figure = document.querySelector('.explore-figure');
+                const insight = document.getElementById('exploreInsight');
+                const unlock = () => {
+                    if (next.disabled === false) return;
+                    next.disabled = false;
+                    if (insight) {
+                        insight.hidden = false;
+                        insight.classList.add('appear');
+                    }
+                };
+                // Whatever the figure is made of, touching it counts: a slider
+                // fires input, a reveal card and a hotspot fire click, and a
+                // keyboard user gets there with a key. Listening for all three
+                // on the container means a new interactive type needs no change
+                // here to unlock the step.
+                if (figure) {
+                    ['input', 'change', 'click', 'keyup'].forEach(event =>
+                        figure.addEventListener(event, unlock, { once: false }));
+                } else {
+                    unlock();
+                }
             }
 
             if (s.type === 'worked') {

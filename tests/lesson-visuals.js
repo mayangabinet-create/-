@@ -3,6 +3,17 @@
  * can carry, the question types it can be graded on, and the prompt that asks
  * for all of it.
  *
+ * Two things here can only be half-tested from Node, because they are about
+ * what happens under a finger. Both were driven through the real page once
+ * (see tests/pdf-pipeline.js for how to serve it), and are worth repeating
+ * after any change to renderStep or wireQuestion:
+ *
+ *   - the explore step opens with Continue disabled and the insight hidden,
+ *     and touching the figure unlocks both;
+ *   - a wrong answer shows the amber "one more go" bar with the question's own
+ *     hint, costs no heart and counts nothing, and the retry re-renders the
+ *     question; the second attempt is the one that scores.
+ *
  *     node tests/lesson-visuals.js
  *
  * Same trick as tests/pdf-pipeline.js — app.js is a plain browser script with no
@@ -94,6 +105,7 @@ const names = [
   // the prompt
   'const RTL_LANGUAGES', 'function courseLanguage', 'function languageRule',
   'function buildLessonPrompt',
+  'function normaliseLesson',
 ];
 
 // The browser, in as few lines as it takes: esc() sets textContent and reads
@@ -118,7 +130,8 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
-  buildLessonPrompt, setLanguage: l => { courseData = { language: l }; } };
+  buildLessonPrompt, normaliseLesson,
+  setLanguage: l => { courseData = { language: l }; } };
 `;
 
 const m = new module.constructor();
@@ -405,6 +418,64 @@ console.log('\n== questions ==');
                            visual: { type: 'nonsense' } })?.visual === null);
   ok('a legacy question with no type is still a choice',
      P.normaliseQuestion({ text: 'q', options: ['a', 'b'], correct: 0 }).type === 'choice');
+}
+
+
+// ------------------------------------------------------- the explore step
+console.log('\n== do it before you are told (explore) ==');
+{
+  const slider = { type: 'slider', variable: 'b', label: 'Base', min: 1, max: 10, step: 1, value: 4,
+                   outputs: [{ label: 'Area', expr: 'b * 3 / 2' }] };
+  const lesson = kind => P.normaliseLesson({
+    title: 't', cards: [{ text: 'a card' }],
+    explore: kind === 'none' ? null
+      : { instruction: 'Drag the base', insight: 'Area follows the base', visual: kind },
+  }, { name: 't' });
+
+  ok('an explore step with a touchable figure survives',
+     !!lesson(slider).explore && lesson(slider).explore.visual.type === 'slider');
+  ok('the instruction and the insight come through',
+     lesson(slider).explore.instruction === 'Drag the base'
+     && lesson(slider).explore.insight === 'Area follows the base');
+
+  // The step's whole promise is that you can touch the thing. Without a figure
+  // that survives validation there is nothing to touch, and a Continue button
+  // that never unlocks would trap the learner in the lesson.
+  ok('one with a figure the app cannot draw is dropped',
+     lesson({ type: 'nonsense' }).explore === null);
+  ok('one with a broken slider formula is dropped',
+     lesson({ ...slider, outputs: [{ label: 'x', expr: 'b @@ 2' }] }).explore === null);
+  ok('a lesson with no explore step is still a lesson',
+     lesson('none').explore === null && lesson('none').cards.length === 1);
+
+  const prompt = P.buildLessonPrompt({ name: 'x', description: 'y', importance: 'z' }, 'SOURCE');
+  ok('the prompt asks for one', prompt.includes('"explore"'));
+  ok('and says it comes before the explanation', /explore.*BEFORE the explanation/s.test(prompt));
+}
+
+console.log('\n== a second try after a wrong answer ==');
+{
+  // The hint is the whole retry: it is what the learner is shown between the
+  // two attempts, so it has to survive normalisation like the explanation does.
+  const q = P.normaliseQuestion({ type: 'choice', text: 'q', options: ['a', 'b'], correct: 1,
+                                  hint: 'Think about the second one', explanation: 'because b' });
+  ok('a question keeps its hint', q.hint === 'Think about the second one');
+  ok('and its explanation', q.explanation === 'because b');
+  ok('a question with no hint still normalises',
+     P.normaliseQuestion({ type: 'choice', text: 'q', options: ['a', 'b'], correct: 0 }).hint === '');
+  ok('every question type carries one',
+     ['boolean', 'order', 'numeric'].every(type => {
+       const shapes = {
+         boolean: { answer: true },
+         order: { items: ['1', '2'] },
+         numeric: { answer: 5 },
+       };
+       return P.normaliseQuestion({ type, text: 'q', hint: 'h', ...shapes[type] })?.hint === 'h';
+     }));
+
+  const prompt = P.buildLessonPrompt({ name: 'x', description: 'y', importance: 'z' }, 'S');
+  ok('the prompt asks for a hint on every question', prompt.includes('"hint"'));
+  ok('and for two questions on one idea', /SAME idea in different clothes/.test(prompt));
 }
 
 // ---------------------------------------------------------------- the prompt

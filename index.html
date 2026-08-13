@@ -638,7 +638,7 @@
         }
 
         /* ---- Callouts: one shape, one set of paddings, tone chosen by modifier ---- */
-        .concept-text, .example-box, .analogy-box, .misconception-box,
+        .concept-text, .example-box, .analogy-box, .misconception-box, .explore-insight,
         .hint-box, .worked-why, .preview-why, .summary-facts,
         .error-message, .info-message {
             --callout-tint: var(--surface-sunken);
@@ -1583,6 +1583,14 @@
         .feedback-bar.feedback-bad .button {
             --btn-bg: var(--danger); --btn-bg-hover: var(--danger-hover); --btn-edge: var(--danger-strong);
         }
+        /* A second try is not a failure yet, so it is not painted like one:
+           the warning tint says "look again", where the red says "that was
+           your answer". */
+        .feedback-bar.feedback-retry { background: var(--warn-tint); border-top-color: var(--warn-border); }
+        .feedback-bar.feedback-retry .feedback-head { color: var(--warn-text); }
+        .feedback-bar.feedback-retry .button {
+            --btn-bg: var(--warn-text); --btn-bg-hover: var(--warn-text); --btn-edge: var(--warn-text);
+        }
 
         .tutor-thinking { display: flex; align-items: center; gap: var(--sp-3); color: var(--text-muted); font-size: var(--fs-sm); }
 
@@ -1594,6 +1602,23 @@
         .challenge-eyebrow { color: var(--warn-text); }
         .step-note { color: var(--text-muted); font-size: var(--fs-sm); margin: var(--sp-2) 0 var(--sp-4); font-weight: 600; }
         .step-next { margin-top: var(--sp-6); }
+
+        /* The explore step: the figure is the content, so it gets the room,
+           and the insight only arrives once the learner has touched it. */
+        .explore-figure { margin: var(--sp-4) 0 var(--sp-2); }
+        .explore-insight {
+            margin-top: var(--sp-4);
+            --callout-tint: var(--brand-tint); --callout-rule: var(--brand);
+        }
+        .explore-insight.appear { animation: insight-in 260ms ease-out both; }
+        @keyframes insight-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .explore-insight.appear { animation: none; }
+        }
+        .step-next[disabled] { opacity: 0.45; cursor: not-allowed; filter: saturate(0.4); }
 
         .hook-card {
             font-size: var(--fs-h3); line-height: var(--lh-body); font-weight: 700; color: var(--text);

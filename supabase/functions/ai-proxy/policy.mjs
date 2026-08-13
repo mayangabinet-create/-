@@ -16,19 +16,6 @@ export const SONNET = "claude-sonnet-5";
 export const OPUS = "claude-opus-5";
 
 /**
- * What "no limit" is worth as a number.
- *
- * Not Infinity. These figures are arguments to a Postgres function whose
- * parameters are `integer`, and they cross that boundary as JSON — which has
- * no Infinity and serialises it to `null`. In SQL `courses_month < null` is
- * null, the guarded UPDATE matches no row, and the quota call denies every
- * request: "unlimited" would come out as "nothing at all". A large finite
- * number is the only safe way to say it here, and this one is comfortably
- * inside int4's 2,147,483,647.
- */
-export const UNLIMITED = 1_000_000_000;
-
-/**
  * The tier table, and the authority. `app.js` carries a copy that shapes the
  * UI; this one decides what actually runs, because a modified client can send
  * any prompt it likes.
@@ -51,26 +38,7 @@ export const PLANS = {
   basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
   pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: SONNET, modelLesson: SONNET },
   max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: OPUS, modelLesson: SONNET },
-  // Max's budgets and models with the monthly ceiling taken off. There is no
-  // checkout that sells this: `subscriptions` has no INSERT or UPDATE policy,
-  // so a signed-in browser cannot write its own plan — only the service role
-  // can put an account on this one, which is what makes it safe to have.
-  //
-  // `lessonsPerCourse` stays finite on purpose. It is not a quota; it is the
-  // number `fixCourseSize` rewrites into the planning prompt, and "identify
-  // exactly 1000000000 core concepts" is not a course.
-  unlimited: { coursesPerMonth: UNLIMITED, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: OPUS, modelLesson: SONNET },
 };
-
-/**
- * The monthly lesson ceiling. Clamped, because the obvious expression —
- * courses × lessons-per-course — is 15 billion on the unlimited plan, which
- * overflows the same int4 and turns the quota check into an error instead of
- * an allowance.
- */
-export function lessonAllowance(plan) {
-  return Math.min(plan.coursesPerMonth * plan.lessonsPerCourse, UNLIMITED);
-}
 
 export const TEMPLATE_ALLOWANCE = 12_000;
 export const FREE_CALL_CHARS = 20_000;

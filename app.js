@@ -27,13 +27,7 @@
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
-        // How many courses the library may hold. Every paid tier has kept eight
-        // since this was a constant; it now comes from the plan, which is what
-        // lets the unlimited one keep more than eight.
-        const DEFAULT_KEEP = 8;
-        function courseKeepLimit() {
-            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.keep) || DEFAULT_KEEP;
-        }
+        const MAX_COURSES = 8;
 
         let currentUser = null;
         let courseData = null;
@@ -1888,25 +1882,12 @@ ${languageRule()}`;
         // of input price. Zero on the Haiku tiers, where the minimum cacheable
         // prefix is 4,096 tokens — below that the API accepts the request, caches
         // nothing, and charges the premium anyway.
-        // `keep` is how many courses the library may hold at once; `courses` is
-        // how many may be built per month. They are different limits and used to
-        // be one hardcoded constant.
-        //
-        // The unlimited plan says Infinity here where the Edge Function says a
-        // large integer, and the difference is deliberate: this copy only ever
-        // formats numbers and compares them, where Infinity behaves correctly
-        // and reads honestly, while the server's figure has to survive JSON and
-        // an int4 parameter. The server is the authority either way.
         const PLAN_LIMITS = {
-            trial:     { label: 'Free trial', courses: 1, keep: 8, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
-            basic:     { label: 'Basic',      courses: 3, keep: 8, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
-            pro:       { label: 'Pro',        courses: 5, keep: 8, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
-            max:       { label: 'Max',        courses: 8, keep: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
-            unlimited: { label: 'Unlimited',  courses: Infinity, keep: Infinity, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
         };
-
-        // A limit with no number in it still has to read like one.
-        const limitLabel = n => (n === Infinity ? '∞' : String(n));
 
         let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
 
@@ -1946,9 +1927,7 @@ ${languageRule()}`;
         }
 
         function meter(used, limit) {
-            // An unlimited plan has nothing to fill: used/Infinity is 0, which is
-            // the honest reading — the bar stays empty however much you build.
-            const pct = (limit && isFinite(limit)) ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+            const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
             const tone = pct >= 100 ? 'is-full' : pct >= 75 ? 'is-high' : '';
             return `<div class="meter"><div class="meter-fill ${tone}" style="width:${pct}%"></div></div>`;
         }
@@ -2020,22 +1999,20 @@ ${languageRule()}`;
                         <span class="plan-status ${planTone}">${esc(planLine)}</span>
                     </div>
                     <p class="account-card-note">
-                        ${limits.courses === Infinity
-                            ? 'As many courses as you like'
-                            : `${limits.courses} course${limits.courses === 1 ? '' : 's'} a month`},
+                        ${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
                         up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.
                     </p>
                     <div class="quota">
                         <div class="quota-row">
                             <span>Courses built this month</span>
-                            <span class="quota-num">${usage.coursesMonth} / ${limitLabel(limits.courses)}</span>
+                            <span class="quota-num">${usage.coursesMonth} / ${limits.courses}</span>
                         </div>
                         ${meter(usage.coursesMonth, limits.courses)}
                     </div>
                     <div class="quota">
                         <div class="quota-row">
                             <span>Lessons generated this month</span>
-                            <span class="quota-num">${usage.lessonsMonth} / ${limitLabel(lessonAllowance)}</span>
+                            <span class="quota-num">${usage.lessonsMonth} / ${lessonAllowance}</span>
                         </div>
                         ${meter(usage.lessonsMonth, lessonAllowance)}
                     </div>
@@ -4381,8 +4358,8 @@ ${languageRule()}`;
             // courses you may keep, and how many you may build this month. Hitting
             // the second one used to be a surprise mid-upload.
             const monthly = entitlement ? PLAN_LIMITS[entitlement.planKey] : null;
-            count.textContent = `${library.length} of ${limitLabel(courseKeepLimit())} kept`
-                + (monthly ? ` · ${usage.coursesMonth} of ${limitLabel(monthly.courses)} built this month` : '');
+            count.textContent = `${library.length} of ${MAX_COURSES} kept`
+                + (monthly ? ` · ${usage.coursesMonth} of ${monthly.courses} built this month` : '');
             empty.hidden = library.length > 0;
             // The empty state carries its own primary action; two "New course"
             // buttons on one screen is one too many.
@@ -4468,8 +4445,8 @@ ${languageRule()}`;
         }
 
         async function showNewCourse() {
-            if (library.length >= courseKeepLimit()) {
-                showError(`You can keep ${courseKeepLimit()} courses at a time. Delete one to add another.`);
+            if (library.length >= MAX_COURSES) {
+                showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
                 return;
             }
             // The server is the authority on quota and this copy of the count can
@@ -5761,12 +5738,8 @@ ${languageRule()}`;
         // one-line "coming soon" that leaves you with nothing to do: the things
         // that still work without paying are spelled out at the bottom.
         function showUpgradePrompt() {
-            const onUnlimited = entitlement && !entitlement.trialing && entitlement.planKey === 'unlimited';
             const rows = Object.entries(PLAN_LIMITS)
-                // The trial is not a plan you pick, and the unlimited one is not
-                // sold — it is granted server-side — so neither belongs in a list
-                // of what you could buy. It appears only for whoever is on it.
-                .filter(([key]) => key !== 'trial' && (key !== 'unlimited' || onUnlimited))
+                .filter(([key]) => key !== 'trial')
                 .map(([key, p]) => {
                     const here = entitlement && !entitlement.trialing && entitlement.planKey === key;
                     // Roughly 1,800 characters to a printed page — close enough to
@@ -5774,7 +5747,7 @@ ${languageRule()}`;
                     // picture against the document you were about to upload.
                     const pages = Math.round(p.readChars / 1800);
                     return `<li${here ? ' class="is-current"' : ''}><strong>${p.label}</strong>${here ? ' — your plan' : ''}<br>
-                        ${p.courses === Infinity ? 'Unlimited courses' : `${p.courses} courses a month`} · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}<br>
+                        ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}<br>
                         reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course</li>`;
                 }).join('');
 

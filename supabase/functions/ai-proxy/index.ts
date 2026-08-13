@@ -6,7 +6,6 @@ import {
   FREE_CALLS_PER_DAY,
   fixCourseSize,
   KNOWN_TASKS,
-  lessonAllowance,
   normaliseContent,
   planFor,
   prepareBlocks,
@@ -158,9 +157,7 @@ Deno.serve(async (req: Request) => {
       p_user_id: user.id,
       p_kind: kind,
       p_course_limit: plan.coursesPerMonth,
-      // Not the product of the two: on an unlimited plan that is 15 billion,
-      // and the quota function's parameters are int4.
-      p_lesson_limit: lessonAllowance(plan),
+      p_lesson_limit: plan.coursesPerMonth * plan.lessonsPerCourse,
       p_trialing: isTrialing,
     });
     if (quotaErr) {

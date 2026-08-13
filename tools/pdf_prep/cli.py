@@ -85,6 +85,11 @@ def build_parser() -> argparse.ArgumentParser:
              "(roughly doubles its size)",
     )
     parser.add_argument(
+        "--bundle", action="store_true",
+        help="also write document.bundle.json — the Markdown and the manifest in "
+             "one file, which is what the app's upload box takes",
+    )
+    parser.add_argument(
         "--stdout", choices=("md", "json"), default="",
         help="also print one of the outputs, for piping",
     )
@@ -92,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _summary(document: Document, out_dir: str) -> str:
+def _summary(document: Document, out_dir: str, written=("document.md", "document.json")) -> str:
     counts = {
         kind: len(document.of_kind(kind))
         for kind in ("heading", "paragraph", "list", "table", "figure", "formula", "footnote")
@@ -122,8 +127,8 @@ def _summary(document: Document, out_dir: str) -> str:
         lines.append(f"  ! {warning}")
 
     if out_dir:
-        lines.append(f"  → {os.path.join(out_dir, 'document.md')}")
-        lines.append(f"  → {os.path.join(out_dir, 'document.json')}")
+        for name in written:
+            lines.append(f"  → {os.path.join(out_dir, name)}")
     return "\n".join(lines)
 
 
@@ -152,6 +157,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             assets=not args.no_assets,
             page_markers=not args.no_page_markers,
             full_block_index=args.block_index,
+            bundle=args.bundle,
             chunk_chars=args.chunk_chars,
             header_threshold=args.header_threshold,
             on_progress=progress,
@@ -165,7 +171,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not args.quiet:
         print("\r\033[K", end="", file=sys.stderr)
-        print(_summary(document, out_dir), file=sys.stderr)
+        written = ["document.md", "document.json"]
+        if args.bundle:
+            written.append("document.bundle.json")
+        print(_summary(document, out_dir, written), file=sys.stderr)
 
     if args.stdout == "md":
         # Re-rendered rather than read back: identical bytes, one less thing

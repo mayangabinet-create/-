@@ -36,14 +36,47 @@ out/document.json    the map — outline, chunks, tables, figures, page ranges
 out/assets/f001.png  every figure, extracted
 ```
 
+## Handing it to the app
+
+`--bundle` writes a fourth file, `document.bundle.json`, holding the Markdown
+and the manifest together:
+
+```sh
+python3 -m tools.pdf_prep book.pdf -o out/ --bundle
+```
+
+Upload that one file to the app's upload box and the course is planned from
+this outline — real headings, real page numbers — instead of one the browser
+re-derived from the text. It is also how a **scanned** PDF gets into the app at
+all: the browser's reader has no OCR, so today a scan gives it nothing.
+
+Two files are right on disk, where a person reads one and a program reads the
+other. One file is right at an upload box, which takes one file — and a user
+who picks only one of the two ends up with text that has no structure, or
+structure pointing at text that is not there. Nothing is duplicated by joining
+them: the Markdown appears once, and the manifest's character ranges index into
+it exactly as they do on disk.
+
+```json
+{ "schema": "pdf-prep/1", "kind": "bundle",
+  "markdown": "---\ntitle: …",
+  "manifest": { "outline": […], "chunks": […], … } }
+```
+
+The app stores the outline it reads from there in `courses.structure`
+(`supabase/migrations/20260813120000_courses_structure.sql`), and keeps
+working without it: an unmigrated database, a plain PDF or a wall of pasted
+text all fall back to deriving what structure they can from the text.
+
 For a scanned document, install tesseract and its language packs first:
 
 ```sh
 apt install tesseract-ocr tesseract-ocr-heb        # or: brew install tesseract
 ```
 
-Useful flags — `--pages 3-40`, `--ocr never|always`, `--ocr-lang heb+eng`,
-`--chunk-chars 6000`, `--no-assets`, `--stdout md` to pipe it somewhere.
+Useful flags — `--bundle` (see below), `--pages 3-40`, `--ocr never|always`,
+`--ocr-lang heb+eng`, `--chunk-chars 6000`, `--no-assets`, `--stdout md` to
+pipe it somewhere.
 
 From Python:
 
@@ -220,7 +253,9 @@ headers, and what a Hebrew chapter heading looks like. Those live in
 `clean.looks_like_page_number`, `clean.looks_like_contents`,
 `structure.match_heading_line`, `retrieve.tokenize`.
 
-Neither is wired into the app: `app.js` has its own extraction and digest in
-JavaScript. Using this from the app means running it server-side, next to
-`ai-proxy` — which is also where the tier limits live that decide how much of a
-document an account may read.
+`pdf_index` is not wired into the app. This one is, by file rather than by
+call: `--bundle`, then upload. That is a deliberate shape, not a stopgap for a
+missing API — `ai-proxy` is a Deno Edge Function and cannot run Python, so a
+live call would need a Python service deployed somewhere and a queue to reach
+it. The file contract needs neither, works offline, and is the same artifact
+either way if that service is ever built: it would write exactly this bundle.

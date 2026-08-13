@@ -162,10 +162,12 @@ the first N characters. Taking the first N is the worst available choice: the op
 pages of a book are the title page, the copyright notice and the table of contents, and a
 course built from them lists the chapters instead of teaching them.
 
-The digest is built from the document's **outline**. Headings are recovered from the
-stored text — by keyword (`Chapter 4`, `פרק ב`, `Part One`), by decimal numbering (`3.2`),
-and by shape — and turned into a tree, each part carrying the share of the document it
-occupies. That tree is printed whole, and the body budget is then spent *per part*: one
+The digest is built from the document's **outline**. A document prepared by
+`tools/pdf_prep` arrives with one already settled, page numbers and all (see *Preparing a
+PDF* below). Otherwise the headings are recovered from the stored text — by keyword
+(`Chapter 4`, `פרק ב`, `Part One`), by decimal numbering (`3.2`), by Markdown marker
+(`## …`), and by shape — and turned into a tree, each part carrying the share of the
+document it occupies. That tree is printed whole, and the body budget is then spent *per part*: one
 passage from every part before any part gets a second, then depth in proportion to size,
 then whatever is left to the parts still unquoted. Every passage is labelled with the part
 it came from, so the planner is choosing concepts against the shape of the book rather
@@ -376,10 +378,28 @@ numbers, joins the lines back into paragraphs, and writes two files:
 Nothing is stored twice, so a consumer reads the JSON, decides what matters,
 and slices those ranges out of the Markdown. No model is involved in any of it,
 which is the point: it costs nothing, it is the same twice, and it cannot
-invent a sentence the document does not contain. This is the shape the lesson
-builder wants next — a course plan can be drawn from the outline instead of
-from a sampled digest. `tools/pdf_prep/README.md` has the details and the
-limits.
+invent a sentence the document does not contain.
+
+**Feeding it to the app.** `--bundle` writes both outputs as one file, and the
+upload box takes it:
+
+```sh
+python3 -m tools.pdf_prep book.pdf -o out/ --bundle   # → out/document.bundle.json
+```
+
+The course is then planned from that outline — real headings, real page numbers
+— rather than from one the browser re-derived out of the text, and the outline
+is stored on the course in `courses.structure`. It is also the only way a
+**scanned** PDF gets in at all: the browser's reader has no OCR, so a scan
+uploaded directly still gives it nothing.
+
+The handoff is a file rather than a call on purpose. `ai-proxy` is a Deno Edge
+Function and cannot run Python, so a live call would mean deploying a Python
+service and a queue to reach it; the file needs neither, and is the same
+artifact that service would produce if it is ever built. Run the migration in
+`supabase/migrations/` to keep the outline — without it the app warns once in
+the console and saves the course anyway, deriving structure from the text as
+before. `tools/pdf_prep/README.md` has the details and the limits.
 
 ## What's not done yet
 

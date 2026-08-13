@@ -70,6 +70,7 @@ def prepare(
     assets: bool = True,
     page_markers: bool = True,
     full_block_index: bool = False,
+    bundle: bool = False,
     chunk_chars: int = 4000,
     header_threshold: float = 0.35,
     on_progress: Progress = None,
@@ -234,6 +235,7 @@ def prepare(
             output_dir,
             page_markers=page_markers,
             full_block_index=full_block_index,
+            bundle=bundle,
         )
 
     return document

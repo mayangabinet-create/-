@@ -433,15 +433,41 @@ def build_manifest(
     }
 
 
+def build_bundle(
+    document: Document,
+    page_markers: bool = True,
+    full_block_index: bool = False,
+) -> Dict:
+    """Both outputs as one object, for handing to something that takes a file.
+
+    The two-file split is right on disk, where a person reads the Markdown and
+    a program reads the JSON. It is wrong at an upload box, which takes one
+    file — and a user who picks only one of the two has either text with no
+    structure or structure pointing at text that is not there.
+
+    Nothing is duplicated by joining them: the Markdown appears once, and the
+    manifest's character ranges index into it exactly as they do on disk.
+    """
+    markdown = render_markdown(document, page_markers=page_markers)
+    return {
+        "schema": SCHEMA,
+        "kind": "bundle",
+        "markdown": markdown,
+        "manifest": build_manifest(document, markdown, full_block_index=full_block_index),
+    }
+
+
 def write_outputs(
     document: Document,
     directory: str,
     page_markers: bool = True,
     full_block_index: bool = False,
+    bundle: bool = False,
     markdown_name: str = "document.md",
     json_name: str = "document.json",
+    bundle_name: str = "document.bundle.json",
 ) -> Dict[str, str]:
-    """Render, index and write both files. Returns the paths written."""
+    """Render, index and write the outputs. Returns the paths written."""
     os.makedirs(directory, exist_ok=True)
 
     markdown = render_markdown(document, page_markers=page_markers)
@@ -455,4 +481,24 @@ def write_outputs(
         json.dump(manifest, handle, ensure_ascii=False, indent=2)
         handle.write("\n")
 
-    return {"markdown": md_path, "json": json_path}
+    written = {"markdown": md_path, "json": json_path}
+    if bundle:
+        # Rendered once and reused: the bundle has to hold the same bytes the
+        # Markdown file does, or the manifest's offsets point into the wrong
+        # copy of the document.
+        bundle_path = os.path.join(directory, bundle_name)
+        with open(bundle_path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "schema": SCHEMA,
+                    "kind": "bundle",
+                    "markdown": markdown,
+                    "manifest": manifest,
+                },
+                handle,
+                ensure_ascii=False,
+            )
+            handle.write("\n")
+        written["bundle"] = bundle_path
+
+    return written

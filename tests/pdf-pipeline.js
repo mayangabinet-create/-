@@ -60,6 +60,9 @@ const names = [
   'function sectionSource',
   'function retrieveFrom',
   'function retrieveExcerpt',
+  'function readBundle',
+  'function bundleStructure',
+  'function locateSections',
   'function looksLikeHeading',
   'const HEADING_LEVELS',
   'function headingLevel',
@@ -91,6 +94,7 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
   splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
+  readBundle, bundleStructure, locateSections,
   headingLevel, documentSections, renderOutline, blockDensity,
   extractOutline, buildSourceDigest, takeBlocks, planReadChars, excerptBudget, setPlan };
 `;
@@ -451,6 +455,136 @@ console.log('\n== retrieval scoped to the concept\'s section ==');
   ok('an unmatched section falls back to the whole document', wrong === unscoped, wrong.slice(0, 60));
   ok('no section behaves as before', P.retrieveExcerpt(concept, doc) === unscoped);
   P.setPlan(null);
+}
+
+console.log('\n== a prepared bundle ==');
+{
+  // A real bundle, as `python3 -m tools.pdf_prep book.pdf --bundle` writes it,
+  // trimmed to the parts the app reads. Kept verbatim rather than invented, so
+  // this test fails if either side of the contract moves.
+  const bundle = {
+    "schema": "pdf-prep/1",
+    "kind": "bundle",
+    "markdown": "---\ntitle: \"מדריך המשפט המעשי\"\nsource: \"heb.pdf\"\npages: \"5\"\nlanguage: \"he\"\ngenerated_by: \"tools/pdf_prep\"\n---\n\n# מדריך המשפט המעשי\n\n<!-- page 1 -->\n\nהוצאת דוגמה, תל אביב\n\n<!-- page 3 -->\n\n### פרק 1 — חוזים\n\nחוזה הוא הסכם מחייב בין שני צדדים או יותר. תוקפו של החוזה תלוי בגמירות דעת ובמסוימות של התנאים, ואלה נבחנים לפי אמות מידה אובייקטיביות.\n\nהפרת חוזה מזכה את הצד הנפגע בתרופות הבאות:\n\n- אכיפה של החוזה\n- ביטול החוזה והשבה\n- פיצויים על הנזק שנגרם\n\n<!-- page 4 -->\n\n### פרק 2 — מיסוי\n\nמס רכישה מוטל על רוכש זכות במקרקעין. שיעור המס נקבע לפי שווי העסקה ולפי מספר הדירות שבבעלות הרוכש במועד הרכישה.\n\n#### 2.1 מדרגות המס\n\n**טבלה 1: מדרגות מס רכישה לדירה יחידה**\n\n| מדרגה | שיעור |\n| --- | --- |\n| עד מיליון ש\"ח | 0% |\n| מעל מיליון ש\"ח | 3.5% |\n\n<!-- page 5 -->\n\n### פרק 3 — תכנון ובנייה\n\nהיתר בנייה נדרש לכל עבודה טעונת היתר. הוועדה המקומית דנה בבקשה ומחליטה בה לאחר שמיעת התנגדויות, אם הוגשו כאלה במועד\n\n",
+    "manifest": {
+      "document": {
+        "page_count": 5,
+        "title": "מדריך המשפט המעשי"
+      },
+      "outline": [
+        {
+          "id": "s001",
+          "title": "מדריך המשפט המעשי",
+          "level": 1,
+          "page_start": 1,
+          "page_end": 5,
+          "path": [
+            "מדריך המשפט המעשי"
+          ],
+          "children": [
+            {
+              "id": "s002",
+              "title": "פרק 1 — חוזים",
+              "level": 2,
+              "page_start": 3,
+              "page_end": 3,
+              "path": [
+                "מדריך המשפט המעשי",
+                "פרק 1 — חוזים"
+              ],
+              "children": []
+            },
+            {
+              "id": "s003",
+              "title": "פרק 2 — מיסוי",
+              "level": 2,
+              "page_start": 4,
+              "page_end": 4,
+              "path": [
+                "מדריך המשפט המעשי",
+                "פרק 2 — מיסוי"
+              ],
+              "children": [
+                {
+                  "id": "s004",
+                  "title": "2.1 מדרגות המס",
+                  "level": 3,
+                  "page_start": 4,
+                  "page_end": 4,
+                  "path": [
+                    "מדריך המשפט המעשי",
+                    "פרק 2 — מיסוי",
+                    "2.1 מדרגות המס"
+                  ],
+                  "children": []
+                }
+              ]
+            },
+            {
+              "id": "s005",
+              "title": "פרק 3 — תכנון ובנייה",
+              "level": 2,
+              "page_start": 5,
+              "page_end": 5,
+              "path": [
+                "מדריך המשפט המעשי",
+                "פרק 3 — תכנון ובנייה"
+              ],
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  };
+
+  const { text, structure } = P.readBundle(JSON.stringify(bundle));
+  ok('the Markdown comes through', text.includes('פרק 1 — חוזים'), text.slice(0, 60));
+  ok('the outline is flattened with its depths',
+     JSON.stringify(structure.sections.map(s => s.level)) === '[1,2,2,3,2]',
+     JSON.stringify(structure.sections.map(s => s.level)));
+  ok('page numbers survive', structure.sections.some(s => s.pageStart === 4),
+     JSON.stringify(structure.sections[2]));
+  ok('the page count comes through', structure.pages === 5);
+
+  // The headings in that Markdown are written "### פרק 1 — חוזים". Being told
+  // the outline is what lets the app find them; deriving would have to read
+  // past the hashes and could never recover the page numbers at all.
+  const blocks = P.splitBlocks(text);
+  const located = P.documentSections(blocks, structure);
+  ok('every heading is located in the text', located.length === structure.sections.length,
+     JSON.stringify(located.map(s => s.title)));
+  ok('located sections keep their page numbers',
+     located.find(s => s.title === 'פרק 2 — מיסוי').pageStart === 4);
+  ok('a located section owns the text under it',
+     located.find(s => s.title === 'פרק 1 — חוזים').totalChars > 100);
+
+  const digest = P.buildSourceDigest(text, 600, structure);
+  ok('the outline quotes real pages', /pp?\. \d/.test(digest), digest.slice(0, 200));
+  ok('the digest is still deterministic', P.buildSourceDigest(text, 600, structure) === digest);
+
+  // Junk in, refusal out — never a course built on nothing.
+  const rejects = ['not json at all', '{}', '{"schema":"other/1","markdown":"x"}',
+                   JSON.stringify({ schema: 'pdf-prep/1', markdown: 'too short' })];
+  ok('junk is rejected', rejects.every(raw => {
+    try { P.readBundle(raw); return false; } catch (e) { return e.message === 'BUNDLE_INVALID'; }
+  }));
+
+  // An outline of one heading is not an outline; the app derives instead.
+  ok('a thin outline is ignored',
+     P.bundleStructure({ outline: [{ title: 'Only One', children: [] }] }) === null);
+
+  // A heading the text no longer holds — the Markdown was truncated at
+  // MAX_SOURCE_CHARS — is dropped rather than pointed at the wrong blocks.
+  const missing = { sections: [...structure.sections, { title: 'פרק 9 — לא קיים', level: 2 }] };
+  ok('a heading that is not in the text is dropped',
+     P.locateSections(blocks, missing).length === structure.sections.length);
+
+  // Without the bundle the same Markdown still yields an outline — from its
+  // "###" markers — but no page numbers, which is the difference the bundle buys.
+  const derived = P.buildSourceDigest(text, 600, null);
+  ok('the same Markdown alone still finds headings', derived.includes('[OUTLINE'), derived.slice(0, 60));
+  ok('but it cannot invent page numbers', !/pp?\. \d/.test(derived));
 }
 
 console.log('\n== chunking ==');

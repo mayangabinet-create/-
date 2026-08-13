@@ -30,7 +30,11 @@ from tools.pdf_prep.chunk import (  # noqa: E402
     build_sections,
     score_terms,
 )
-from tools.pdf_prep.emit import build_manifest, render_markdown  # noqa: E402
+from tools.pdf_prep.emit import (  # noqa: E402
+    build_bundle,
+    build_manifest,
+    render_markdown,
+)
 from tools.pdf_prep.model import Block, Document, Line, PageContent, Span, Table  # noqa: E402
 from tools.pdf_prep.objects import looks_like_caption  # noqa: E402
 from tools.pdf_prep.order import find_gutters, sort_page  # noqa: E402
@@ -522,6 +526,24 @@ class EmitTests(unittest.TestCase):
         self.assertEqual(table["data"], [["2021", "120"], ["2022", "340"]])
         self.assertEqual(table["page"], 2)
 
+    def test_a_bundle_holds_both_outputs_and_duplicates_neither(self):
+        document = self._document()
+        bundle = build_bundle(document)
+
+        self.assertEqual(bundle["schema"], "pdf-prep/1")
+        self.assertEqual(bundle["kind"], "bundle")
+        self.assertEqual(bundle["markdown"], render_markdown(document))
+        self.assertIn("outline", bundle["manifest"])
+
+        # The manifest's offsets index into the Markdown beside it, not into
+        # some other rendering of the same document.
+        chunk = bundle["manifest"]["chunks"][0]
+        sliced = bundle["markdown"][chunk["md_start"]:chunk["md_end"]]
+        self.assertTrue(sliced.strip())
+        self.assertIn(chunk["headings"][0], sliced)
+
+        json.loads(json.dumps(bundle, ensure_ascii=False))
+
     def test_the_manifest_is_json(self):
         document = self._document()
         manifest = build_manifest(document, render_markdown(document))
@@ -684,6 +706,31 @@ class EndToEndTests(unittest.TestCase):
                 self.assertIn(chunk["headings"][0], sliced)
         for section in manifest["outline"]:
             self.assertLessEqual(section["page_start"], section["page_end"])
+
+    def test_the_bundle_file_matches_the_two_files(self):
+        from tools.pdf_prep import prepare
+
+        out = os.path.join(self.directory, "bundled")
+        prepare(self.hebrew, output_dir=out, bundle=True)
+
+        with open(os.path.join(out, "document.md"), encoding="utf-8") as handle:
+            markdown = handle.read()
+        with open(os.path.join(out, "document.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        with open(os.path.join(out, "document.bundle.json"), encoding="utf-8") as handle:
+            bundle = json.load(handle)
+
+        # One document, written three ways; nothing may disagree. This is the
+        # contract the app reads on the other side.
+        self.assertEqual(bundle["markdown"], markdown)
+        self.assertEqual(bundle["manifest"]["outline"], manifest["outline"])
+        self.assertEqual(bundle["manifest"]["document"]["page_count"],
+                         manifest["document"]["page_count"])
+
+        titles = [s["title"] for s in bundle["manifest"]["outline"][0]["children"]]
+        self.assertIn("פרק 1 — חוזים", titles)
+        first = bundle["manifest"]["outline"][0]["children"][0]
+        self.assertGreaterEqual(first["page_start"], 1)
 
     def test_a_page_range_reads_only_those_pages(self):
         document, markdown, _, _ = self._prepare(self.latin, first_page=2, last_page=2)

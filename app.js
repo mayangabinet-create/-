@@ -35,6 +35,10 @@
         let progress = {};
         let activeCourseId = null;
         let activeSourceText = '';
+        // The outline of the active course's document, when it has one. Only a
+        // document prepared by tools/pdf_prep arrives with structure already
+        // known; everything else derives what it can from the text itself.
+        let activeStructure = null;
         let library = [];
 
         // ============= Icons =============
@@ -421,7 +425,7 @@
             return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
         }
 
-        async function generateLessonPath(text) {
+        async function generateLessonPath(text, structure = null) {
             showMessage("Analyzing your material...");
 
             // Not the first N characters of the document. The opening pages of a
@@ -430,7 +434,7 @@
             // from them lists the chapters instead of teaching them. The digest
             // reads the whole document and spends the budget on the parts that
             // actually carry concepts, spread from first page to last.
-            const digest = buildSourceDigest(text, planReadChars());
+            const digest = buildSourceDigest(text, planReadChars(), structure);
 
             const extractPrompt = `Analyse the study material below and extract its key concepts.
 
@@ -747,7 +751,7 @@ ${languageRule()}`;
 
         async function generateLesson(concept) {
             // Ground the lesson in the actual document, not the model's priors.
-            const excerpt = retrieveExcerpt(concept, getSourceText());
+            const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
             const prompt = buildLessonPrompt(concept, excerpt);
 
             // The course context goes first and is the same on every lesson, so
@@ -1144,31 +1148,103 @@ ${languageRule()}`;
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
         }
 
+        // A bundle written by `tools/pdf_prep`: the document's Markdown and the
+        // structure that indexes it, in one file.
+        //
+        // That tool reads a PDF the way this app cannot — it has font sizes,
+        // table grids and OCR for pages that are scans — and hands back an
+        // outline with real page numbers instead of one guessed from the text.
+        // Everything here still works without it; this is the better input, not
+        // the required one.
+        function readBundle(raw) {
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                throw new Error('BUNDLE_INVALID');
+            }
+            if (!String(parsed?.schema || '').startsWith('pdf-prep/')
+                || typeof parsed.markdown !== 'string'
+                || parsed.markdown.trim().length < 100) {
+                throw new Error('BUNDLE_INVALID');
+            }
+            const text = parsed.markdown.slice(0, MAX_SOURCE_CHARS);
+            return { text, structure: bundleStructure(parsed.manifest || {}) };
+        }
+
+        // Keep the parts of the manifest this app reads, and nothing else. The
+        // manifest also carries tables as data, figure boxes and per-chunk
+        // terms; storing all of that in every course row would be paying to
+        // carry what nothing here looks at. The outline is what the planner
+        // needs, and its page numbers are what the text alone cannot give.
+        function bundleStructure(manifest) {
+            const sections = [];
+            const walk = (nodes, depth) => {
+                (nodes || []).forEach(node => {
+                    const title = String(node?.title || '').trim();
+                    if (title) {
+                        sections.push({
+                            title,
+                            level: depth,
+                            pageStart: Number(node.page_start) || 0,
+                            pageEnd: Number(node.page_end) || 0,
+                        });
+                    }
+                    walk(node?.children, depth + 1);
+                });
+            };
+            walk(manifest.outline, 1);
+            if (sections.length < 2) return null;
+            return {
+                source: 'pdf-prep',
+                pages: Number(manifest.document?.page_count) || 0,
+                sections,
+            };
+        }
+
+        // Read whatever was dropped on the upload box. Three kinds: a PDF, a
+        // prepared bundle, or plain text — and plain text really is plain text,
+        // which it was not before: a .txt file went through the PDF reader and
+        // came back as "make sure it's a valid PDF".
+        async function readUpload(file, onProgress) {
+            const name = String(file.name || '').toLowerCase();
+            if (name.endsWith('.json')) return readBundle(await file.text());
+            if (name.endsWith('.pdf') || file.type === 'application/pdf') {
+                return { text: await extractConceptsFromPDF(file, onProgress), structure: null };
+            }
+            const text = await file.text();
+            return { text: text.slice(0, MAX_SOURCE_CHARS), structure: null };
+        }
+
         async function handleFileUpload(file) {
             // Name the file being read. "Reading PDF..." after picking the wrong one
             // from a list of near-identical names gives you nothing to check against.
             showMessage(`Reading ${file.name}...`);
-            let text;
+            let text, structure;
             try {
-                text = await extractConceptsFromPDF(file, (page, total) => {
+                ({ text, structure } = await readUpload(file, (page, total) => {
                     // A long document takes tens of seconds to read. Without a
                     // moving count that is indistinguishable from a hung tab.
                     if (total > 8) showMessage(`Reading ${file.name} — page ${page} of ${total}...`);
-                });
+                }));
             } catch (err) {
-                console.error('PDF read error:', err);
+                console.error('upload read error:', err);
                 hideMessage();
-                showError(err.message === 'PDF_READER_UNAVAILABLE'
-                    ? "The PDF reader didn't load. Check your connection and try again, or paste the text instead."
-                    : "Couldn't read that file. Make sure it's a valid PDF.");
+                if (err.message === 'PDF_READER_UNAVAILABLE') {
+                    showError("The PDF reader didn't load. Check your connection and try again, or paste the text instead.");
+                } else if (err.message === 'BUNDLE_INVALID') {
+                    showError("That .json file isn't a document bundle. Run tools/pdf_prep with --bundle to make one, or upload the PDF itself.");
+                } else {
+                    showError("Couldn't read that file. Upload a PDF, a .txt file, or a bundle from tools/pdf_prep.");
+                }
                 return;
             }
             if (!text || text.trim().length < 100) {
                 hideMessage();
-                showError("No text found in that file. It may be a scanned PDF with no text layer.");
+                showError("No text found in that file. It may be a scanned PDF with no text layer — tools/pdf_prep can read one with OCR.");
                 return;
             }
-            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''));
+            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure);
         }
 
         // A course name has to contain something readable. A filename like "-.pdf",
@@ -1188,17 +1264,17 @@ ${languageRule()}`;
 
         // `title` is the fallback (filename, or nothing for pasted text); a name the
         // learner typed themselves always beats both that and the model's suggestion.
-        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName()) {
+        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null) {
             // The point of need: building a course is the first thing that
             // actually requires an account. Resume automatically after sign-up.
             if (!currentUser) {
-                pendingAction = { type: 'buildCourse', text, title, chosenName };
+                pendingAction = { type: 'buildCourse', text, title, chosenName, structure };
                 showAuthModal('signup');
                 return;
             }
             showMessage("Generating a personalised learning path...");
             try {
-                const course = await generateLessonPath(text);
+                const course = await generateLessonPath(text, structure);
                 if (!course) {
                     resetToUpload();   // error already surfaced; give them a way back
                     return;
@@ -1208,7 +1284,7 @@ ${languageRule()}`;
                     || cleanTitle(course.courseName)
                     || cleanTitle(title)
                     || 'Untitled course';
-                const id = await saveCourse(course, text);
+                const id = await saveCourse(course, text, structure);
                 if (!id) return;
 
                 const nameInput = document.getElementById('courseNameInput');
@@ -1217,6 +1293,7 @@ ${languageRule()}`;
                 courseData = course;
                 activeCourseId = id;
                 activeSourceText = text;
+                activeStructure = structure;
                 progress = {};
                 localStorage.setItem(ACTIVE_STORAGE, id);
 
@@ -2117,7 +2194,8 @@ ${languageRule()}`;
                     return;
                 }
                 library = [];
-                activeCourseId = null; courseData = null; progress = {}; activeSourceText = '';
+                activeCourseId = null; courseData = null; progress = {};
+                activeSourceText = ''; activeStructure = null;
                 localStorage.removeItem(ACTIVE_STORAGE);
                 dueOverview = [];
                 renderHud();
@@ -3854,12 +3932,15 @@ ${languageRule()}`;
             const source = getSourceText();
             if (!budget || !source) return '';
 
-            const key = `${activeCourseId || 'none'}:${budget}:${source.length}`;
+            const structure = getStructure();
+            // The structure is part of what the digest is built from, so it is
+            // part of what makes one cached block different from another.
+            const key = `${activeCourseId || 'none'}:${budget}:${source.length}:${structure ? structure.sections.length : 0}`;
             if (courseContextCache.key !== key) {
                 // The label is part of the cached block, so it has to be fixed
                 // text — nothing per-lesson may appear here.
                 const header = `[COURSE MATERIAL] A digest of the learner's whole document, the same for every lesson in this course. Lines in [SQUARE BRACKETS] are labels added by the app, not part of the document; [...] marks text left out. [OUTLINE] is the document's own structure with each part's share of it, and a label like [Chapter 2 › 2.1 Rates] says which part the passage under it came from. Use this for context — where a concept sits in the material, what came before it, what it connects to. The passage quoted in the lesson prompt below is the authority for facts.`;
-                courseContextCache = { key, text: `${header}\n\n${buildSourceDigest(source, budget)}` };
+                courseContextCache = { key, text: `${header}\n\n${buildSourceDigest(source, budget, structure)}` };
             }
             return courseContextCache.text;
         }
@@ -3981,12 +4062,12 @@ ${languageRule()}`;
         // nothing else: a near-miss that silently retrieved the wrong chapter
         // would be worse than searching the whole document, which is what an
         // outright miss falls back to.
-        function sectionSource(concept, sourceText) {
+        function sectionSource(concept, sourceText, structure = null) {
             const wanted = String(concept?.section || '').trim().toLowerCase();
             if (!wanted || wanted.length < 3) return '';
 
             const blocks = splitBlocks(sourceText);
-            const sections = documentSections(blocks);
+            const sections = documentSections(blocks, structure);
             if (!sections.length) return '';
 
             const key = s => s.title.trim().toLowerCase().replace(/[\s:.\-–—]+$/, '');
@@ -4009,9 +4090,9 @@ ${languageRule()}`;
         // whole document is still the fallback, because a concept that spans the
         // book — and a heading the model paraphrased instead of copying — must
         // not come back empty.
-        function retrieveExcerpt(concept, sourceText) {
+        function retrieveExcerpt(concept, sourceText, structure = null) {
             if (!sourceText) return '';
-            const scoped = sectionSource(concept, sourceText);
+            const scoped = sectionSource(concept, sourceText, structure);
             if (scoped) {
                 const hit = retrieveFrom(concept, scoped);
                 if (hit) return hit;
@@ -4084,6 +4165,10 @@ ${languageRule()}`;
         function looksLikeHeading(block) {
             const s = block.trim();
             if (s.length < 3 || s.length > 90) return false;
+            // A Markdown heading says so outright. Worth reading, because the
+            // Markdown `tools/pdf_prep` writes can be uploaded on its own —
+            // without the bundle, and so without an outline to be told.
+            if (/^#{1,6}\s+\S/.test(s)) return true;
             if (/[.!?]["')\]]?$/.test(s)) return false;          // a sentence, not a heading
             if (/^\d+(\.\d+)*[.)]?\s+\p{L}/u.test(s)) return true; // "3.2 Photosynthesis"
             if (/^(chapter|section|part|unit|appendix|lesson)\b/iu.test(s)) return true;
@@ -4122,6 +4207,8 @@ ${languageRule()}`;
         function headingLevel(block) {
             const s = block.trim();
             if (!looksLikeHeading(s)) return 0;
+            const marked = /^(#{1,6})\s+\S/.exec(s);
+            if (marked) return Math.min(4, marked[1].length);
             // "3.2 Photosynthesis" — one number deep is a chapter, two is a
             // section under it. Same depths the keywords below produce, so a
             // document that mixes the two styles still nests correctly.
@@ -4129,6 +4216,45 @@ ${languageRule()}`;
             if (numbered) return Math.min(4, 1 + numbered[1].split('.').length);
             for (const [pattern, level] of HEADING_LEVELS) if (pattern.test(s)) return level;
             return 2;   // a bare title line: a chapter until something says otherwise
+        }
+
+        // Where each heading of a known outline sits in the text.
+        //
+        // A document prepared by `tools/pdf_prep` arrives with its outline
+        // already settled — read from font sizes, table grids and, for a scan,
+        // from OCR — so there is nothing to guess. What is still needed is the
+        // block each heading landed on, because the sampler works in blocks.
+        //
+        // The search only ever moves forwards, so a chapter title that also
+        // appears in a cross-reference later cannot pull the outline out of
+        // order. A heading that cannot be found is dropped: the text may have
+        // been truncated, and a section pointing at the wrong blocks is worse
+        // than one fewer section.
+        function locateSections(blocks, structure) {
+            const key = text => String(text || '')
+                .replace(/^#+\s*/, '')          // the Markdown heading marker
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toLowerCase();
+            const keys = blocks.map(key);
+
+            const heads = [];
+            let from = 0;
+            for (const section of structure.sections || []) {
+                const wanted = key(section.title);
+                if (!wanted) continue;
+                const at = keys.indexOf(wanted, from);
+                if (at < 0) continue;
+                heads.push({
+                    index: at,
+                    level: Math.max(1, Number(section.level) || 1),
+                    title: blocks[at].replace(/^#+\s*/, '').trim(),
+                    pageStart: section.pageStart || 0,
+                    pageEnd: section.pageEnd || 0,
+                });
+                from = at + 1;
+            }
+            return heads;
         }
 
         // The document's own structure: every heading, what it covers, and how
@@ -4139,13 +4265,20 @@ ${languageRule()}`;
         // also returns [] when nearly every block looks like a heading, because
         // that means the title-case rule is firing on body text and a wrong
         // outline is worse than none.
-        function documentSections(blocks) {
-            const heads = [];
-            blocks.forEach((block, index) => {
-                const level = headingLevel(block);
-                if (level) heads.push({ index, level, title: block.trim() });
-            });
-            if (heads.length < 2 || heads.length > Math.max(6, blocks.length * 0.4)) return [];
+        function documentSections(blocks, structure = null) {
+            let heads = [];
+            if (structure && Array.isArray(structure.sections)) {
+                heads = locateSections(blocks, structure);
+            }
+            if (heads.length < 2) {
+                heads = [];
+                blocks.forEach((block, index) => {
+                    const level = headingLevel(block);
+                    if (level) heads.push({ index, level, title: block.trim().replace(/^#+\s*/, '') });
+                });
+                if (heads.length > Math.max(6, blocks.length * 0.4)) return [];
+            }
+            if (heads.length < 2) return [];
 
             // Compress the levels actually used into 1..n. A document whose only
             // headings are "2.4"-style should not start its outline at depth 3.
@@ -4173,6 +4306,11 @@ ${languageRule()}`;
                     spanTo,
                     chars: charsBetween(head.index + 1, bodyTo),
                     totalChars: charsBetween(head.index + 1, spanTo),
+                    // Real page numbers, when the document came prepared. The
+                    // text alone cannot supply these: a page break leaves no
+                    // mark in a paragraph.
+                    pageStart: head.pageStart || 0,
+                    pageEnd: head.pageEnd || 0,
                     path: [],
                 };
             });
@@ -4197,7 +4335,11 @@ ${languageRule()}`;
         function renderOutline(sections, totalChars, budget) {
             const share = s => {
                 const percent = Math.round(100 * s.totalChars / Math.max(totalChars, 1));
-                return percent >= 1 ? `  (${percent}%)` : '';
+                const pages = s.pageStart
+                    ? (s.pageEnd > s.pageStart ? `pp. ${s.pageStart}-${s.pageEnd}` : `p. ${s.pageStart}`)
+                    : '';
+                const notes = [percent >= 1 ? `${percent}%` : '', pages].filter(Boolean);
+                return notes.length ? `  (${notes.join(', ')})` : '';
             };
             const render = (list, withShares) => list
                 .map(s => '  '.repeat(s.level - 1) + '- ' + s.title + (withShares ? share(s) : ''))
@@ -4449,7 +4591,7 @@ ${languageRule()}`;
         // every call about this document, and the API's cache is a prefix match.
         // One character that differs between two runs turns a 10%-price read into
         // a full-price write.
-        function buildSourceDigest(text, budget) {
+        function buildSourceDigest(text, budget, structure = null) {
             const source = String(text || '');
             if (source.length <= budget) return source;
 
@@ -4465,7 +4607,7 @@ ${languageRule()}`;
             const closingBudget = Math.floor(budget * 0.10);
 
             const density = blockDensity(blocks);
-            const sections = documentSections(blocks);
+            const sections = documentSections(blocks, structure);
             const totalChars = blocks.reduce((sum, b) => sum + b.length, 0);
 
             let outline = '';
@@ -4576,6 +4718,10 @@ ${languageRule()}`;
             return activeSourceText;
         }
 
+        function getStructure() {
+            return activeStructure;
+        }
+
         // ============= Course library =============
         // Every read is scoped to the caller by RLS — there is no explicit
         // "where user_id = me" needed, the database enforces it either way.
@@ -4628,14 +4774,31 @@ ${languageRule()}`;
             if (error) console.error('saveProgress failed:', error);
         }
 
-        async function saveCourse(course, sourceText) {
-            const { data, error } = await supabaseClient.from('courses').insert({
+        async function saveCourse(course, sourceText, structure = null) {
+            const row = {
                 user_id: currentUser.id,
                 title: cleanTitle(course.courseName) || 'Untitled course',
                 language: course.language || 'English',
                 concepts: course.concepts,
                 source_text: sourceText || null,
-            }).select('id').single();
+                structure: structure || null,
+            };
+
+            let { data, error } = await supabaseClient
+                .from('courses').insert(row).select('id').single();
+
+            // `structure` is a newer column than the rest of this table. A
+            // project that has not run the migration yet should still be able
+            // to build a course — losing the outline, which the app can derive
+            // from the text again, rather than losing the course.
+            if (error && /structure/i.test(error.message || '')) {
+                console.warn('courses.structure is missing — saving without it. '
+                    + 'Run supabase/migrations to keep document outlines.');
+                delete row.structure;
+                ({ data, error } = await supabaseClient
+                    .from('courses').insert(row).select('id').single());
+            }
+
             if (error) {
                 console.error('saveCourse failed:', error);
                 showError('Could not save that course: ' + error.message);
@@ -4694,6 +4857,7 @@ ${languageRule()}`;
                 courseData = null;
                 progress = {};
                 activeSourceText = '';
+                activeStructure = null;
                 localStorage.removeItem(ACTIVE_STORAGE);
             }
         }
@@ -4709,6 +4873,7 @@ ${languageRule()}`;
                 concepts: courseRow.concepts,
             };
             activeSourceText = courseRow.source_text || '';
+            activeStructure = courseRow.structure || null;
 
             const { data: progRows } = await supabaseClient.from('progress').select('*').eq('course_id', id);
             progress = {};
@@ -6157,7 +6322,7 @@ ${languageRule()}`;
         let pendingAction = null;
 
         async function runPendingAction(action) {
-            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName);
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName, action.structure);
             if (action.type === 'showLibrary') return showLibrary();
         }
 
@@ -6212,6 +6377,7 @@ ${languageRule()}`;
             progress = {};
             activeCourseId = null;
             activeSourceText = '';
+            activeStructure = null;
             library = [];
             pendingAction = null;
             entitlement = null;

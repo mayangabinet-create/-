@@ -74,7 +74,11 @@ _SEPARATOR = r"[\s:\-–—.,)\]]*"
 
 _KEYWORD_HEADING = re.compile(
     r"^(?P<kw>" + "|".join(re.escape(k) for k in _KEYWORDS) + r")"
-    r"\s+(?P<num>\S+)"
+    # Normally a space follows the keyword. OCR loses it often enough — "פרק2"
+    # — that a digit is allowed to follow directly. Only a digit: without that
+    # restriction the rule fires on every word that merely starts with the
+    # keyword, and חלקי, פרקים and שערי are all ordinary Hebrew words.
+    r"(?:\s+|(?=\d))(?P<num>\S+)"
     r"(?P<sep>" + _SEPARATOR + r")(?P<title>.*)$",
     re.IGNORECASE,
 )
@@ -278,6 +282,17 @@ def _match_title_heading(line: str, page: Page) -> Optional[Heading]:
         line_index=0,
         kind="title",
     )
+
+
+def match_heading_line(line: str, hebrew_context: bool = True) -> Optional[Heading]:
+    """A heading recognised from the text of one line, or None.
+
+    The textual half of detection, exposed on its own for callers that have
+    other evidence to combine it with — `pdf_prep` has font sizes, and wants
+    to ask "is this line *also* a heading by its words?" without re-deriving
+    the keyword table, the gematria and the outline rules.
+    """
+    return _match_keyword_heading(line, hebrew_context) or _match_outline_heading(line)
 
 
 def find_headings(pages: List[Page], loose: Optional[bool] = None) -> List[Heading]:

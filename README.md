@@ -330,6 +330,36 @@ question at a time and cites the chapter and pages it answered from. It is a
 command line, separate from the app: `tools/README.md` covers how it decides
 what a heading is, and what wiring it into `ai-proxy` would take.
 
+## Preparing a PDF for a model to read
+
+`tools/pdf_prep` is the third answer to the same raw material. Not "what is
+this book about" and not "what does page 43 say", but *turn this PDF into
+something a model can work from at all*:
+
+```sh
+python3 -m tools.pdf_prep book.pdf -o out/
+```
+
+It reads the pages with PyMuPDF — OCR'ing any that turn out to be scans — puts
+the lines in reading order (columns found, right-to-left runs fused back into
+lines), lifts out the tables and figures, drops the running headers and page
+numbers, joins the lines back into paragraphs, and writes two files:
+
+- **`out/document.md`** — the text, and the only copy of it: headings,
+  paragraphs, lists, GFM tables, formulas, figure references, and `<!-- page N
+  -->` markers so a model can still cite a page.
+- **`out/document.json`** — the map: outline with page ranges, chunks sized for
+  one call with their TF-IDF terms, tables as data, figures, footnotes, and for
+  each of them the character range of the Markdown it occupies.
+
+Nothing is stored twice, so a consumer reads the JSON, decides what matters,
+and slices those ranges out of the Markdown. No model is involved in any of it,
+which is the point: it costs nothing, it is the same twice, and it cannot
+invent a sentence the document does not contain. This is the shape the lesson
+builder wants next — a course plan can be drawn from the outline instead of
+from a sampled digest. `tools/pdf_prep/README.md` has the details and the
+limits.
+
 ## What's not done yet
 
 - **Payments.** `subscriptions.status` and the trial trigger exist and are enforced by

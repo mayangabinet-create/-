@@ -1,5 +1,12 @@
 # `pdf_index` — a 300-page PDF, reduced to what Claude needs to read
 
+> There are two PDF tools here. This one answers *which chapter, which page*
+> over a book too large to read at once. Its neighbour,
+> [`pdf_prep`](pdf_prep/README.md), answers the other question — *give me the
+> whole document, clean* — and writes `document.md` + `document.json` for a
+> model to work from. They share their reading-direction, running-header and
+> Hebrew-heading rules; those live here and are imported there.
+
 The app's browser path (see *Reading the PDF* in the root README) reads every
 page of an upload and hands the planning call a digest: an outline of the
 document's headings plus passages sampled across it, sized to the account's

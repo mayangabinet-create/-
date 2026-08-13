@@ -99,6 +99,24 @@ def repair_visual_order(pages: List[Page]) -> bool:
     return True
 
 
+def looks_like_page_number(line: str) -> bool:
+    """Is this line nothing but a page number? "42", "- 42 -", "עמ' 42", "xiv"."""
+    return bool(_PAGE_NUMBER.match(line.strip()))
+
+
+def looks_like_contents(lines: List[str]) -> bool:
+    """Is this page a table of contents rather than prose?
+
+    Judged by how many of its lines end in a dot leader and a number. Three
+    such rows happen in an index or a price list too, so the test is a share
+    of the page, not a raw count.
+    """
+    if len(lines) < 4:
+        return False
+    rows = sum(1 for line in lines if _TOC_ROW.search(line))
+    return rows >= 3 and rows >= len(lines) * 0.4
+
+
 def _fingerprint(line: str) -> str:
     """A line with its numbers blanked, so page 41 and page 42 look alike."""
     return _DIGITS.sub("#", line.strip().lower())
@@ -133,16 +151,7 @@ def _repeated_edge_lines(
 
 
 def _looks_like_toc(page: Page) -> bool:
-    """Is this page a table of contents rather than prose?
-
-    Judged by how many of its lines end in a dot leader and a number. Three
-    such rows on a page happens in an index or a price list too, so the test
-    is a share of the page, not a raw count.
-    """
-    if len(page.lines) < 4:
-        return False
-    rows = sum(1 for line in page.lines if _TOC_ROW.search(line))
-    return rows >= 3 and rows >= len(page.lines) * 0.4
+    return looks_like_contents(page.lines)
 
 
 def _join_hyphenated(lines: List[str]) -> List[str]:

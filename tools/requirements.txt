@@ -1,8 +1,18 @@
-# Any one of these is enough — the pipeline uses whichever it can import,
-# in this order. PyMuPDF keeps layout best; pypdf is the smallest install.
-pymupdf>=1.23 ; python_version >= "3.8"
+# PyMuPDF is the base for both tools: `pdf_prep` needs the font sizes, boxes,
+# tables and images that only it exposes, and `pdf_index` prefers it because it
+# handles right-to-left text better than the alternatives.
+pymupdf>=1.23
+
+# `pdf_index` alone can run on either of these instead. `pdf_prep` falls back to
+# them only in a degraded, geometry-free mode — see tools/pdf_prep/README.md.
 pypdf>=4.0
 
-# Only needed to run the end-to-end test, which builds a PDF to read back.
-# The rest of tests/test_pdf_index.py runs on the standard library alone.
+# Scanned pages. The Python package is a fallback path around PyMuPDF's own OCR;
+# both need the tesseract binary and its language data installed separately:
+#   apt install tesseract-ocr tesseract-ocr-heb   (or: brew install tesseract)
+pytesseract>=0.3.10
+pillow>=10.0
+
+# Only needed to run the end-to-end tests, which build PDFs to read back.
+# The rest of the suite runs on the standard library alone.
 reportlab>=4.0

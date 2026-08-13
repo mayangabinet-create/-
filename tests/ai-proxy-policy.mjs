@@ -20,7 +20,9 @@ import {
   PLANS,
   SONNET,
   TEMPLATE_ALLOWANCE,
+  UNLIMITED,
   classify,
+  lessonAllowance,
   fixCourseSize,
   minCacheChars,
   normaliseContent,
@@ -39,6 +41,47 @@ const chars = (n, c = "x") => c.repeat(n);
 const lessonOf = (planKey, blocks) =>
   prepareBlocks(blocks.map(text => ({ type: "text", text })),
     { kind: "lesson", plan: PLANS[planKey], model: PLANS[planKey].modelLesson });
+
+console.log("\n== the unlimited plan ==");
+{
+  const plan = PLANS.unlimited;
+  // The int4 boundary is the whole reason this plan needs its own arithmetic:
+  // every figure that reaches consume_ai_quota is one of these two.
+  const INT4_MAX = 2_147_483_647;
+  ok("its monthly course limit fits in the quota function's int4",
+     plan.coursesPerMonth <= INT4_MAX && Number.isInteger(plan.coursesPerMonth));
+  ok("and so does its lesson allowance, which is a product",
+     lessonAllowance(plan) <= INT4_MAX && Number.isInteger(lessonAllowance(plan)),
+     String(lessonAllowance(plan)));
+  ok("the unclamped product would not have",
+     plan.coursesPerMonth * plan.lessonsPerCourse > INT4_MAX);
+
+  // Infinity is the tempting way to write this and the one that silently
+  // denies everything: JSON has no Infinity, so it reaches Postgres as null,
+  // and `courses_month < null` is null.
+  ok("no plan uses Infinity, which JSON would turn into null",
+     Object.values(PLANS).every(p => Number.isFinite(p.coursesPerMonth) && Number.isFinite(p.lessonsPerCourse)));
+  ok("every plan's allowance survives the same trip",
+     Object.values(PLANS).every(p => Number.isInteger(lessonAllowance(p)) && lessonAllowance(p) <= INT4_MAX));
+  ok("JSON.stringify keeps it a number", JSON.parse(JSON.stringify({ n: UNLIMITED })).n === UNLIMITED);
+
+  ok("it reads and writes at the largest tier's budgets",
+     plan.readChars === PLANS.max.readChars && plan.excerptChars === PLANS.max.excerptChars
+     && plan.contextChars === PLANS.max.contextChars);
+  // A course is planned by rewriting a number into the prompt. That number is
+  // this one, so it has to stay a plausible number of concepts.
+  ok("its lessons-per-course stays a number a course can be built from",
+     plan.lessonsPerCourse > 0 && plan.lessonsPerCourse <= 30);
+  ok("a lesson on it is still clamped to the tier's excerpt",
+     lessonOf("unlimited", [chars(60_000), chars(60_000)])[1].text.length
+       === PLANS.unlimited.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // It is granted, never sold or guessed into.
+  ok("an unrecognised plan name still falls back to basic, not to this one",
+     planFor("unlimted", false).key === "basic" && planFor(null, false).key === "basic");
+  ok("a trialing account cannot be on it", planFor("unlimited", true).key === "trial");
+  ok("but a granted one is", planFor("unlimited", false).key === "unlimited");
+}
 
 console.log("\n== classification ==");
 {

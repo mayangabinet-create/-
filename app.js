@@ -1254,6 +1254,191 @@ ${languageRule()}`;
             await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure);
         }
 
+
+        // ============= Is this worth building a course from? =============
+        // A course costs a real API call, and the call is worth nothing if the
+        // material could never carry ten concepts: a bank statement, a
+        // timetable, a scanned page that came back as forty characters of
+        // noise. Refusing those before the call is the difference between a
+        // wasted build and a sentence of explanation.
+        //
+        // Every check here is arithmetic over the text. Nothing about this is a
+        // judgement of the subject — a document about anything at all passes as
+        // long as it is prose with enough of it to teach.
+
+        const MATERIAL_MIN_CHARS = 600;      // under this there is no course to build
+        const MATERIAL_MIN_WORDS = 100;
+
+        function materialStats(text) {
+            const source = String(text || '').trim();
+            const letters = (source.match(/\p{L}/gu) || []).length;
+            const digits = (source.match(/\p{Nd}/gu) || []).length;
+            const words = source.split(/\s+/).filter(Boolean);
+            const real = words.filter(w => /\p{L}{3,}/u.test(w));
+            const sentences = (source.match(/[.!?׃।。！？]+(\s|$)/gu) || []).length;
+            const distinct = new Set(real.map(w => w.toLowerCase().replace(/\p{P}/gu, ''))).size;
+            return {
+                chars: source.length,
+                words: words.length,
+                realWords: real.length,
+                letterShare: source.length ? letters / source.length : 0,
+                digitShare: source.length ? digits / source.length : 0,
+                sentences,
+                // No sentence enders at all is not "infinitely long sentences",
+                // it is "no sentences" — the mistake that let a whole code file
+                // through the gate with a perfect score.
+                wordsPerSentence: sentences ? real.length / sentences : 0,
+                vocabulary: real.length ? distinct / real.length : 0,
+            };
+        }
+
+        // Returns null when the material is fine, or the reason it is not.
+        // Each reason names what was seen, because "this file is not suitable"
+        // is not something a person can act on.
+        function assessMaterial(text) {
+            const st = materialStats(text);
+
+            // Shape before size, deliberately. A 3,000-character bank statement
+            // is not short — it is numbers — and being told "there isn't enough
+            // here" would send the learner off to find a longer statement.
+
+            // A page of figures: a price list, a statement, a timetable. There
+            // is nothing to explain in a column of numbers.
+            if (st.digitShare > 0.2 && st.realWords < st.words * 0.4) {
+                return {
+                    code: 'mostly-numbers',
+                    title: 'This looks like a table of numbers',
+                    detail: `About ${Math.round(st.digitShare * 100)}% of it is digits, with very few `
+                        + 'words between them. A course explains ideas, and a spreadsheet does not hold any.',
+                    fix: 'Upload the document that explains these numbers, if there is one.',
+                    stats: st,
+                };
+            }
+
+            // Not prose: a code file, a log, a bibliography, a page of headings
+            // with nothing under them. Letters are there; sentences are not.
+            // Each clause carries its own "enough to judge by" floor. Without
+            // them a two-line scrap is refused for not being prose, when what
+            // is actually wrong with it is that there are two lines of it.
+            if ((st.sentences === 0 && st.realWords >= 60)
+                || (st.letterShare < 0.55 && st.chars >= 300)
+                || (st.sentences > 0 && st.wordsPerSentence < 5 && st.realWords >= MATERIAL_MIN_WORDS)) {
+                return {
+                    code: 'not-prose',
+                    title: "This doesn't read like study material",
+                    detail: 'It has almost no full sentences — it looks more like a list, a form or '
+                        + 'a page of code than something written to be understood.',
+                    fix: 'A chapter, an article or a set of notes works best.',
+                    stats: st,
+                };
+            }
+
+            if (st.chars < MATERIAL_MIN_CHARS || st.realWords < MATERIAL_MIN_WORDS) {
+                return {
+                    code: 'too-short',
+                    title: "There isn't enough here to teach",
+                    detail: `This has about ${st.realWords} words. A course needs 10-20 concepts, `
+                        + `and they have to come from somewhere — a few hundred words at minimum.`,
+                    fix: 'Try a fuller document, or paste more of the text.',
+                    stats: st,
+                };
+            }
+
+            // The same line, over and over: a log, a template, a scan whose OCR
+            // repeated one row down the page.
+            if (st.realWords > 400 && st.vocabulary < 0.12) {
+                return {
+                    code: 'repetitive',
+                    title: 'This repeats itself',
+                    detail: `Only about ${Math.round(st.vocabulary * 100)}% of the words are different ones. `
+                        + 'A document that says the same thing on every line has one idea in it, not ten.',
+                    fix: 'Try a document with more to say.',
+                    stats: st,
+                };
+            }
+
+            return null;
+        }
+
+        // The learner may overrule us — we are guessing from arithmetic, and a
+        // strange-looking document can still be exactly what they want to
+        // learn. What the override must not become is a button that spends
+        // money every time it is pressed, so it is bounded twice: once per
+        // document, and a few per day.
+        //
+        // Neither bound is a security boundary — localStorage is the learner's
+        // own. The real limit on spend is the monthly course quota the Edge
+        // Function enforces, which an overridden build counts against exactly
+        // like any other. This only stops the accidental loop: refuse, click,
+        // refuse, click.
+        const OVERRIDE_STORAGE = 'material-overrides';
+        const OVERRIDES_PER_DAY = 3;
+
+        function materialFingerprint(text) {
+            const s = String(text || '');
+            let h = 2166136261;
+            for (let i = 0; i < s.length; i++) {
+                h ^= s.charCodeAt(i);
+                h = Math.imul(h, 16777619);
+            }
+            return (h >>> 0).toString(36) + ':' + s.length;
+        }
+
+        function readOverrides() {
+            try {
+                const raw = JSON.parse(localStorage.getItem(OVERRIDE_STORAGE) || '{}');
+                const today = new Date().toISOString().slice(0, 10);
+                return (raw && raw.day === today) ? raw : { day: today, ids: [] };
+            } catch {
+                return { day: new Date().toISOString().slice(0, 10), ids: [] };
+            }
+        }
+
+        function overrideState(text) {
+            const record = readOverrides();
+            const id = materialFingerprint(text);
+            return {
+                id,
+                already: record.ids.includes(id),        // this exact document, already allowed
+                left: Math.max(0, OVERRIDES_PER_DAY - record.ids.length),
+                record,
+            };
+        }
+
+        function recordOverride(text) {
+            const { id, record } = overrideState(text);
+            if (!record.ids.includes(id)) record.ids.push(id);
+            try { localStorage.setItem(OVERRIDE_STORAGE, JSON.stringify(record)); } catch { /* private mode */ }
+        }
+
+        // Show what we think is wrong and let them overrule it. Returns true if
+        // the build should go ahead.
+        async function confirmUnsuitable(verdict, text) {
+            const { already, left } = overrideState(text);
+            // Already waved through once — do not ask the same question twice
+            // about the same document.
+            if (already) return true;
+
+            if (left <= 0) {
+                await uiAlert(
+                    `${verdict.detail}\n\n${verdict.fix}\n\n`
+                    + "You've overridden this a few times today already, so this one is not being built. "
+                    + 'Try again tomorrow, or upload something with more to teach.',
+                    verdict.title);
+                return false;
+            }
+
+            const ok = await uiConfirm(
+                verdict.title,
+                `${verdict.detail}\n\n${verdict.fix}\n\n`
+                + 'If we have this wrong, build it anyway — it uses one course from your monthly quota, '
+                + `the same as any other. (${left} override${left === 1 ? '' : 's'} left today.)`,
+                { confirmText: 'Build it anyway' });
+
+            if (ok) recordOverride(text);
+            return ok;
+        }
+
         // A course name has to contain something readable. A filename like "-.pdf",
         // or a model that answers with a stray dash, otherwise ends up as the course's
         // whole title — a card labelled "-" with no way to fix it.
@@ -1272,13 +1457,26 @@ ${languageRule()}`;
         // `title` is the fallback (filename, or nothing for pasted text); a name the
         // learner typed themselves always beats both that and the model's suggestion.
         async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null) {
+            // The gate first, before the sign-up wall. Judging the material
+            // costs nothing, and being asked to create an account and only then
+            // told the document was never going to work is the worst order
+            // these two could happen in.
+            const verdict = assessMaterial(text);
+            if (verdict && !(await confirmUnsuitable(verdict, text))) {
+                resetToUpload();
+                return;
+            }
+
             // The point of need: building a course is the first thing that
             // actually requires an account. Resume automatically after sign-up.
+            // The gate runs again on the way back through and passes in
+            // silence — the override was recorded against this document.
             if (!currentUser) {
                 pendingAction = { type: 'buildCourse', text, title, chosenName, structure };
                 showAuthModal('signup');
                 return;
             }
+
             showMessage("Generating a personalised learning path...");
             try {
                 const course = await generateLessonPath(text, structure);

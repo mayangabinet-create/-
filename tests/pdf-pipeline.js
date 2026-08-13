@@ -60,6 +60,10 @@ const names = [
   'function sectionSource',
   'function retrieveFrom',
   'function retrieveExcerpt',
+  'const MATERIAL_MIN_CHARS', 'const MATERIAL_MIN_WORDS',
+  'function materialStats',
+  'function assessMaterial',
+  'function materialFingerprint',
   'function readBundle',
   'function bundleStructure',
   'function locateSections',
@@ -95,6 +99,7 @@ code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
   splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
   readBundle, bundleStructure, locateSections,
+  assessMaterial, materialStats, materialFingerprint,
   headingLevel, documentSections, renderOutline, blockDensity,
   extractOutline, buildSourceDigest, takeBlocks, planReadChars, excerptBudget, setPlan };
 `;
@@ -585,6 +590,61 @@ console.log('\n== a prepared bundle ==');
   const derived = P.buildSourceDigest(text, 600, null);
   ok('the same Markdown alone still finds headings', derived.includes('[OUTLINE'), derived.slice(0, 60));
   ok('but it cannot invent page numbers', !/pp?\. \d/.test(derived));
+}
+
+console.log('\n== is this worth building a course from ==');
+{
+  const prose = n => [...Array(n)].map((_, i) =>
+    `A contract binds the parties who made it, and each of them may enforce it in court. `
+    + `The ${i} rule that follows from this is that neither side may change the terms alone.`).join(' ');
+
+  ok('real study material passes', P.assessMaterial(prose(12)) === null);
+
+  const short = P.assessMaterial('Too little to teach from.');
+  ok('a scrap is refused', short?.code === 'too-short', JSON.stringify(short?.code));
+  ok('and is told how little it had', /\d+ words/.test(short.detail), short.detail);
+
+  // A bank statement, a price list, a timetable.
+  const table = [...Array(60)].map((_, i) =>
+    `${i + 1} 12/03/2026 4,${i}00.00 1,2${i}0.55 3,4${i}0.10`).join('\n');
+  ok('a page of numbers is refused', P.assessMaterial(table)?.code === 'mostly-numbers',
+     JSON.stringify(P.assessMaterial(table)?.code));
+
+  // A code file: letters, but no sentences.
+  const code = [...Array(80)].map((_, i) =>
+    `const value${i} = compute(${i}, { flag: true });`).join('\n');
+  ok('a code file is refused', ['not-prose', 'mostly-numbers'].includes(P.assessMaterial(code)?.code),
+     JSON.stringify(P.assessMaterial(code)?.code));
+
+  // A log, or OCR that repeated one row down the page.
+  const repeated = [...Array(120)].map(() =>
+    'The system started and the system stopped again after the check completed.').join(' ');
+  ok('a document that repeats itself is refused',
+     P.assessMaterial(repeated)?.code === 'repetitive', JSON.stringify(P.assessMaterial(repeated)?.code));
+
+  // The refusal has to be actionable: every one names what it saw and what to do.
+  ['too-short', 'mostly-numbers', 'not-prose', 'repetitive'].forEach(code => {
+    const sample = { 'too-short': 'tiny', 'mostly-numbers': table, 'not-prose': code, repetitive: repeated }[code];
+    const v = P.assessMaterial(sample === 'tiny' ? 'tiny' : sample);
+    if (v) ok(`the ${v.code} refusal says what to do instead`, !!v.fix && !!v.title && !!v.detail);
+  });
+
+  // Hebrew prose must pass — the app's own material is mostly Hebrew, and a
+  // gate that refuses it would refuse everything this app exists for.
+  const hebrew = [...Array(14)].map(() =>
+    'חוזה הוא הסכם מחייב בין שני צדדים או יותר, ותוקפו תלוי בגמירות דעת ובמסוימות של התנאים. '
+    + 'הפרה של החוזה מזכה את הצד הנפגע בתרופות שונות, ובהן אכיפה, ביטול ופיצויים.').join(' ');
+  ok('Hebrew study material passes', P.assessMaterial(hebrew) === null,
+     JSON.stringify(P.assessMaterial(hebrew)?.code));
+
+  // The override is keyed to the document, so waving one through does not wave
+  // the next one through.
+  ok('the fingerprint is stable', P.materialFingerprint(hebrew) === P.materialFingerprint(hebrew));
+  ok('and different documents differ', P.materialFingerprint(hebrew) !== P.materialFingerprint(prose(12)));
+
+  const st = P.materialStats(prose(4));
+  ok('the stats count what they claim to', st.realWords > 50 && st.sentences > 2 && st.letterShare > 0.6,
+     JSON.stringify(st));
 }
 
 console.log('\n== chunking ==');

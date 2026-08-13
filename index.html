@@ -1592,6 +1592,32 @@
             --btn-bg: var(--warn-text); --btn-bg-hover: var(--warn-text); --btn-edge: var(--warn-text);
         }
 
+        .loading-stages {
+            list-style: none; margin: var(--sp-4) 0 0; padding: 0;
+            display: grid; gap: var(--sp-2); text-align: start; width: 100%;
+        }
+        .loading-stages li {
+            display: flex; align-items: center; gap: var(--sp-3);
+            font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted);
+        }
+        .loading-stages .stage-mark {
+            flex: none; width: 1.25rem; height: 1.25rem; border-radius: 50%;
+            border: 2px solid var(--border); display: grid; place-items: center;
+            font-size: 0.7rem; line-height: 1;
+        }
+        .loading-stages li.is-now { color: var(--text); }
+        .loading-stages li.is-now .stage-mark {
+            border-color: var(--brand); border-right-color: transparent;
+            animation: stage-spin 900ms linear infinite;
+        }
+        .loading-stages li.is-done .stage-mark {
+            border-color: var(--brand); background: var(--brand); color: #fff;
+        }
+        @keyframes stage-spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .loading-stages li.is-now .stage-mark { animation: none; border-right-color: var(--brand); }
+        }
+
         .tutor-thinking { display: flex; align-items: center; gap: var(--sp-3); color: var(--text-muted); font-size: var(--fs-sm); }
 
         /* ========================== Lesson content ========================== */
@@ -2428,6 +2454,10 @@
         <div class="loading-card" role="status" aria-live="polite">
             <div class="spinner spinner-lg" aria-hidden="true"></div>
             <div id="loadingText"></div>
+            <!-- Named stages, filled in only for work that has more than one.
+                 A build takes half a minute; a spinner for that long is
+                 indistinguishable from a hung tab. -->
+            <ol id="loadingStages" class="loading-stages" hidden></ol>
         </div>
     </div>
 

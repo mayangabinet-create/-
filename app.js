@@ -426,7 +426,6 @@
         }
 
         async function generateLessonPath(text, structure = null) {
-            showMessage("Analyzing your material...");
 
             // Not the first N characters of the document. The opening pages of a
             // textbook are a title page, a copyright notice and a table of contents
@@ -944,6 +943,41 @@ ${languageRule()}`;
             const overlay = document.getElementById('loadingOverlay');
             overlay.classList.remove('show');
             overlay.setAttribute('aria-hidden', 'true');
+            showStages(null);
+        }
+
+        // Building a course is four distinct pieces of work and the better part
+        // of a minute. One line of text for all of it answers "is it stuck?"
+        // with a shrug, so the stages are named and ticked off as they finish.
+        //
+        // No percentage: the model call is the long one and it does not report
+        // progress, so any number here would be a number we made up. Which
+        // stage we are on is true, and it is enough.
+        const BUILD_STAGES = [
+            ['read',   'Reading your material'],
+            ['check',  'Checking it can be taught'],
+            ['plan',   'Finding the concepts'],
+            ['save',   'Building your path'],
+        ];
+
+        function showStages(stages, activeKey) {
+            const list = document.getElementById('loadingStages');
+            if (!list) return;
+            if (!stages) { list.hidden = true; list.innerHTML = ''; return; }
+
+            const at = stages.findIndex(([key]) => key === activeKey);
+            list.hidden = false;
+            list.innerHTML = stages.map(([key, label], i) => {
+                const state = i < at ? 'is-done' : (i === at ? 'is-now' : '');
+                const mark = i < at ? ICONS.check : '';
+                return `<li class="${state}"><span class="stage-mark" aria-hidden="true">${mark}</span>${esc(label)}</li>`;
+            }).join('');
+        }
+
+        // One call site's worth of sugar, so a stage change reads as one line.
+        function buildStage(key, message) {
+            showMessage(message);
+            showStages(BUILD_STAGES, key);
         }
 
         function prefersReducedMotion() {
@@ -1226,13 +1260,14 @@ ${languageRule()}`;
         async function handleFileUpload(file) {
             // Name the file being read. "Reading PDF..." after picking the wrong one
             // from a list of near-identical names gives you nothing to check against.
-            showMessage(`Reading ${file.name}...`);
+            buildStage('read', `Reading ${file.name}`);
             let text, structure;
             try {
                 ({ text, structure } = await readUpload(file, (page, total) => {
                     // A long document takes tens of seconds to read. Without a
                     // moving count that is indistinguishable from a hung tab.
-                    if (total > 8) showMessage(`Reading ${file.name} — page ${page} of ${total}...`);
+                    // A real count, because this one is genuinely known.
+                    if (total > 8) buildStage('read', `Reading ${file.name} — page ${page} of ${total}`);
                 }));
             } catch (err) {
                 console.error('upload read error:', err);
@@ -1414,6 +1449,7 @@ ${languageRule()}`;
         // Show what we think is wrong and let them overrule it. Returns true if
         // the build should go ahead.
         async function confirmUnsuitable(verdict, text) {
+            hideMessage();          // never ask a question over a spinner
             const { already, left } = overrideState(text);
             // Already waved through once — do not ask the same question twice
             // about the same document.
@@ -1461,6 +1497,7 @@ ${languageRule()}`;
             // costs nothing, and being asked to create an account and only then
             // told the document was never going to work is the worst order
             // these two could happen in.
+            buildStage('check', 'Checking your material');
             const verdict = assessMaterial(text);
             if (verdict && !(await confirmUnsuitable(verdict, text))) {
                 resetToUpload();
@@ -1477,7 +1514,7 @@ ${languageRule()}`;
                 return;
             }
 
-            showMessage("Generating a personalised learning path...");
+            buildStage('plan', 'Finding the concepts in your material');
             try {
                 const course = await generateLessonPath(text, structure);
                 if (!course) {
@@ -1489,6 +1526,7 @@ ${languageRule()}`;
                     || cleanTitle(course.courseName)
                     || cleanTitle(title)
                     || 'Untitled course';
+                buildStage('save', 'Building your learning path');
                 const id = await saveCourse(course, text, structure);
                 if (!id) return;
 

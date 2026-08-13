@@ -676,4 +676,32 @@ process.exit(fail ? 1 : 0);
  * Both are reproduced by generating the PDFs with Playwright, loading pdfjs-dist
  * in a page, injecting the functions named in `names` above, and calling
  * extractConceptsFromPDF on the bytes.
+ *
+ * The upload box, in a real browser
+ * ---------------------------------
+ * The cases above call the functions; they never open the page. The three kinds
+ * of upload were driven through the real DOM once, and are worth repeating after
+ * any change to handleFileUpload:
+ *
+ *   - a bundle from `tools/pdf_prep --bundle`  → read, then the sign-up prompt
+ *   - a plain .txt file                        → read, then the sign-up prompt
+ *   - a .json that is not a bundle             → "isn't a document bundle", no course
+ *
+ * The .txt case is a regression guard: .txt was in the picker's accept list but
+ * went through the PDF reader, and came back as "make sure it's a valid PDF".
+ *
+ * Doing it needs a local copy of the two CDN scripts, because index.html loads
+ * pdf.js and supabase-js from CDNs that a sandbox usually blocks — and because
+ * file:// refuses cross-directory scripts, it has to be served over http:
+ *
+ *   npm i @supabase/supabase-js@2 pdfjs-dist@3.11.174
+ *   cp index.html app.js -t site/ && cp -r fonts site/     # then point the two
+ *   #   <script src> tags in site/index.html at the local copies
+ *   (cd site && python3 -m http.server 8731)
+ *   # Playwright: goto localhost:8731, setInputFiles('#fileInput', file),
+ *   # then assert on #authModal.classList.contains('active') — not on
+ *   # offsetParent, which is null for any position:fixed modal.
+ *
+ * Signed-in flows (building a course, generating a lesson) were not driven this
+ * way: they need an account and spend real tokens.
  */

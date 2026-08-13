@@ -57,8 +57,17 @@ const names = [
   'function chunkText',
   'function buildIndex',
   'function scoreChunk',
+  'function sectionSource',
+  'function retrieveFrom',
   'function retrieveExcerpt',
   'function looksLikeHeading',
+  'const HEADING_LEVELS',
+  'function headingLevel',
+  'function documentSections',
+  'function renderOutline',
+  'function blockDensity',
+  'function sampleBySection',
+  'function sampleBySegment',
   'function extractOutline',
   'function buildSourceDigest',
   'function takeBlocks',
@@ -81,7 +90,8 @@ function setPlan(p){ entitlement = p ? { planKey: p } : null; }
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
-  splitBlocks, chunkText, tokenize, retrieveExcerpt, looksLikeHeading,
+  splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
+  headingLevel, documentSections, renderOutline, blockDensity,
   extractOutline, buildSourceDigest, takeBlocks, planReadChars, excerptBudget, setPlan };
 `;
 
@@ -292,8 +302,11 @@ console.log('\n== digest coverage (the whole point) ==');
   ok('digest spans more chapters than the old head-slice',
      digestChapters.length > oldChapters.length,
      `${digestChapters.length} vs ${oldChapters.length}`);
-  ok('outline is present', digest.includes('[OUTLINE]'));
+  ok('outline is present', digest.includes('[OUTLINE'));
   ok('outline lists late chapters', digest.includes('Chapter 11') || digest.includes('Chapter 12'));
+  ok('outline names every chapter', [...Array(12)].every((_, i) => digest.includes('Chapter ' + (i + 1) + ': Topic ' + (i + 1))));
+  ok('outline quotes each part\'s share', /\(\d+%\)/.test(digest), digest.slice(0, 80));
+  ok('passages say which part they came from', digest.includes('[Chapter'), digest.slice(0, 200));
   ok('closing is present', digest.includes('[CLOSING]'));
   ok('gaps are marked', digest.includes('[...]'));
 
@@ -310,6 +323,134 @@ console.log('\n== digest coverage (the whole point) ==');
   const wall = 'x'.repeat(9000);
   ok('single-block doc is truncated safely', P.buildSourceDigest(wall, 5000).length === 5000);
   ok('empty input is safe', P.buildSourceDigest('', 5000) === '');
+}
+
+console.log('\n== heading depth ==');
+{
+  ok('a part is the top level', P.headingLevel('Part One') === 1);
+  ok('a chapter sits under it', P.headingLevel('Chapter 4: Cell Division') === 2);
+  ok('a Hebrew chapter too', P.headingLevel('פרק 3 מבוא') === 2);
+  ok('a Hebrew part is level 1', P.headingLevel('חלק ב: דיני חוזים') === 1);
+  ok('one number deep is a chapter', P.headingLevel('3 Photosynthesis') === 2);
+  ok('two numbers deep is a section', P.headingLevel('3.2 Photosynthesis') === 3);
+  ok('a bare title is a chapter until told otherwise', P.headingLevel('The Krebs Cycle') === 2);
+  ok('a sentence has no level', P.headingLevel('The cell membrane is selectively permeable.') === 0);
+}
+
+console.log('\n== document structure ==');
+{
+  const doc = [
+    'Part One: Foundations',
+    'An opening paragraph about the foundations of the subject, long enough to count as real body text rather than a stray line.',
+    'Chapter 1: Cells',
+    'A paragraph about cells and the way they are organised into tissues, with enough words in it to be a genuine block of prose.',
+    '1.1 Membranes',
+    'A paragraph about membranes, their structure, and the transport that happens across them under normal conditions.',
+    'Chapter 2: Energy',
+    'A paragraph about energy, respiration and the way a cell pays for the work it does across a long enough stretch of text.',
+  ].join('\n\n');
+  const sections = P.documentSections(P.splitBlocks(doc));
+
+  ok('every heading became a section', sections.length === 4, JSON.stringify(sections.map(s => s.title)));
+  ok('levels are compressed to 1..n',
+     JSON.stringify(sections.map(s => s.level)) === '[1,2,3,2]',
+     JSON.stringify(sections.map(s => s.level)));
+  ok('a section knows its ancestors',
+     sections[2].path.join(' > ') === 'Part One: Foundations > Chapter 1: Cells > 1.1 Membranes',
+     sections[2].path.join(' > '));
+
+  // A chapter owns its sub-sections' text; its own text stops at the next heading.
+  const chapter1 = sections[1];
+  ok('a chapter spans its sub-sections', chapter1.totalChars > chapter1.chars,
+     `${chapter1.totalChars} vs ${chapter1.chars}`);
+  ok('the part spans the whole document', sections[0].totalChars > chapter1.totalChars);
+
+  ok('prose with no headings has no structure',
+     P.documentSections(P.splitBlocks([...Array(8)].map((_, i) =>
+       `Paragraph ${i} runs on for a while about the subject at hand and does not look like a heading in any way.`).join('\n\n'))).length === 0);
+
+  // Title Case fires on body text in some documents. A wrong outline is worse
+  // than none, so a document that is nearly all headings reports no structure.
+  ok('a page of title-case lines is not an outline',
+     P.documentSections([...Array(10)].map((_, i) => 'Some Title Case Line ' + i)).length === 0);
+}
+
+console.log('\n== digest coverage of an uneven document ==');
+{
+  // The shape the old sampler got wrong: one huge chapter and nine short ones.
+  // Sampling by position spends the budget where the paragraphs are, so a short
+  // chapter at the end of the book can go unmentioned; sampling by section gives
+  // every chapter a passage before any chapter gets a second.
+  const blocks = ['A Practical Handbook'];
+  for (let c = 1; c <= 10; c++) {
+    blocks.push(`Chapter ${c}: Topic ${c}`);
+    for (let s = 0; s < (c === 1 ? 60 : 3); s++) {
+      blocks.push(`Passage ${c}.${s} explains widget${c} at length, showing how widget${c} behaves `
+        + `under load and why the surrounding machinery depends on it in practice, with worked reasoning.`);
+    }
+  }
+  blocks.push('Conclusion');
+  blocks.push('The widgets described above form one coherent system for the practitioner to apply.');
+  const doc = blocks.join('\n\n');
+
+  const digest = P.buildSourceDigest(doc, 5000);
+  const reached = [...Array(10)].map((_, i) => i + 1).filter(n => digest.includes('widget' + n));
+  ok('every chapter is sampled, not just the long one', reached.length === 10, JSON.stringify(reached));
+  ok('the long chapter still gets the most room',
+     (digest.match(/widget1\b/g) || []).length >= 2, JSON.stringify(reached));
+  ok('the digest respects its budget', digest.length <= 5000, 'len=' + digest.length);
+  ok('rebuilding is byte-identical', P.buildSourceDigest(doc, 5000) === digest);
+}
+
+console.log('\n== a book with more parts than the budget ==');
+{
+  const blocks = [];
+  for (let c = 1; c <= 80; c++) {
+    blocks.push(`Chapter ${c}: Topic ${c}`);
+    for (let s = 0; s < 4; s++) {
+      blocks.push(`Passage ${c}.${s} explains gizmo${c} in depth and shows how gizmo${c} interacts `
+        + `with the rest of the system under realistic conditions, with worked reasoning throughout.`);
+    }
+  }
+  const digest = P.buildSourceDigest(blocks.join('\n\n'), 5000);
+
+  // At this budget no sampler can quote 80 chapters. Naming them all costs a
+  // line each, and a chapter the planner never hears of cannot be taught.
+  const named = [...Array(80)].map((_, i) => i + 1).filter(n => digest.includes(`Chapter ${n}: Topic ${n}`));
+  ok('every part is named even when few can be quoted', named.length === 80, named.length + '/80');
+  ok('still within budget', digest.length <= 5000, 'len=' + digest.length);
+}
+
+console.log('\n== retrieval scoped to the concept\'s section ==');
+{
+  // "flux" is discussed in two chapters. Chapter 3 is where it is taught; chapter 7
+  // mentions it more often, so whole-document TF-IDF prefers chapter 7.
+  const blocks = ['A Field Guide'];
+  for (let c = 1; c <= 8; c++) {
+    blocks.push(`Chapter ${c}: Topic ${c}`);
+    for (let s = 0; s < 4; s++) {
+      if (c === 3) blocks.push(`The definition of flux is given here: flux is the quantity crossing a surface per unit time, and this chapter derives it from first principles in section ${s}.`);
+      else if (c === 7) blocks.push(`Applications of flux appear throughout, and flux flux flux is invoked repeatedly in worked examples of the applied kind in section ${s}.`);
+      else blocks.push(`Chapter ${c} section ${s} discusses matters unrelated to the subject of this test, at a length that makes it a real block of prose.`);
+    }
+  }
+  const doc = blocks.join('\n\n');
+  const concept = { name: 'Flux', description: 'the quantity crossing a surface per unit time', importance: 'core', examples: [] };
+
+  P.setPlan('basic');
+  const unscoped = P.retrieveExcerpt(concept, doc);
+  const scoped = P.retrieveExcerpt({ ...concept, section: 'Chapter 3: Topic 3' }, doc);
+
+  ok('the section is found in the stored text', P.sectionSource({ section: 'Chapter 3: Topic 3' }, doc).includes('first principles'));
+  ok('scoped retrieval reads the chapter it was told to', scoped.includes('first principles'), scoped.slice(0, 90));
+  ok('scoped retrieval leaves the other chapter alone', !scoped.includes('Applications of flux'), scoped.slice(0, 90));
+  ok('unscoped retrieval is unchanged', unscoped.length > 0);
+
+  // A heading the model paraphrased instead of copying must not come back empty.
+  const wrong = P.retrieveExcerpt({ ...concept, section: 'Chapter Three, On Flux' }, doc);
+  ok('an unmatched section falls back to the whole document', wrong === unscoped, wrong.slice(0, 60));
+  ok('no section behaves as before', P.retrieveExcerpt(concept, doc) === unscoped);
+  P.setPlan(null);
 }
 
 console.log('\n== chunking ==');

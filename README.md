@@ -160,15 +160,36 @@ otherwise look like one line repeating and the whole outline gets deleted.
 **Condensing.** The planning call cannot hold a textbook, so it gets a digest rather than
 the first N characters. Taking the first N is the worst available choice: the opening
 pages of a book are the title page, the copyright notice and the table of contents, and a
-course built from them lists the chapters instead of teaching them. The digest is an
-outline of the document's own headings, its opening and closing, and body passages sampled
-across the whole document — segments chosen by position first and quality second, so the
-last chapter is represented as surely as the first. On a 27-page test book at Basic's
-budget this quotes 8 of 12 chapters and names all 12, where the old head-slice reached 1.
+course built from them lists the chapters instead of teaching them.
 
-**Retrieval.** Unchanged in shape — TF-IDF over the whole stored document, per lesson —
-but chunking now breaks on paragraph boundaries where the extractor found them, and the
-budget comes from the account's tier instead of a constant.
+The digest is built from the document's **outline**. Headings are recovered from the
+stored text — by keyword (`Chapter 4`, `פרק ב`, `Part One`), by decimal numbering (`3.2`),
+and by shape — and turned into a tree, each part carrying the share of the document it
+occupies. That tree is printed whole, and the body budget is then spent *per part*: one
+passage from every part before any part gets a second, then depth in proportion to size,
+then whatever is left to the parts still unquoted. Every passage is labelled with the part
+it came from, so the planner is choosing concepts against the shape of the book rather
+than against whichever paragraphs happened to score well.
+
+What that buys, measured on synthetic books at Basic's 5,000-character budget: on a
+lopsided one — a sixty-passage chapter followed by nine short ones — the old position-based
+sampler quoted 9 of 10 chapters and this quotes all 10; on an eighty-chapter book, where
+no sampler can quote more than a fraction, it names all 80 rather than 50, because a
+chapter the planner never hears of cannot be taught and a line of outline is the cheapest
+way to hear of one. A document with no headings — pasted text, a paper that is one wall of
+prose — falls back to the old sampling by position, which is all such a document supports.
+
+The digest is also a prompt-cache prefix, so it must come out identical every time it is
+rebuilt from the same stored text. That is why the outline is derived from the text rather
+than from the font sizes the extractor saw: `source_text` is a string in the database, and
+a structure that could not be rebuilt from it would cost every course full price on its
+second lesson.
+
+**Retrieval.** TF-IDF over the stored document, per lesson, with the budget from the
+account's tier — and now narrowed by the plan. Each concept records the outline heading it
+came from, and retrieval searches that section first, falling back to the whole document
+when the heading does not match or the section is too thin. Told the chapter, retrieval no
+longer has to distinguish the chapter that *teaches* a term from the four that mention it.
 
 `tests/pdf-pipeline.js` covers all of this and needs nothing but `node`.
 

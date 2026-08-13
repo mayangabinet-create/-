@@ -437,9 +437,16 @@
 The material is a digest of a longer document. Lines in [SQUARE BRACKETS] are
 labels added by the app, not part of the document — do not treat them as content,
 and do not let them influence which language you report. [...] marks text that was
-left out. [OUTLINE] lists the document's own section headings in order, so use it
-to understand the shape and coverage of the whole document even where the body
-text below it was omitted.
+left out.
+
+[OUTLINE] is the document's own structure: its parts, in order, indented by depth,
+each with the share of the document it takes up. It is complete even where the
+body below it is not. Treat it as the map of what this document covers — a part
+listed there with no passage under it is still part of the document, and a course
+that skips it has skipped a chapter of the book.
+
+Under [BODY], a line like [Chapter 2 › 2.1 Rates] says which part the passage
+below it came from.
 
 MATERIAL:
 ${digest}
@@ -447,7 +454,12 @@ ${digest}
 TASK:
 1. Identify 10-20 core concepts a learner must understand from this material.
 2. Order them by logical progression — prerequisites first.
-3. For each concept give:
+3. Cover the outline. Spread the concepts across the document's parts in rough
+   proportion to their share, rather than drawing them all from the parts that
+   happen to have the most passages quoted below. A part with a large share and
+   no passage is a gap in the digest, not a gap in the document: name the concept
+   its heading implies and let the lesson find the text later.
+4. For each concept give:
    - name (1-4 words)
    - description (one sentence)
    - difficulty (1-5)
@@ -480,6 +492,7 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
       "difficulty": 2,
       "domain": "other",
       "kind": "definition",
+      "section": "The [OUTLINE] heading this concept comes from, copied exactly, or \"\" if it spans the whole document",
       "importance": "Why this matters",
       "examples": ["Example 1", "Example 2"]
     }
@@ -489,7 +502,9 @@ Return valid JSON only (no markdown, no surrounding prose), in exactly this shap
 LANGUAGE: write every string above in the same language as the MATERIAL.
 If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
 The exceptions are "language", "domain" and "kind", which are labels the app
-reads: keep those in English, spelled exactly as listed above.`;
+reads: keep those in English, spelled exactly as listed above. "section" is not
+written at all — it is copied from the outline, character for character, in
+whatever language the outline is in, because the app looks it up there.`;
 
             const result = await callAI(extractPrompt, '', { maxTokens: MAX_TOKENS.path, task: 'path' });
             if (!result) return null;
@@ -3843,7 +3858,7 @@ ${languageRule()}`;
             if (courseContextCache.key !== key) {
                 // The label is part of the cached block, so it has to be fixed
                 // text — nothing per-lesson may appear here.
-                const header = `[COURSE MATERIAL] A digest of the learner's whole document, the same for every lesson in this course. Lines in [SQUARE BRACKETS] are labels added by the app, not part of the document; [...] marks text left out. Use this for context — where a concept sits in the material, what came before it, what it connects to. The passage quoted in the lesson prompt below is the authority for facts.`;
+                const header = `[COURSE MATERIAL] A digest of the learner's whole document, the same for every lesson in this course. Lines in [SQUARE BRACKETS] are labels added by the app, not part of the document; [...] marks text left out. [OUTLINE] is the document's own structure with each part's share of it, and a label like [Chapter 2 › 2.1 Rates] says which part the passage under it came from. Use this for context — where a concept sits in the material, what came before it, what it connects to. The passage quoted in the lesson prompt below is the authority for facts.`;
                 courseContextCache = { key, text: `${header}\n\n${buildSourceDigest(source, budget)}` };
             }
             return courseContextCache.text;
@@ -3957,8 +3972,54 @@ ${languageRule()}`;
             return score;
         }
 
+        // The text of the section a concept says it came from, or '' if the
+        // document has no such section.
+        //
+        // The planner copies the heading out of the outline it was given, and the
+        // outline is rebuilt here from the same stored text, so the two agree.
+        // The match is forgiving about case and surrounding punctuation and about
+        // nothing else: a near-miss that silently retrieved the wrong chapter
+        // would be worse than searching the whole document, which is what an
+        // outright miss falls back to.
+        function sectionSource(concept, sourceText) {
+            const wanted = String(concept?.section || '').trim().toLowerCase();
+            if (!wanted || wanted.length < 3) return '';
+
+            const blocks = splitBlocks(sourceText);
+            const sections = documentSections(blocks);
+            if (!sections.length) return '';
+
+            const key = s => s.title.trim().toLowerCase().replace(/[\s:.\-–—]+$/, '');
+            const target = wanted.replace(/[\s:.\-–—]+$/, '');
+            const hit = sections.find(s => key(s) === target)
+                || sections.find(s => key(s).startsWith(target) || target.startsWith(key(s)));
+            if (!hit) return '';
+
+            const text = blocks.slice(hit.block, hit.spanTo).join('\n\n');
+            // A heading with almost nothing under it is not worth narrowing to.
+            return text.length > 400 ? text : '';
+        }
+
         // Return the passages most likely to be where this concept was taught.
+        //
+        // When the plan says which section a concept came from, that section is
+        // searched first. Retrieval over the whole book has to distinguish the
+        // chapter that teaches a term from the four that mention it in passing,
+        // on TF-IDF alone; told the chapter, it does not have to guess. The
+        // whole document is still the fallback, because a concept that spans the
+        // book — and a heading the model paraphrased instead of copying — must
+        // not come back empty.
         function retrieveExcerpt(concept, sourceText) {
+            if (!sourceText) return '';
+            const scoped = sectionSource(concept, sourceText);
+            if (scoped) {
+                const hit = retrieveFrom(concept, scoped);
+                if (hit) return hit;
+            }
+            return retrieveFrom(concept, sourceText);
+        }
+
+        function retrieveFrom(concept, sourceText) {
             if (!sourceText) return '';
 
             const cap = excerptBudget();
@@ -4038,6 +4099,329 @@ ${languageRule()}`;
             return words.length >= 2 && capitalised >= Math.ceil(words.length * 0.7);
         }
 
+        // How deep a heading sits, from its own wording. 0 means "not a heading".
+        //
+        // From the wording and nothing else, on purpose. Font sizes would settle
+        // this in one line, and the extractor does see them — but the outline has
+        // to be rebuildable from the stored text alone. `source_text` is a string
+        // in the database, and the digest built from it is a prompt-cache prefix:
+        // if a reload produced a different outline, every course would pay full
+        // price for its second lesson. Deriving structure from the text is what
+        // makes the two runs identical.
+        const HEADING_LEVELS = [
+            [/^(?:part|book|volume)\b/iu, 1],
+            // \b is defined in terms of ASCII word characters, so it never matches
+            // at the edge of a Hebrew word — these need an explicit lookahead.
+            [/^(?:שער|חלק)(?=[\s:.\-–—]|$)/u, 1],
+            [/^(?:chapter|unit|appendix|lesson)\b/iu, 2],
+            [/^(?:פרק|יחידה|נספח|שיעור)(?=[\s:.\-–—]|$)/u, 2],
+            [/^(?:section)\b/iu, 3],
+            [/^(?:סעיף)(?=[\s:.\-–—]|$)/u, 3],
+        ];
+
+        function headingLevel(block) {
+            const s = block.trim();
+            if (!looksLikeHeading(s)) return 0;
+            // "3.2 Photosynthesis" — one number deep is a chapter, two is a
+            // section under it. Same depths the keywords below produce, so a
+            // document that mixes the two styles still nests correctly.
+            const numbered = /^(\d+(?:\.\d+)*)[.)]?\s+\p{L}/u.exec(s);
+            if (numbered) return Math.min(4, 1 + numbered[1].split('.').length);
+            for (const [pattern, level] of HEADING_LEVELS) if (pattern.test(s)) return level;
+            return 2;   // a bare title line: a chapter until something says otherwise
+        }
+
+        // The document's own structure: every heading, what it covers, and how
+        // much of the document that is.
+        //
+        // Returns [] when there is no structure to find, which is the honest
+        // answer for pasted text and for a paper that is one wall of prose. It
+        // also returns [] when nearly every block looks like a heading, because
+        // that means the title-case rule is firing on body text and a wrong
+        // outline is worse than none.
+        function documentSections(blocks) {
+            const heads = [];
+            blocks.forEach((block, index) => {
+                const level = headingLevel(block);
+                if (level) heads.push({ index, level, title: block.trim() });
+            });
+            if (heads.length < 2 || heads.length > Math.max(6, blocks.length * 0.4)) return [];
+
+            // Compress the levels actually used into 1..n. A document whose only
+            // headings are "2.4"-style should not start its outline at depth 3.
+            const used = [...new Set(heads.map(h => h.level))].sort((a, b) => a - b);
+            const rank = new Map(used.map((level, i) => [level, i + 1]));
+
+            const charsBetween = (from, to) =>
+                blocks.slice(from, to).reduce((sum, b) => sum + b.length, 0);
+
+            const sections = heads.map((head, k) => {
+                // A section's *text* stops at the next heading of any level: the
+                // sub-section's prose belongs to the sub-section, not to both.
+                const bodyTo = heads[k + 1] ? heads[k + 1].index : blocks.length;
+                // Its *span* runs to the next heading of its own level or higher,
+                // so a chapter still owns everything under it. That is the number
+                // the outline quotes as a share of the document.
+                const closing = heads.slice(k + 1).find(other => other.level <= head.level);
+                const spanTo = closing ? closing.index : blocks.length;
+                return {
+                    title: head.title,
+                    level: rank.get(head.level),
+                    block: head.index,
+                    bodyFrom: head.index + 1,
+                    bodyTo,
+                    spanTo,
+                    chars: charsBetween(head.index + 1, bodyTo),
+                    totalChars: charsBetween(head.index + 1, spanTo),
+                    path: [],
+                };
+            });
+
+            const stack = [];
+            for (const section of sections) {
+                while (stack.length && stack[stack.length - 1].level >= section.level) stack.pop();
+                section.path = [...stack.map(s => s.title), section.title];
+                stack.push(section);
+            }
+            return sections;
+        }
+
+        // The outline as the planner sees it: indented by level, each part
+        // carrying its share of the document.
+        //
+        // When it does not fit, whole levels are dropped before anything is
+        // truncated. Cutting the list short would drop the last chapters, which
+        // is the one bias this entire function exists to remove.
+        // Returns { text, complete }: complete means every top-level part is
+        // named, which is what the caller pays extra for when it can.
+        function renderOutline(sections, totalChars, budget) {
+            const share = s => {
+                const percent = Math.round(100 * s.totalChars / Math.max(totalChars, 1));
+                return percent >= 1 ? `  (${percent}%)` : '';
+            };
+            const render = (list, withShares) => list
+                .map(s => '  '.repeat(s.level - 1) + '- ' + s.title + (withShares ? share(s) : ''))
+                .join('\n');
+
+            // Depth goes first, then the shares. Both are worth having, but a
+            // part the planner is never told about is a part it cannot teach,
+            // and that outranks knowing how long the other parts are.
+            for (const withShares of [true, false]) {
+                for (let depth = 3; depth >= 1; depth--) {
+                    const text = render(sections.filter(s => s.level <= depth), withShares);
+                    if (text && text.length <= budget) return { text, complete: true };
+                }
+            }
+
+            // Even the top level alone is too long — a book of 200 chapters. Thin
+            // it evenly so the first and the last both survive, and say so.
+            const tops = sections.filter(s => s.level === 1);
+            if (!tops.length) return { text: '', complete: false };
+            for (let step = 2; step <= tops.length; step++) {
+                const kept = tops.filter((_, i) => i % step === 0 || i === tops.length - 1);
+                const text = render(kept, false) + `\n- [… ${tops.length - kept.length} more parts]`;
+                if (text.length <= budget) return { text, complete: false };
+            }
+            return { text: render([tops[0], tops[tops.length - 1]], false), complete: false };
+        }
+
+        // Score every block by how much distinctive vocabulary it carries.
+        // Boilerplate — copyright lines, running examples, navigation — reuses
+        // words that appear everywhere, so it scores near zero; the passage that
+        // introduces a term is where that rare term is densest.
+        function blockDensity(blocks) {
+            const docFreq = new Map();
+            const tokenised = blocks.map(b => {
+                const toks = tokenize(b);
+                new Set(toks).forEach(t => docFreq.set(t, (docFreq.get(t) || 0) + 1));
+                return toks;
+            });
+            const n = blocks.length;
+            return blocks.map((b, i) => {
+                const toks = tokenised[i];
+                if (toks.length < 12) return 0;      // captions, page furniture, stubs
+                let score = 0;
+                new Set(toks).forEach(t => { score += Math.log(1 + n / (docFreq.get(t) || 1)); });
+                // Divide by sqrt(length) so a long mediocre block cannot outrank a
+                // short dense one purely by being long.
+                return score / Math.sqrt(toks.length);
+            });
+        }
+
+        // Spend the body budget section by section, in proportion to how much of
+        // the document each section is.
+        //
+        // This is the part the outline buys. Sampling by position alone gives a
+        // two-page preface the same room as a sixty-page chapter, because it can
+        // only count paragraphs; sampling by section spends the budget the way
+        // the author spent the pages. The floor matters as much as the
+        // proportion: a short chapter still gets one passage, so a plan built
+        // from this cannot silently omit it.
+        function sampleBySection(blocks, density, sections, budget, taken) {
+            if (budget <= 0) return [];
+            const tops = sections.filter(s => s.level === 1);
+            if (!tops.length) return [];
+
+            const headings = new Set(sections.map(s => s.block));
+            const total = tops.reduce((sum, s) => sum + s.totalChars, 0) || 1;
+            const lengths = blocks.map(b => b.length).sort((a, b) => a - b);
+            const typical = Math.max(200, lengths[Math.floor(lengths.length / 2)] || 400);
+
+            const picked = [];
+            const used = new Map(tops.map(s => [s, 0]));
+            let spent = 0;
+
+            // The densest untaken blocks of one section. Ties break by position,
+            // so the digest is byte-identical every time it is rebuilt.
+            const candidatesIn = section => {
+                const out = [];
+                for (let i = section.block + 1; i < section.spanTo; i++) {
+                    if (taken.has(i) || headings.has(i) || !density[i]) continue;
+                    out.push(i);
+                }
+                out.sort((a, b) => (density[b] - density[a]) || (a - b));
+                return out;
+            };
+
+            const take = (section, i, limit) => {
+                if (spent + blocks[i].length > limit) return false;
+                taken.add(i);
+                picked.push(i);
+                spent += blocks[i].length;
+                used.set(section, used.get(section) + blocks[i].length);
+                return true;
+            };
+
+            // Pass one — coverage. Every part takes one passage before any part
+            // takes a second. Without this the proportional pass alone spends
+            // the whole budget on the long chapter it visits first, and the
+            // short chapters at the end of the book get nothing: the same bias
+            // as reading the first 5,000 characters, arrived at by a longer
+            // route.
+            //
+            // The ceiling is generous because it costs nothing when it is not
+            // needed — a pass that takes one passage per part stops when the
+            // parts run out, and what it leaves goes to pass two.
+            const coverage = Math.floor(budget * 0.7);
+            const affordable = Math.max(1, Math.floor(coverage / typical));
+            let order = tops;
+            if (tops.length > affordable) {
+                // More parts than the budget can pay for. Keep as many as it can
+                // afford, spaced evenly, so the sample still spans the document
+                // end to end rather than stopping where the money ran out.
+                order = affordable === 1
+                    ? [tops[0]]
+                    : Array.from({ length: affordable }, (_, i) =>
+                        tops[Math.round(i * (tops.length - 1) / (affordable - 1))]);
+                order = order.filter((section, i) => order.indexOf(section) === i);
+            }
+            for (const section of order) {
+                const best = candidatesIn(section)[0];
+                if (best !== undefined) take(section, best, coverage);
+            }
+
+            // Pass two — depth, in proportion to how much of the document each
+            // part is, one passage per part per round so the shares stay honest
+            // however the rounding falls.
+            const quota = new Map(tops.map(s => [s, Math.floor(budget * (s.totalChars / total))]));
+            for (let round = 0; round < 40; round++) {
+                let acceptedAny = false;
+                for (const section of tops) {
+                    const next = candidatesIn(section)[0];
+                    if (next === undefined) continue;
+                    if (used.get(section) + blocks[next].length > quota.get(section)) continue;
+                    if (take(section, next, budget)) acceptedAny = true;
+                }
+                if (!acceptedAny) break;
+            }
+
+            // Pass three — whatever the quotas left unspent goes to what is left.
+            // A part still unrepresented comes first, however dense the
+            // alternatives: the leftovers are the last chance to cover it, and
+            // one passage from an unseen chapter is worth more to a plan than a
+            // fourth passage from a chapter already quoted three times.
+            const home = new Map();
+            for (const section of tops) {
+                for (let i = section.block + 1; i < section.spanTo; i++) home.set(i, section);
+            }
+            const rest = blocks
+                .map((_, i) => i)
+                .filter(i => !taken.has(i) && !headings.has(i) && density[i])
+                .sort((a, b) => {
+                    const emptyA = used.get(home.get(a)) ? 1 : 0;
+                    const emptyB = used.get(home.get(b)) ? 1 : 0;
+                    return (emptyA - emptyB) || (density[b] - density[a]) || (a - b);
+                });
+            for (const i of rest) {
+                if (spent + blocks[i].length > budget) continue;
+                const section = home.get(i);
+                if (section) take(section, i, budget);
+                else { taken.add(i); picked.push(i); spent += blocks[i].length; }
+            }
+
+            return picked.sort((a, b) => a - b);
+        }
+
+        // The fallback, for a document with no headings to go by: walk it in
+        // equal segments and take the densest block from each.
+        function sampleBySegment(blocks, density, budget, taken) {
+            if (budget <= 0) return [];
+
+            // How many places in the document we can afford to sample. Sizing this
+            // from the document's own paragraph length matters: a fixed guess
+            // either asks for more sample points than the budget can pay for, or —
+            // the worse failure — takes one short paragraph per segment and leaves
+            // most of the budget unspent while whole chapters go unrepresented.
+            const lengths = blocks.map(b => b.length).sort((a, b) => a - b);
+            const typical = Math.max(200, lengths[Math.floor(lengths.length / 2)] || 400);
+            const SEGMENTS = Math.max(4, Math.min(60, Math.floor(budget / typical)));
+            const size = Math.max(1, blocks.length / SEGMENTS);
+
+            const picked = [];
+            let spent = 0;
+
+            // Each pass nominates the best unused block from every segment, then
+            // accepts nominations best-first until the budget runs out.
+            //
+            // Nominating first and spending afterwards is the whole point. If
+            // segments simply spent as they were visited, the budget would be
+            // exhausted somewhere in the middle of the document and every segment
+            // after that would get nothing — reproducing, one level down, the very
+            // bias this function exists to remove. Choosing across all segments at
+            // once means what gets dropped is the weakest passage, not the last one.
+            for (let pass = 0; pass < 3 && spent < budget; pass++) {
+                const nominees = [];
+                for (let s = 0; s < SEGMENTS; s++) {
+                    const from = Math.floor(s * size);
+                    const to = (s === SEGMENTS - 1) ? blocks.length : Math.floor((s + 1) * size);
+                    let bestIdx = -1;
+                    let bestScore = 0;
+                    for (let i = from; i < to; i++) {
+                        if (taken.has(i)) continue;
+                        if (blocks[i].length > budget) continue;
+                        if (density[i] > bestScore) { bestScore = density[i]; bestIdx = i; }
+                    }
+                    if (bestIdx >= 0) nominees.push({ i: bestIdx, score: bestScore });
+                }
+                if (!nominees.length) break;
+
+                nominees.sort((a, b) => (b.score - a.score) || (a.i - b.i));
+                let acceptedAny = false;
+                for (const nominee of nominees) {
+                    if (spent + blocks[nominee.i].length > budget) continue;
+                    taken.add(nominee.i);
+                    picked.push(nominee.i);
+                    spent += blocks[nominee.i].length;
+                    acceptedAny = true;
+                }
+                if (!acceptedAny) break;
+            }
+
+            return picked.sort((a, b) => a - b);
+        }
+
+        // A flat list of headings, for a document with too little structure to
+        // build an outline from but enough to be worth listing.
         function extractOutline(blocks, maxChars) {
             const out = [];
             let used = 0;
@@ -4052,6 +4436,19 @@ ${languageRule()}`;
         }
 
         // Build a digest of `text` that fits in `budget` characters.
+        //
+        // Two shapes, decided by whether the document has an outline to be read
+        // from. With one, the digest is the document's structure plus a sample
+        // from every part of it, each passage labelled with the part it came
+        // from — so the planner is choosing concepts against the shape of the
+        // whole book rather than against whatever paragraphs scored well. Without
+        // one, it falls back to sampling by position, which is all a wall of
+        // prose supports.
+        //
+        // Deterministic, and it has to stay that way: this text is the prefix of
+        // every call about this document, and the API's cache is a prefix match.
+        // One character that differs between two runs turns a 10%-price read into
+        // a full-price write.
         function buildSourceDigest(text, budget) {
             const source = String(text || '');
             if (source.length <= budget) return source;
@@ -4059,114 +4456,103 @@ ${languageRule()}`;
             const blocks = splitBlocks(source);
             if (blocks.length <= 1) return source.slice(0, budget);
 
-            // Reserve: outline gets a fifth, the opening an eighth (title, abstract
-            // and introduction genuinely do say what a document is about), and the
-            // closing a tenth (conclusions and summaries are dense with concepts).
-            // The rest is spread across the body.
-            const outlineBudget = Math.floor(budget * 0.20);
+            // Reserve: the outline gets a fifth, the opening an eighth (title,
+            // abstract and introduction genuinely do say what a document is
+            // about), and the closing a tenth (conclusions and summaries are
+            // dense with concepts). The rest is spread across the body.
+            const outlineBudget = Math.floor(budget * 0.22);
             const openingBudget = Math.floor(budget * 0.12);
             const closingBudget = Math.floor(budget * 0.10);
 
-            const outline = extractOutline(blocks, outlineBudget);
+            const density = blockDensity(blocks);
+            const sections = documentSections(blocks);
+            const totalChars = blocks.reduce((sum, b) => sum + b.length, 0);
 
-            // Score every block by how much distinctive vocabulary it carries.
-            // Boilerplate — copyright lines, running examples, navigation — reuses
-            // words that appear everywhere, so it scores near zero; the passage
-            // that introduces a term is where that rare term is densest.
-            const docFreq = new Map();
-            const tokenised = blocks.map(b => {
-                const toks = tokenize(b);
-                new Set(toks).forEach(t => docFreq.set(t, (docFreq.get(t) || 0) + 1));
-                return toks;
-            });
-            const n = blocks.length;
-            const density = blocks.map((b, i) => {
-                const toks = tokenised[i];
-                if (toks.length < 12) return 0;      // captions, page furniture, stubs
-                let score = 0;
-                new Set(toks).forEach(t => { score += Math.log(1 + n / (docFreq.get(t) || 1)); });
-                // Divide by sqrt(length) so a long mediocre block cannot outrank a
-                // short dense one purely by being long.
-                return score / Math.sqrt(toks.length);
-            });
+            let outline = '';
+            if (sections.length) {
+                const usual = renderOutline(sections, totalChars, outlineBudget);
+                outline = usual.text;
+                if (!usual.complete) {
+                    // Naming every part costs more than the outline's usual share
+                    // here — a book of eighty chapters. Buy it anyway if it fits
+                    // in a third of the budget: a chapter the planner has never
+                    // heard of cannot be taught, and a list of names is the
+                    // cheapest possible way to hear of one. The passages that
+                    // pays for are the ones it could only have sampled thinly.
+                    const generous = renderOutline(sections, totalChars, Math.floor(budget * 0.5));
+                    if (generous.complete) outline = generous.text;
+                }
+            } else {
+                outline = extractOutline(blocks, outlineBudget).join('\n');
+            }
 
             const opening = takeBlocks(blocks, 0, openingBudget);
             const closing = takeBlocks(blocks, blocks.length - 1, closingBudget, -1);
 
-            // Walk the document in equal segments and take the densest block from
-            // each. This is what guarantees the last chapter is represented: the
-            // budget is divided by position first and quality only second.
-            const bodyBudget = budget - outline.join('\n').length - opening.chars - closing.chars - 200;
-            const body = [];
-            let bodyUsed = 0;
-
-            if (bodyBudget > 0) {
-                // How many places in the document we can afford to sample. Sizing
-                // this from the document's own paragraph length matters: a fixed
-                // guess either asks for more sample points than the budget can pay
-                // for, or — the worse failure — takes one short paragraph per
-                // segment and leaves most of the budget unspent while whole
-                // chapters go unrepresented.
-                const lengths = blocks.map(b => b.length).sort((a, b) => a - b);
-                const typical = Math.max(200, lengths[Math.floor(lengths.length / 2)] || 400);
-                const SEGMENTS = Math.max(4, Math.min(60, Math.floor(bodyBudget / typical)));
-                const size = Math.max(1, blocks.length / SEGMENTS);
-                const taken = new Set([...opening.indices, ...closing.indices]);
-
-                // Each pass nominates the best unused block from every segment,
-                // then accepts nominations best-first until the budget runs out.
-                //
-                // Nominating first and spending afterwards is the whole point. If
-                // segments simply spent as they were visited, the budget would be
-                // exhausted somewhere in the middle of the document and every
-                // segment after that would get nothing — reproducing, one level
-                // down, the very bias this function exists to remove. Choosing
-                // across all segments at once means what gets dropped is the
-                // weakest passage, not the last one.
-                for (let pass = 0; pass < 3 && bodyUsed < bodyBudget; pass++) {
-                    const nominees = [];
-                    for (let s = 0; s < SEGMENTS; s++) {
-                        const from = Math.floor(s * size);
-                        const to = (s === SEGMENTS - 1) ? blocks.length : Math.floor((s + 1) * size);
-                        let bestIdx = -1;
-                        let bestScore = 0;
-                        for (let i = from; i < to; i++) {
-                            if (taken.has(i)) continue;
-                            if (blocks[i].length > bodyBudget) continue;
-                            if (density[i] > bestScore) { bestScore = density[i]; bestIdx = i; }
-                        }
-                        if (bestIdx >= 0) nominees.push({ i: bestIdx, score: bestScore });
-                    }
-                    if (!nominees.length) break;
-
-                    nominees.sort((a, b) => b.score - a.score);
-                    let acceptedAny = false;
-                    for (const nominee of nominees) {
-                        if (bodyUsed + blocks[nominee.i].length > bodyBudget) continue;
-                        taken.add(nominee.i);
-                        body.push(nominee.i);
-                        bodyUsed += blocks[nominee.i].length;
-                        acceptedAny = true;
-                    }
-                    if (!acceptedAny) break;
+            // The innermost section a block sits in, so a passage can say where
+            // it came from. A passage the planner cannot place is a passage it
+            // cannot plan a chapter's worth of lessons around.
+            const sectionOf = index => {
+                let found = null;
+                for (const section of sections) {
+                    if (index >= section.bodyFrom && index < section.bodyTo) found = section;
                 }
-                body.sort((a, b) => a - b);
-            }
+                return found;
+            };
 
-            const parts = [];
-            if (outline.length) parts.push('[OUTLINE]\n' + outline.join('\n'));
-            if (opening.text) parts.push('[OPENING]\n' + opening.text);
-            if (body.length) {
+            const renderBody = indices => {
                 let passage = '';
-                body.forEach((idx, k) => {
-                    if (k > 0) passage += (idx === body[k - 1] + 1) ? '\n\n' : '\n\n[...]\n\n';
+                let label = '';
+                indices.forEach((idx, k) => {
+                    if (k > 0) passage += (idx === indices[k - 1] + 1) ? '\n\n' : '\n\n[...]\n\n';
+                    const section = sectionOf(idx);
+                    const here = section ? section.path.join(' \u203a ') : '';
+                    if (here && here !== label) {
+                        passage += `[${here}]\n`;
+                        label = here;
+                    }
                     passage += blocks[idx];
                 });
-                parts.push('[BODY — passages sampled across the whole document]\n' + passage);
-            }
-            if (closing.text) parts.push('[CLOSING]\n' + closing.text);
+                return passage;
+            };
 
-            return parts.join('\n\n').slice(0, budget);
+            const assemble = passage => {
+                const parts = [];
+                if (outline) {
+                    parts.push(sections.length
+                        ? '[OUTLINE \u2014 the document\'s own structure, and each part\'s share of it]\n' + outline
+                        : '[OUTLINE]\n' + outline);
+                }
+                if (opening.text) parts.push('[OPENING]\n' + opening.text);
+                if (passage) {
+                    parts.push(sections.length
+                        ? '[BODY \u2014 passages from each part of the document, under the part they came from]\n' + passage
+                        : '[BODY \u2014 passages sampled across the whole document]\n' + passage);
+                }
+                if (closing.text) parts.push('[CLOSING]\n' + closing.text);
+                return parts.join('\n\n');
+            };
+
+            // Sample, assemble, and if the labels pushed it over, sample again
+            // knowing what they really cost.
+            //
+            // Measuring beats estimating here because of what overshooting does:
+            // the final slice is a hard cap, and what it cuts is the end of the
+            // string — which is the end of the document. A digest that runs 5%
+            // long does not lose 5% of its quality, it loses its last chapters.
+            let bodyBudget = budget - outline.length - opening.chars - closing.chars - 200;
+            let digest = '';
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const taken = new Set([...opening.indices, ...closing.indices]);
+                const body = sections.length
+                    ? sampleBySection(blocks, density, sections, bodyBudget, taken)
+                    : sampleBySegment(blocks, density, bodyBudget, taken);
+                digest = assemble(renderBody(body));
+                if (digest.length <= budget) break;
+                bodyBudget -= (digest.length - budget) + 40;
+            }
+
+            return digest.slice(0, budget);
         }
 
         // Consecutive blocks from one end of the document, up to a character budget.

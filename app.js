@@ -1446,8 +1446,13 @@ ${languageRule()}`;
             try { localStorage.setItem(OVERRIDE_STORAGE, JSON.stringify(record)); } catch { /* private mode */ }
         }
 
-        // Show what we think is wrong and let them overrule it. Returns true if
-        // the build should go ahead.
+        // Show what we think is wrong and let the learner overrule it. Returns
+        // true if the build should go ahead.
+        //
+        // Two ways out, and the one that disagrees with us also tells us so.
+        // The check is arithmetic guessing at intent; when it guesses wrong the
+        // learner is the only one who knows, and a refusal nobody can report is
+        // a threshold nobody can fix.
         async function confirmUnsuitable(verdict, text) {
             hideMessage();          // never ask a question over a spinner
             const { already, left } = overrideState(text);
@@ -1458,8 +1463,9 @@ ${languageRule()}`;
             if (left <= 0) {
                 await uiAlert(
                     `${verdict.detail}\n\n${verdict.fix}\n\n`
-                    + "You've overridden this a few times today already, so this one is not being built. "
-                    + 'Try again tomorrow, or upload something with more to teach.',
+                    + "You've told us we were wrong a few times today already, so this one is not being "
+                    + 'built. Those reports are logged and the check will be adjusted — try again '
+                    + 'tomorrow, or start from a different document.',
                     verdict.title);
                 return false;
             }
@@ -1467,12 +1473,70 @@ ${languageRule()}`;
             const ok = await uiConfirm(
                 verdict.title,
                 `${verdict.detail}\n\n${verdict.fix}\n\n`
-                + 'If we have this wrong, build it anyway — it uses one course from your monthly quota, '
-                + `the same as any other. (${left} override${left === 1 ? '' : 's'} left today.)`,
-                { confirmText: 'Build it anyway' });
+                + 'If this really is study material, tell us — we will log that the check got it wrong, '
+                + 'and build the course anyway. It uses one course from your monthly quota, the same as '
+                + `any other. (${left} left today.)`,
+                { confirmText: "You've got this wrong — build it", cancelText: 'Use a different document' });
 
-            if (ok) recordOverride(text);
+            if (ok) {
+                recordOverride(text);
+                reportMisjudged(verdict);
+            }
             return ok;
+        }
+
+        // The report: which rule fired, and the measurements it fired on. Never
+        // the document — the check itself only ever looked at the shape of the
+        // text, so the shape is all that has to travel, and nobody reporting a
+        // bad refusal should have to hand over their bank statement to do it.
+        //
+        // Queued when signed out, because the gate deliberately runs before the
+        // sign-up wall and a report has to belong to someone. The queue is
+        // flushed on the way back in.
+        const REPORT_QUEUE = 'material-reports-pending';
+
+        function reportMisjudged(verdict) {
+            const row = {
+                code: verdict.code,
+                stats: {
+                    chars: verdict.stats.chars,
+                    words: verdict.stats.realWords,
+                    letterShare: Math.round(verdict.stats.letterShare * 100) / 100,
+                    digitShare: Math.round(verdict.stats.digitShare * 100) / 100,
+                    sentences: verdict.stats.sentences,
+                    wordsPerSentence: Math.round(verdict.stats.wordsPerSentence * 10) / 10,
+                    vocabulary: Math.round(verdict.stats.vocabulary * 100) / 100,
+                },
+                source: activeStructure ? 'bundle' : 'upload',
+            };
+            if (!currentUser) { queueReport(row); return Promise.resolve(); }
+            return sendReports([row]);
+        }
+
+        function queueReport(row) {
+            try {
+                const queued = JSON.parse(localStorage.getItem(REPORT_QUEUE) || '[]');
+                queued.push(row);
+                // A queue is a courtesy, not a database: keep the last few.
+                localStorage.setItem(REPORT_QUEUE, JSON.stringify(queued.slice(-5)));
+            } catch { /* private mode: the report is simply lost */ }
+        }
+
+        async function sendReports(rows) {
+            if (!currentUser || !rows.length) return;
+            const { error } = await supabaseClient.from('material_reports')
+                .insert(rows.map(r => ({ ...r, user_id: currentUser.id })));
+            // A failed report is not the learner's problem and must never
+            // interrupt the build they asked for.
+            if (error) console.warn('material report not sent:', error.message);
+        }
+
+        async function flushReports() {
+            let queued = [];
+            try { queued = JSON.parse(localStorage.getItem(REPORT_QUEUE) || '[]'); } catch { return; }
+            if (!queued.length) return;
+            try { localStorage.removeItem(REPORT_QUEUE); } catch { /* ignore */ }
+            await sendReports(queued);
         }
 
         // A course name has to contain something readable. A filename like "-.pdf",
@@ -6618,6 +6682,36 @@ ${languageRule()}`;
         // Edge Function already enforces them. Showing what each one is beats a
         // one-line "coming soon" that leaves you with nothing to do: the things
         // that still work without paying are spelled out at the bottom.
+        // Not a security boundary — the real gate is inside debug_set_plan
+        // itself, which checks the caller's own account against this same
+        // address on the server and refuses everyone else. This is only
+        // whether the button is worth drawing.
+        const DEBUG_PLAN_EMAIL = 'mayangabinet@gmail.com';
+
+        function canDebugPlan() {
+            return (currentUser?.email || '').trim().toLowerCase() === DEBUG_PLAN_EMAIL;
+        }
+
+        // A stand-in for checkout, which does not exist yet (see README). One
+        // account gets to try the tiers directly; everyone else sees the same
+        // "checkout isn't live" plan list this always showed.
+        async function setDebugPlan(planKey, button) {
+            const original = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Switching…';
+            const { error } = await supabaseClient.rpc('debug_set_plan', { new_plan: planKey });
+            if (error) {
+                button.disabled = false;
+                button.textContent = original;
+                showError('Could not switch plan: ' + error.message);
+                return;
+            }
+            await Promise.all([loadEntitlement(), refreshUsage()]);
+            document.getElementById('dialogConfirm')?.click();   // close, then reopen fresh
+            showUpgradePrompt();
+            if (document.getElementById('accountBody')) renderAccount();
+        }
+
         function showUpgradePrompt() {
             const rows = Object.entries(PLAN_LIMITS)
                 .filter(([key]) => key !== 'trial')
@@ -6627,13 +6721,23 @@ ${languageRule()}`;
                     // turn an abstract character budget into something you can
                     // picture against the document you were about to upload.
                     const pages = Math.round(p.readChars / 1800);
+                    const debugBtn = canDebugPlan() && !here
+                        ? `<button type="button" class="button button-secondary plan-debug-btn" data-debug-plan="${key}">Switch to ${p.label} (debug)</button>`
+                        : '';
                     return `<li${here ? ' class="is-current"' : ''}><strong>${p.label}</strong>${here ? ' — your plan' : ''}<br>
                         ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}<br>
-                        reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course</li>`;
+                        reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course
+                        ${debugBtn}</li>`;
                 }).join('');
+
+            const debugNote = canDebugPlan()
+                ? `<p class="plan-debug-note">Debug buttons are visible only on this account — they switch your
+                   real plan row directly, no payment involved, so quotas and models change for real.</p>`
+                : '';
 
             uiAlert(
                 `<ul class="plan-list">${rows}</ul>
+                 ${debugNote}
                  <p>Checkout isn't live yet, so there's nothing to buy today. Until it is,
                  everything you've already built keeps working: open any course, replay any
                  lesson, and run reviews and extra practice as often as you like — replays
@@ -6641,6 +6745,12 @@ ${languageRule()}`;
                  any limit.</p>`,
                 entitlement?.trialing ? 'Plans' : 'Your trial has ended',
                 { html: true });
+
+            // Wired after the dialog's own promise is created but not awaited —
+            // openDialog fills the DOM synchronously before returning it.
+            document.querySelectorAll('[data-debug-plan]').forEach(btn => {
+                btn.onclick = () => setDebugPlan(btn.dataset.debugPlan, btn);
+            });
         }
 
         // Set by any gated action (building a course, opening the library, etc.)
@@ -6667,6 +6777,7 @@ ${languageRule()}`;
             // used to be skipped entirely when a pending action resumed.
             loadEntitlement();
             loadStreak();
+            flushReports();
 
             if (pendingAction) {
                 const action = pendingAction;

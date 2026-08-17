@@ -64,6 +64,7 @@ const names = [
   'function materialStats',
   'function assessMaterial',
   'function materialFingerprint',
+  'const DEBUG_PLAN_EMAIL', 'function canDebugPlan',
   'function readBundle',
   'function bundleStructure',
   'function locateSections',
@@ -84,6 +85,7 @@ let code = `
 const CHUNK_OVERLAP = 150;
 const MAX_SOURCE_CHARS = 600000;
 let entitlement = null;
+let currentUser = null;
 const PLAN_LIMITS = ${JSON.stringify({
   trial: { readChars: 5000, excerptChars: 2400 },
   basic: { readChars: 5000, excerptChars: 2400 },
@@ -93,12 +95,14 @@ const PLAN_LIMITS = ${JSON.stringify({
 function planReadChars(){ return (entitlement && PLAN_LIMITS[entitlement.planKey]?.readChars) || 5000; }
 function excerptBudget(){ return (entitlement && PLAN_LIMITS[entitlement.planKey]?.excerptChars) || 2400; }
 function setPlan(p){ entitlement = p ? { planKey: p } : null; }
+function setUser(email){ currentUser = email ? { email } : null; }
 `;
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
   splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
   readBundle, bundleStructure, locateSections,
+  canDebugPlan, setUser, DEBUG_PLAN_EMAIL,
   assessMaterial, materialStats, materialFingerprint,
   headingLevel, documentSections, renderOutline, blockDensity,
   extractOutline, buildSourceDigest, takeBlocks, planReadChars, excerptBudget, setPlan };
@@ -645,6 +649,23 @@ console.log('\n== is this worth building a course from ==');
   const st = P.materialStats(prose(4));
   ok('the stats count what they claim to', st.realWords > 50 && st.sentences > 2 && st.letterShare > 0.6,
      JSON.stringify(st));
+}
+
+console.log('\n== the debug plan switcher is gated to one account ==');
+{
+  ok('signed out sees no switch', P.setUser(null) || !P.canDebugPlan());
+  ok('the one account sees it', P.setUser('mayangabinet@gmail.com') || P.canDebugPlan());
+  ok('case and stray whitespace do not matter',
+     P.setUser('  MayanGabinet@Gmail.com') || P.canDebugPlan());
+  ok('nobody else does', P.setUser('someone.else@example.com') || !P.canDebugPlan());
+  ok('not even a lookalike address', P.setUser('mayangabinet@gmail.com.evil.com') || !P.canDebugPlan());
+  P.setUser(null);
+
+  // The real gate is server-side, inside debug_set_plan itself — this constant
+  // is only what decides whether the button is drawn. It has to match the
+  // email the migration hardcodes, or the button and the RPC disagree about
+  // who the switch is for.
+  ok('the email matches what the migration authorises', P.DEBUG_PLAN_EMAIL === 'mayangabinet@gmail.com');
 }
 
 console.log('\n== chunking ==');

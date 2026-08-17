@@ -409,6 +409,14 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
   what still works without it — it just can't take money. Once a Stripe account and
   price exist, this needs a checkout Edge Function and a webhook that updates `subscriptions` on
   `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
+  Until then, one account can try the tiers directly: the plan dialog offers debug
+  buttons that call `debug_set_plan(new_plan)`, a Postgres function
+  (`supabase/migrations/20260813150000_debug_set_plan.sql`) that writes `subscriptions`
+  for real — quotas and models change — but checks the *caller's own* email against
+  `auth.users` inside the function, hardcoded, before it will touch a row. A client
+  can ask it for any plan; it cannot ask on someone else's behalf. `app.js`'s
+  `canDebugPlan()` only decides whether the button is drawn, which is why the address
+  is duplicated in both places — `tests/pdf-pipeline.js` pins that the two agree.
 - **`MAX_COURSES` is still a constant.** `PLAN_LIMITS` now carries `readChars` and
   `excerptChars`, and the planning digest and per-lesson excerpt are sized from the
   signed-in account's tier (`planReadChars()` / `excerptBudget()`), so Pro and Max

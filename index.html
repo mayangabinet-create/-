@@ -1275,14 +1275,6 @@
         }
         .account-card > .button { width: 100%; }
 
-        .quota { margin-bottom: var(--sp-4); }
-        .quota-row {
-            display: flex; justify-content: space-between; gap: var(--sp-2);
-            font-size: var(--fs-sm); font-weight: 700; color: var(--text-muted);
-            margin-bottom: var(--sp-2);
-        }
-        .quota-num { font-family: var(--font-num); font-size: var(--fs-xs); color: var(--text); }
-
         .account-stats {
             display: grid; grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
             gap: var(--sp-2);
@@ -2253,10 +2245,18 @@
         /* ========================== Responsive ========================== */
         @media (max-width: 768px) {
             :root { --fs-display: 1.75rem; --fs-h1: 1.5rem; --fs-h2: 1.25rem; }
-            .lesson-node:nth-of-type(8n+2), .lesson-node:nth-of-type(8n+4) { transform: translateX(36px); }
-            .lesson-node:nth-of-type(8n+3) { transform: translateX(50px); }
-            .lesson-node:nth-of-type(8n+6), .lesson-node:nth-of-type(8n+0) { transform: translateX(-36px); }
-            .lesson-node:nth-of-type(8n+7) { transform: translateX(-50px); }
+            /* The wave itself was never broken — measured on screen, every node
+               lands exactly where an 8-step cycle says it should, banners and all.
+               What was wrong was the amplitude: 36-50px against a 68-80px circle
+               reads as a stray nudge, not a path, on the size screen almost every
+               real visit happens on. 72/104px is still comfortably inside the
+               ~130px a 360px-wide phone allows before a checkpoint's 80px circle
+               would clip the edge, and it is what actually makes this look like
+               the winding path it is meant to be instead of slightly-off circles. */
+            .lesson-node:nth-of-type(8n+2), .lesson-node:nth-of-type(8n+4) { transform: translateX(72px); }
+            .lesson-node:nth-of-type(8n+3) { transform: translateX(104px); }
+            .lesson-node:nth-of-type(8n+6), .lesson-node:nth-of-type(8n+0) { transform: translateX(-72px); }
+            .lesson-node:nth-of-type(8n+7) { transform: translateX(-104px); }
             .path-container { padding: var(--sp-5) var(--sp-2) var(--sp-8); }
             .lesson-scroll { padding: var(--sp-2) var(--sp-4) 0; }
             .lesson-topbar { padding: var(--sp-3) var(--sp-3) var(--sp-2); }

@@ -2366,12 +2366,6 @@ ${languageRule()}`;
             renderAccount();
         }
 
-        function meter(used, limit) {
-            const pct = limit ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-            const tone = pct >= 100 ? 'is-full' : pct >= 75 ? 'is-high' : '';
-            return `<div class="meter"><div class="meter-fill ${tone}" style="width:${pct}%"></div></div>`;
-        }
-
         function renderAccount() {
             const body = document.getElementById('accountBody');
             if (!body) return;
@@ -2411,7 +2405,6 @@ ${languageRule()}`;
                 : real;
 
             const limits = PLAN_LIMITS[ent?.planKey || 'trial'];
-            const lessonAllowance = limits.courses * limits.lessonsPerCourse;
 
             let planLine, planTone;
             if (!ent) { planLine = 'Checking your plan…'; planTone = ''; }
@@ -2454,22 +2447,8 @@ ${languageRule()}`;
                         ${loading ? field('', '85%') : `${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
                         up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.`}
                     </p>
-                    <div class="quota">
-                        <div class="quota-row">
-                            <span>Courses built this month</span>
-                            <span class="quota-num">${field(`${usage.coursesMonth} / ${limits.courses}`, '3.5em')}</span>
-                        </div>
-                        ${loading ? `<div class="meter skel"></div>` : meter(usage.coursesMonth, limits.courses)}
-                    </div>
-                    <div class="quota">
-                        <div class="quota-row">
-                            <span>Lessons generated this month</span>
-                            <span class="quota-num">${field(`${usage.lessonsMonth} / ${lessonAllowance}`, '3.5em')}</span>
-                        </div>
-                        ${loading ? `<div class="meter skel"></div>` : meter(usage.lessonsMonth, lessonAllowance)}
-                    </div>
                     <p class="account-card-note">
-                        ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free — only new generation counts.`}
+                        ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free, any time — it's already yours.`}
                     </p>
                     <button class="button button-secondary" id="acctPlans" ${loading ? 'disabled' : ''}>${loading ? field('', '5em') : (ent?.active ? 'Change plan' : 'See plans')}</button>
                 </section>
@@ -5086,20 +5065,26 @@ ${languageRule()}`;
         // Every read is scoped to the caller by RLS — there is no explicit
         // "where user_id = me" needed, the database enforces it either way.
         async function loadLibrary() {
-            const { data: courses, error } = await supabaseClient
-                .from('courses')
-                .select('id, title, language, concepts, created_at')
-                .order('created_at', { ascending: false });
+            // Neither query is filtered by the other's result — the second one
+            // reads every completed lesson the user has, across every course, not
+            // just the ones the first query happens to return — so there is
+            // nothing forcing them to run one after the other.
+            const [{ data: courses, error }, { data: doneRows }] = await Promise.all([
+                supabaseClient
+                    .from('courses')
+                    .select('id, title, language, concepts, created_at')
+                    .order('created_at', { ascending: false }),
+                supabaseClient
+                    .from('progress')
+                    .select('course_id')
+                    .eq('completed', true),
+            ]);
             if (error) {
                 console.error('loadLibrary failed:', error);
                 library = [];
                 return library;
             }
 
-            const { data: doneRows } = await supabaseClient
-                .from('progress')
-                .select('course_id')
-                .eq('completed', true);
             const doneCounts = {};
             (doneRows || []).forEach(r => { doneCounts[r.course_id] = (doneCounts[r.course_id] || 0) + 1; });
 
@@ -5225,8 +5210,14 @@ ${languageRule()}`;
         async function openCourse(id) {
             showCoursePathSkeleton();
 
-            const { data: courseRow, error } = await supabaseClient
-                .from('courses').select('*').eq('id', id).maybeSingle();
+            // Both queries only need `id`, which is already known — neither
+            // depends on what the other returns. Firing them together instead of
+            // one after the other is a free win: opening a course now costs one
+            // network round trip instead of two.
+            const [{ data: courseRow, error }, { data: progRows }] = await Promise.all([
+                supabaseClient.from('courses').select('*').eq('id', id).maybeSingle(),
+                supabaseClient.from('progress').select('*').eq('course_id', id),
+            ]);
             if (error || !courseRow) {
                 showError('That course could not be found.');
                 // Otherwise the skeleton is left on screen behind the alert with
@@ -5243,7 +5234,6 @@ ${languageRule()}`;
             activeSourceText = courseRow.source_text || '';
             activeStructure = courseRow.structure || null;
 
-            const { data: progRows } = await supabaseClient.from('progress').select('*').eq('course_id', id);
             progress = {};
             (progRows || []).forEach(r => {
                 progress[r.lesson_index] = {
@@ -5294,12 +5284,11 @@ ${languageRule()}`;
             const empty = document.getElementById('libraryEmpty');
             const count = document.getElementById('libraryCount');
 
-            // Two different limits, and only one of them was ever shown: how many
-            // courses you may keep, and how many you may build this month. Hitting
-            // the second one used to be a surprise mid-upload.
-            const monthly = entitlement ? PLAN_LIMITS[entitlement.planKey] : null;
-            count.textContent = `${library.length} of ${MAX_COURSES} kept`
-                + (monthly ? ` · ${usage.coursesMonth} of ${monthly.courses} built this month` : '');
+            // How many courses you may keep at once — a library capacity, not a
+            // meter of what you've spent. Whether this month's build allowance is
+            // gone is a separate question, answered only where it's actually
+            // decision-relevant: the moment you try to start a new one.
+            count.textContent = `${library.length} of ${MAX_COURSES} kept`;
             empty.hidden = library.length > 0;
             // The empty state carries its own primary action; two "New course"
             // buttons on one screen is one too many.
@@ -5398,12 +5387,20 @@ ${languageRule()}`;
             }
             // The server is the authority on quota and this copy of the count can
             // be a few minutes stale, so this warns rather than blocks — but it
-            // warns before you pick a file, not after the upload finishes.
+            // warns before you pick a file, not after the upload finishes. What it
+            // says stops short of a running count, on purpose: "you've used 5 of 5"
+            // reads like a meter draining on something you paid for, when the plan
+            // is really just due for its monthly reset.
             const limits = entitlement ? PLAN_LIMITS[entitlement.planKey] : null;
             if (limits && usage.coursesMonth >= limits.courses) {
+                const resets = usage.monthResetAt
+                    ? new Date(new Date(usage.monthResetAt).getFullYear(), new Date(usage.monthResetAt).getMonth() + 1, 1)
+                        .toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                    : null;
                 const go = await uiConfirm(
-                    'Out of courses this month',
-                    `Your ${limits.label} plan builds ${limits.courses} course${limits.courses === 1 ? '' : 's'} a month and you've used ${usage.coursesMonth}. Building another will be refused until it resets. Everything you already have still works — you can open, replay and review any of it.`,
+                    'This month’s courses are all set',
+                    `Your ${limits.label} plan is ready for more ${resets ? `on ${resets}` : 'next cycle'}. `
+                    + 'Everything you already have still works — open, replay and review any of it in the meantime.',
                     { confirmText: 'See plans' });
                 if (go) { showUpgradePrompt(); return; }
             }
@@ -6913,8 +6910,10 @@ ${languageRule()}`;
             }
 
             try {
-                await refreshUsage();
-                await loadLibrary();
+                // Different tables, neither read by the other — usage is only
+                // consulted later (the quota warning, the account screen), so
+                // nothing between here and there needs to wait for it specifically.
+                await Promise.all([refreshUsage(), loadLibrary()]);
                 const lastId = localStorage.getItem(ACTIVE_STORAGE);
                 if (lastId && library.some(c => c.id === lastId)) {
                     await openCourse(lastId);

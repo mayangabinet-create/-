@@ -1002,18 +1002,25 @@
             padding-bottom: var(--sp-5);
         }
 
-        /* Faint dotted guide line behind the nodes */
-        .lesson-path::before {
-            content: '';
+        /* The guide line: traced through each node's actual centre in JS
+           (drawLessonPathLine), not a straight rule down the middle — the nodes
+           already wander left and right, so a fixed centred line just left them
+           looking off-course instead of on one. */
+        .lesson-path-line {
             position: absolute;
-            left: 50%;
-            top: 0;
-            bottom: var(--sp-5);
-            width: 3px;
-            transform: translateX(-50%);
-            background: repeating-linear-gradient(
-                to bottom, var(--border) 0, var(--border) 8px, transparent 8px, transparent 16px);
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            overflow: visible;
+            pointer-events: none;
             z-index: 0;
+        }
+        .lesson-path-line path {
+            fill: none;
+            stroke: var(--border);
+            stroke-width: 3px;
+            stroke-linecap: round;
+            stroke-dasharray: 2 14;
         }
 
         /* A real <button> — the path is the app's primary navigation and every node
@@ -2447,7 +2454,11 @@
                 <!-- The path itself: the whole screen from here down, and the only
                      thing that scrolls. -->
                 <div class="path-container">
-                    <div class="lesson-path" id="lessonPath"></div>
+                    <div class="lesson-path" id="lessonPath">
+                        <svg class="lesson-path-line" id="lessonPathLine" aria-hidden="true" focusable="false">
+                            <path id="lessonPathLinePath"></path>
+                        </svg>
+                    </div>
 
                     <!-- End-of-course actions, at the end of the course. -->
                     <div class="path-footer">

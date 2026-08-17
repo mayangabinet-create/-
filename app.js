@@ -1020,6 +1020,70 @@ ${languageRule()}`;
             });
         }
 
+        // Everything inside #lessonPath except the persistent connector line —
+        // banners and nodes get rebuilt on every render, but the <svg> stays put
+        // so drawLessonPathLine() always has somewhere to draw into.
+        function clearLessonPathNodes() {
+            const container = document.getElementById('lessonPath');
+            if (!container) return;
+            [...container.children].forEach(el => {
+                if (el.id !== 'lessonPathLine') el.remove();
+            });
+        }
+
+        // The connector used to be a straight dotted line down the centre while
+        // the circles themselves zig-zagged left and right — on screen that read
+        // as circles drifting off a line, not a path. This traces the nodes'
+        // actual centres instead, so the line is the wave: it moves exactly where
+        // the circles move, lesson to lesson, banners included since the gap
+        // above a banner is just as real a distance as the gap between two
+        // lessons. Reused for the skeleton state too — skeleton nodes carry the
+        // same .lesson-node/.lesson-circle classes, so the same measurement works
+        // before the real content has even arrived.
+        function drawLessonPathLine() {
+            const container = document.getElementById('lessonPath');
+            const svg = document.getElementById('lessonPathLine');
+            const linePath = document.getElementById('lessonPathLinePath');
+            if (!container || !svg || !linePath) return;
+
+            const nodes = [...container.querySelectorAll('.lesson-node')];
+            const containerRect = container.getBoundingClientRect();
+            svg.setAttribute('viewBox', `0 0 ${containerRect.width} ${containerRect.height}`);
+
+            if (nodes.length < 2 || containerRect.width === 0) {
+                linePath.setAttribute('d', '');
+                return;
+            }
+
+            const points = nodes.map(node => {
+                const circle = node.querySelector('.lesson-circle') || node;
+                const r = circle.getBoundingClientRect();
+                return {
+                    x: r.left + r.width / 2 - containerRect.left,
+                    y: r.top + r.height / 2 - containerRect.top,
+                };
+            });
+
+            // A smooth curve through every point: each segment is a quadratic
+            // bezier ending at the midpoint between it and the next node, which
+            // keeps the line rounded through each turn instead of kinking at
+            // every circle the way straight segments would.
+            let d = `M ${points[0].x} ${points[0].y}`;
+            for (let i = 1; i < points.length - 1; i++) {
+                const midX = (points[i].x + points[i + 1].x) / 2;
+                const midY = (points[i].y + points[i + 1].y) / 2;
+                d += ` Q ${points[i].x} ${points[i].y} ${midX} ${midY}`;
+            }
+            d += ` L ${points[points.length - 1].x} ${points[points.length - 1].y}`;
+            linePath.setAttribute('d', d);
+        }
+
+        let pathLineResizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(pathLineResizeTimer);
+            pathLineResizeTimer = setTimeout(drawLessonPathLine, 150);
+        });
+
         // ============= Dialogs & toasts =============
         // In-app replacements for alert/confirm/prompt. The native ones can't be
         // styled, ignore the content's direction, block the whole tab, and read as a
@@ -1648,10 +1712,13 @@ ${languageRule()}`;
             // Same .lesson-node class the real path uses, so the wavy left/right
             // rhythm applies for free — this is a placeholder for that shape, not
             // a different one the eye has to reconcile once the real path lands.
-            document.getElementById('lessonPath').innerHTML = Array.from({ length: 6 }, () => `
+            const pathContainer = document.getElementById('lessonPath');
+            clearLessonPathNodes();
+            pathContainer.insertAdjacentHTML('beforeend', Array.from({ length: 6 }, () => `
                 <div class="lesson-node" aria-hidden="true" style="pointer-events:none">
                     <div class="lesson-circle skel"></div>
-                </div>`).join('');
+                </div>`).join(''));
+            requestAnimationFrame(drawLessonPathLine);
         }
 
         function displayLearningPath() {
@@ -1671,8 +1738,8 @@ ${languageRule()}`;
                     .map((n, i) => (!n.classList.contains('locked') ? i : -1))
                     .filter(i => i >= 0)
             );
-            const hadNodes = pathContainer.children.length > 0;
-            pathContainer.innerHTML = '';
+            const hadNodes = pathContainer.children.length > 1; // the persistent line svg is always one
+            clearLessonPathNodes();
 
             courseData.concepts.forEach((concept, index) => {
                 if (index % UNIT_SIZE === 0) {
@@ -1744,7 +1811,7 @@ ${languageRule()}`;
             });
 
             renderReviewBanner();
-            requestAnimationFrame(scrollToCurrentNode);
+            requestAnimationFrame(() => { drawLessonPathLine(); scrollToCurrentNode(); });
         }
 
         // ============= Spaced repetition =============

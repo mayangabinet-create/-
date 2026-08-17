@@ -269,6 +269,10 @@ Every tab is a full screen, routed through one `setScreen()` call so nothing is
 ever left showing underneath something else.
 
 - **Home** — the upload/paste screen, or the learning path once a course is open.
+  Above the upload area sits a banner into a hand-written demo lesson — the real
+  step engine, a real quiz, zero AI cost and nothing saved — so a first-time
+  visitor sees what a lesson actually feels like before spending a minute on
+  an upload.
 - **Courses** — your library. The count shows both limits that exist: how many
   courses you may keep, and how many you may build this month.
 - **Review** — what's due across *every* course, not just the open one, with the
@@ -336,6 +340,15 @@ or a duration — if a literal would appear twice, it becomes a token instead.
   deliberate aside from the main explanation, not new fact. Every
   `--*-text` value clears 4.5:1 on the surface it is paired with, and every fill
   clears 4.5:1 under white label text.
+- **Dark theme** is the same token names with a second set of values, switched by
+  either `prefers-color-scheme` or an explicit choice in Account → Appearance
+  (stored in `localStorage`, cycling system → light → dark). An inline script at
+  the very top of `<head>` applies a stored override before the stylesheet ever
+  paints, so a returning learner never sees a flash of the wrong theme. The five
+  solid "fill" hues (`--brand`, `--info`, `--warn`, `--danger`, `--gold`,
+  `--accent`) don't change between themes — they're paired with white button/toast
+  text either way — only the neutrals and the `-strong`/`-text` foreground variants
+  get dark-mode values.
 - **Type.** One family, Nunito, at four weights. A second display face only put two
   rounded fonts in competition; size and weight carry the hierarchy instead. Sizes
   are a fixed rem scale — 12 / 14 / 16 / 17 / 18 / 22 / 28 / 32 — not the four dozen

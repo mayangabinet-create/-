@@ -93,9 +93,86 @@
 
         let lastCallTruncated = false;
 
+        const AI_ENDPOINT = `${SUPABASE_URL}/functions/v1/ai-proxy`;
+
+        /**
+         * Split an SSE stream into the JSON payloads it carries.
+         *
+         * The twin of the one in `policy.mjs`, and deliberately a copy: this
+         * file is a script tag with no build step and that one is a Deno
+         * module. Both do the same small thing — hold the tail of a chunk
+         * until a blank line says the frame is whole, then parse what the
+         * `data:` lines spell out — and neither is worth a module loader.
+         */
+        function sseScanner() {
+            let buffer = '';
+            return function push(chunk) {
+                buffer += chunk;
+                const parts = buffer.split(/\r?\n\r?\n/);
+                buffer = parts.pop() ?? '';
+                const out = [];
+                for (const frame of parts) {
+                    const data = frame.split(/\r?\n/)
+                        .filter(line => line.startsWith('data:'))
+                        .map(line => line.slice(5).trim())
+                        .join('\n');
+                    if (!data || data === '[DONE]') continue;
+                    try { out.push(JSON.parse(data)); } catch (_) { /* not ours */ }
+                }
+                return out;
+            };
+        }
+
+        /**
+         * Read the model's answer as it is written.
+         *
+         * Nothing here makes the call faster: a 6,000-token lesson takes the
+         * model exactly as long to write as it always did, and on the tiers
+         * that run the larger models that is minutes, not seconds. What this
+         * changes is what those minutes look like. The first words arrive in
+         * about a second, so the wait can be reported as work in progress —
+         * which part of the lesson is being written right now — instead of a
+         * spinner that is indistinguishable from a hung tab.
+         *
+         * `onProgress` is handed the text so far after each chunk, never per
+         * event: a token at a time would re-render the overlay a thousand
+         * times for one lesson.
+         */
+        async function readAIStream(res, onProgress) {
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            const scan = sseScanner();
+            let text = '';
+            let stopReason = null;
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                // `stream: true` on the decoder: a Hebrew character split
+                // across two network chunks is two bytes that only mean
+                // something together, and decoding each half alone yields two
+                // replacement characters in the middle of a word.
+                for (const event of scan(decoder.decode(value, { stream: true }))) {
+                    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+                        text += event.delta.text;
+                    } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+                        stopReason = event.delta.stop_reason;
+                    } else if (event.type === 'error') {
+                        throw new Error(event.error?.message || 'The model stopped mid-answer.');
+                    }
+                }
+                if (onProgress) onProgress(text);
+            }
+            return { text, stopReason };
+        }
+
         // Every generation call goes through the ai-proxy Edge Function instead of
         // Anthropic directly: it holds the real API key server-side, checks the
         // caller has an active subscription/trial, and enforces the daily cap.
+        //
+        // It is a bare `fetch` rather than `supabaseClient.functions.invoke`
+        // because invoke reads the whole body before it returns, which is the
+        // one thing a stream must not do.
         async function callAI(userMessage, systemPrompt = '', opts = {}) {
             lastCallTruncated = false;
             if (!currentUser) {
@@ -103,7 +180,16 @@
                 return null;
             }
 
-            const { retries = 2, maxTokens = 1000 } = opts;
+            const {
+                retries = 2, maxTokens = 1000, task = null,
+                stream = false, onProgress = null,
+                // Work the learner did not ask for — a prefetch — reports its
+                // failures to the console and nowhere else. An error toast for
+                // a lesson nobody has opened yet is a bug report about a
+                // lesson that is not on screen.
+                quiet = false,
+            } = opts;
+            const fail = msg => { if (!quiet) showError(msg); };
             // A string is one block. An array is [shared context, this call's
             // prompt] — the split the server needs to mark the first one
             // cacheable, and the order matters: caching matches on a prefix, so
@@ -115,24 +201,61 @@
                 : userMessage;
             const body = { messages: [{ role: 'user', content }], max_tokens: maxTokens };
             if (systemPrompt) body.system = systemPrompt;
+            if (task) body.task = task;
+            if (stream) body.stream = true;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 try {
-                    const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { body });
-
-                    if (!error) {
-                        refreshUsage();
-                        if (data.stop_reason === 'max_tokens') {
-                            console.warn('Response truncated at max_tokens');
-                        }
-                        lastCallTruncated = data.stop_reason === 'max_tokens';
-                        const parts = data.content || [];
-                        return parts.filter(p => p.type === 'text').map(p => p.text).join('') || '';
+                    // Read the session on every attempt rather than once: a long
+                    // generation can outlive an access token, and the retry
+                    // that follows a 401 must not carry the same dead one.
+                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    if (!session) {
+                        showAuthModal('signin');
+                        return null;
                     }
 
-                    const status = error.context?.status;
+                    const res = await fetch(AI_ENDPOINT, {
+                        method: 'POST',
+                        headers: {
+                            'content-type': 'application/json',
+                            'authorization': `Bearer ${session.access_token}`,
+                            'apikey': SUPABASE_ANON_KEY,
+                        },
+                        body: JSON.stringify(body),
+                    });
+
+                    if (res.ok) {
+                        // A function deployed before streaming existed answers
+                        // a `stream: true` request with one JSON body, exactly
+                        // as it always did. Deciding by what came back rather
+                        // than by what was asked for is what lets the client
+                        // and the function be deployed in either order.
+                        const streamed = (res.headers.get('content-type') || '')
+                            .includes('text/event-stream');
+
+                        let text, stopReason;
+                        if (streamed) {
+                            ({ text, stopReason } = await readAIStream(res, onProgress));
+                        } else {
+                            const data = await res.json();
+                            stopReason = data.stop_reason;
+                            text = (data.content || [])
+                                .filter(p => p.type === 'text').map(p => p.text).join('');
+                            if (onProgress) onProgress(text);
+                        }
+
+                        refreshUsage();
+                        if (stopReason === 'max_tokens') {
+                            console.warn('Response truncated at max_tokens');
+                        }
+                        lastCallTruncated = stopReason === 'max_tokens';
+                        return text || '';
+                    }
+
+                    const status = res.status;
                     let payload = {};
-                    try { payload = await error.context.json(); } catch (_) {}
+                    try { payload = await res.json(); } catch (_) {}
                     console.error('ai-proxy error:', status, payload);
 
                     // Rate limited or overloaded — back off and retry
@@ -142,31 +265,36 @@
                     }
 
                     if (status === 401) {
-                        showError("Your session expired. Please sign in again.");
+                        fail("Your session expired. Please sign in again.");
                         await supabaseClient.auth.signOut();
                         showAuthModal('signin');
                         return null;
                     }
                     if (status === 402) {
-                        showError(payload.message || "Your trial has ended. Subscribe to keep generating lessons.");
-                        showUpgradePrompt();
+                        fail(payload.message || "Your trial has ended. Subscribe to keep generating lessons.");
+                        if (!quiet) showUpgradePrompt();
                         return null;
                     }
                     if (status === 429) {
-                        showError(payload.message || "Daily limit reached. Try again tomorrow.");
+                        fail(payload.message || "Daily limit reached. Try again tomorrow.");
                         return null;
                     }
 
-                    showError(payload.message || payload.error || `HTTP ${status || 'error'}`);
+                    fail(payload.message || payload.error || `HTTP ${status || 'error'}`);
                     return null;
 
                 } catch (error) {
                     console.error('Network error:', error);
+                    // A stream that broke after the model had already written
+                    // half a lesson is not worth restarting from nothing on a
+                    // tier where that half took a minute — but a stream that
+                    // broke is also not a lesson, so the retry is the only way
+                    // to get one. Retry, and let the quota do the arguing.
                     if (attempt < retries) {
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
-                    showError("Connection problem. Check your internet and try again.");
+                    fail("Connection problem. Check your internet and try again.");
                     return null;
                 }
             }
@@ -509,7 +637,10 @@ reads: keep those in English, spelled exactly as listed above. "section" is not
 written at all — it is copied from the outline, character for character, in
 whatever language the outline is in, because the app looks it up there.`;
 
-            const result = await callAI(extractPrompt, '', { maxTokens: MAX_TOKENS.path, task: 'path' });
+            const result = await callAI(extractPrompt, '', {
+                maxTokens: MAX_TOKENS.path, task: 'path',
+                stream: true, onProgress: pathProgress,
+            });
             if (!result) return null;
 
             const data = extractJSON(result);
@@ -625,11 +756,35 @@ whatever language the outline is in, because the app looks it up there.`;
             text: 'table of the terms and what they mean, reveal cards, match and mistake questions.',
         };
 
+        /**
+         * How the learner has actually been doing, as one line to the model.
+         *
+         * Every lesson in a course was pitched identically no matter what
+         * happened in the previous nine — someone scoring 100% got the same
+         * gentleness as someone scoring 45%. This is the cheapest possible fix
+         * for that: no extra call, no extra tokens worth counting, one
+         * sentence in a prompt that is already being sent.
+         *
+         * It says nothing in the middle of the range, where "keep doing what
+         * you are doing" is not an instruction, and nothing at all until two
+         * lessons are done, because one score is a mood rather than a level.
+         */
+        function calibrationNote() {
+            const done = Object.values(progress)
+                .filter(p => p?.completed && typeof p.accuracy === 'number');
+            if (done.length < 2) return '';
+            const avg = done.reduce((sum, p) => sum + p.accuracy, 0) / done.length;
+            if (avg >= 90) return `\nThis learner is scoring near the top of this course. Pitch harder: fewer questions that restate a fact, more that take two steps.\n`;
+            if (avg <= 60) return `\nThis learner is struggling in this course. Go slower: one idea per question, and distractors clearly wrong once the idea has landed.\n`;
+            return '';
+        }
+
         // Built as its own function so its size can be measured. The server
         // clamps this block to `excerptChars + TEMPLATE_ALLOWANCE`, and a prompt
         // that overruns is truncated silently — from the tail, which is where
         // the JSON schema and the quantity rules are. `tests/lesson-visuals.js`
-        // asserts the template still fits on every tier.
+        // asserts the template still fits on every tier — with the calibration
+        // line above included, since that is the prompt a real learner gets.
         function buildLessonPrompt(concept, excerpt) {
             // A course planned by an older build has no kind, and a model can
             // still hand back a stray capital or a plural. Neither is worth
@@ -679,7 +834,7 @@ ${visualCatalogue()}
 
 Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
 "gematria" are drawn exactly as given — a wrong number is a wrong picture.
-${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${templates ? `
+${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${templates ? `
 TEMPLATES — prefer these over writing a spec yourself. In "visual" write
 { "template": "<id>", "params": { … } } and the app builds the figure and every
 calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
@@ -744,15 +899,21 @@ another context, another representation — so memorising one answer is not enou
 ${languageRule()}`;
         }
 
-        async function generateLesson(concept) {
+        // `quiet` is set when nobody is waiting on this lesson — a prefetch —
+        // so a failure goes to the console instead of onto a screen showing
+        // something else entirely.
+        async function generateLesson(concept, { quiet = false } = {}) {
             // Ground the lesson in the actual document, not the model's priors.
             const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
             const prompt = buildLessonPrompt(concept, excerpt);
+            const report = msg => { if (!quiet) showError(msg); };
 
             // The course context goes first and is the same on every lesson, so
             // the API caches it; the prompt goes second because it changes.
-            const result = await callAI([courseContext(), prompt], '',
-                { maxTokens: MAX_TOKENS.lesson, task: 'lesson' });
+            const result = await callAI([courseContext(), prompt], '', {
+                maxTokens: MAX_TOKENS.lesson, task: 'lesson', quiet,
+                stream: true, onProgress: quiet ? null : lessonProgress,
+            });
 
             // callAI returns null when it already reported an error, and '' when
             // the model replied with nothing usable. The empty case used to fall
@@ -760,14 +921,14 @@ ${languageRule()}`;
             if (result === null) return null;
             if (!result.trim()) {
                 console.error('Model returned no text for this lesson.');
-                showError("The model returned an empty response. Try again.");
+                report("The model returned an empty response. Try again.");
                 return null;
             }
 
             const lesson = extractJSON(result);
             if (!lesson) {
                 console.error('Could not parse lesson. Truncated:', lastCallTruncated, result);
-                showError(lastCallTruncated
+                report(lastCallTruncated
                     ? "The lesson was cut off before it finished. Try again."
                     : "The model returned an invalid lesson. Try again.");
                 return null;
@@ -782,7 +943,7 @@ ${languageRule()}`;
                 + (normalised.practice ? 1 : 0) + (normalised.challenge ? 1 : 0);
             if (contentSteps < 2) {
                 console.error('Lesson has too little content to teach:', normalised);
-                showError(lastCallTruncated
+                report(lastCallTruncated
                     ? "The lesson was cut off before it finished. Try again."
                     : "The model returned an incomplete lesson. Try again.");
                 return null;
@@ -944,6 +1105,75 @@ ${languageRule()}`;
             overlay.classList.remove('show');
             overlay.setAttribute('aria-hidden', 'true');
             showStages(null);
+            showProgress(null);
+        }
+
+        /**
+         * The streamed half of the wait, reported honestly.
+         *
+         * `fraction` is only ever a count of things that have actually arrived
+         * over the number the format calls for — nine parts of a lesson, or
+         * the concepts a tier's course holds. It is not a timer and it is not
+         * an easing curve pretending to be one. Pass null to put both away.
+         */
+        function showProgress(detail, fraction = null) {
+            const line = document.getElementById('loadingDetail');
+            const bar = document.getElementById('loadingBar');
+            const fill = document.getElementById('loadingBarFill');
+            if (!line || !bar || !fill) return;
+
+            if (detail === null) {
+                line.hidden = true; line.textContent = '';
+                bar.hidden = true; fill.style.width = '0';
+                return;
+            }
+            line.hidden = false;
+            line.textContent = detail;
+            if (fraction === null) { bar.hidden = true; return; }
+            bar.hidden = false;
+            // Never 100%: the last chunk is still in flight, and a full bar
+            // over a screen that has not changed yet reads as stuck.
+            fill.style.width = `${Math.round(Math.min(0.97, Math.max(0.02, fraction)) * 100)}%`;
+        }
+
+        /**
+         * What the model is writing, read out of the JSON it is halfway
+         * through writing.
+         *
+         * The lesson arrives key by key in the order the prompt asks for them,
+         * so the last top-level key to appear is the part being written now.
+         * This is a guess about a partial document and it is allowed to be
+         * one — every answer it gives is a key that has genuinely arrived, and
+         * the worst case is a label that lags a second behind the truth.
+         */
+        const LESSON_PARTS = [
+            ['"hook"', 'Writing the opening'],
+            ['"prediction"', 'Setting up the first guess'],
+            ['"explore"', 'Building something to try'],
+            ['"cards"', 'Writing the explanation'],
+            ['"workedExample"', 'Working through an example'],
+            ['"practice"', 'Writing a practice problem'],
+            ['"quiz"', 'Writing the questions'],
+            ['"challenge"', 'Setting the final challenge'],
+            ['"summary"', 'Summing it up'],
+        ];
+
+        function lessonProgress(text) {
+            let at = -1;
+            for (let i = 0; i < LESSON_PARTS.length; i++) {
+                if (text.includes(LESSON_PARTS[i][0])) at = i;
+            }
+            if (at < 0) return showProgress('Reading your material', 0.02);
+            showProgress(LESSON_PARTS[at][1], (at + 1) / (LESSON_PARTS.length + 1));
+        }
+
+        // The course plan is a list, so its progress is a count: concepts are
+        // the one thing being produced and the tier says how many are coming.
+        function pathProgress(text) {
+            const found = (text.match(/"name"\s*:/g) || []).length;
+            const target = planLessonCount();
+            if (!found) return showProgress('Reading the whole document', 0.02);
+            showProgress(found === 1 ? 'Found 1 concept' : `Found ${found} concepts`, found / target);
         }
 
         // Building a course is four distinct pieces of work and the better part
@@ -1882,6 +2112,64 @@ ${languageRule()}`;
                 .reduce((n, c) => n + c.due, 0);
             const dot = document.getElementById('navReviewDot');
             if (dot) dot.hidden = due.length + elsewhere === 0;
+        }
+
+        /**
+         * One question from an earlier lesson, asked before this one starts.
+         *
+         * The course already knew how to test what you learned last week — it
+         * just kept it behind a banner on the path and a tab of its own, which
+         * is a place you go when you have decided to revise. Almost nobody
+         * decides to revise. Putting one question at the front of the lesson
+         * they had already decided to open costs the learner twenty seconds
+         * and costs the account nothing: the question was written, paid for
+         * and cached when that earlier lesson was built.
+         *
+         * The oldest thing they know is what comes back — furthest past its
+         * due date first, then simply the longest ago — because the material
+         * closest to being forgotten is the material worth one question.
+         */
+        function pickWarmUp(currentIndex) {
+            if (!courseData) return null;
+            const candidates = courseData.concepts
+                .map((_, i) => i)
+                .filter(i => i !== currentIndex && progress[i]?.completed && progress[i]?.lesson)
+                .map(i => {
+                    const lesson = progress[i].lesson;
+                    const pool = [...(lesson.quiz || [])];
+                    if (lesson.challenge) pool.push(lesson.challenge);
+                    return { index: i, pool, srs: progress[i].srs };
+                })
+                .filter(c => c.pool.length);
+            if (!candidates.length) return null;
+
+            // A lesson never reviewed is treated as due now, so a course
+            // without a single review behind it still warms up.
+            const staleness = c => Date.now() - (c.srs?.dueAt ?? c.srs?.lastReviewed ?? 0);
+            candidates.sort((a, b) => staleness(b) - staleness(a));
+            const pick = candidates[0];
+            return {
+                lessonIndex: pick.index,
+                question: shuffle([...pick.pool])[0],
+            };
+        }
+
+        /**
+         * A missed warm-up brings that lesson's review forward, but no further
+         * than tomorrow, and leaves the ease factor alone.
+         *
+         * One question is evidence that something is shaky; it is not a review
+         * session, and letting it rewrite the SM-2 state would let a single
+         * unlucky question undo weeks of correctly-earned interval.
+         */
+        function nudgeReviewSooner(index) {
+            const srs = progress[index]?.srs;
+            if (!srs) return;
+            const tomorrow = Date.now() + 86400000;
+            if (srs.dueAt > tomorrow) {
+                srs.dueAt = tomorrow;
+                saveProgress();
+            }
         }
 
         // Pull 1-2 cached quiz questions per lesson. Reuses the questions the
@@ -4316,6 +4604,12 @@ ${languageRule()}`;
         function contextBudget() {
             return (entitlement && PLAN_LIMITS[entitlement.planKey]?.contextChars) || 0;
         }
+        // How many concepts this tier's course will hold. The server rewrites
+        // the prompt to this number, so it is also what a half-built plan can
+        // honestly be measured against while it streams in.
+        function planLessonCount() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.lessonsPerCourse) || 10;
+        }
 
         // The shared document context sent ahead of every lesson in a course.
         //
@@ -5312,6 +5606,12 @@ ${languageRule()}`;
             activeCourseId = id;
             currentLessonIndex = 0;
             localStorage.setItem(ACTIVE_STORAGE, id);
+            // Anything still being written for the course we just left belongs
+            // to that course's concepts and that course's `progress`. It
+            // checks the course id before it stores itself, so an in-flight one
+            // will discard itself; forgetting it here is what stops the index
+            // being reused for a different concept in the meantime.
+            prefetching.clear();
 
             applyContentDirection();
             displayLearningPath();
@@ -5737,7 +6037,12 @@ ${languageRule()}`;
         // ---- Wiring & grading ----
         // Each wirer calls finishQuestion(correct, explanation) when the learner
         // has committed an answer.
-        function wireQuestion(q, onGraded) {
+        // `scored: false` is for the questions that are not this lesson's exam:
+        // the warm-up from an earlier lesson, and the second look at something
+        // already marked wrong. Both are worth answering and neither should
+        // move a score that has already been earned — or take a heart twice
+        // for one mistake.
+        function wireQuestion(q, onGraded, { scored = true } = {}) {
             // A first wrong answer is not the end of the question. Say what the
             // mistake was and hand it back — a learner who is told the answer
             // straight away has been shown it, not taught it, and the second
@@ -5755,12 +6060,14 @@ ${languageRule()}`;
                     showRetry(q, explanationOverride);
                     return;
                 }
-                lessonState.total++;
-                if (correct) {
-                    lessonState.correct++;
-                } else if ((lessonState.heartsLeft ?? 5) > 0) {
-                    lessonState.heartsLeft = (lessonState.heartsLeft ?? 5) - 1;
-                    renderHearts();
+                if (scored) {
+                    lessonState.total++;
+                    if (correct) {
+                        lessonState.correct++;
+                    } else if ((lessonState.heartsLeft ?? 5) > 0) {
+                        lessonState.heartsLeft = (lessonState.heartsLeft ?? 5) - 1;
+                        renderHearts();
+                    }
                 }
                 showQuestionFeedback(correct, explanationOverride || q.explanation);
                 onGraded && onGraded(correct);
@@ -6086,6 +6393,78 @@ ${languageRule()}`;
 
         let lessonLoading = false;   // guards against double-entry
 
+        // ============= Writing the next lesson during this one =============
+        //
+        // Streaming makes the wait legible. This is the one that removes it.
+        //
+        // A lesson takes five to ten minutes to work through and one to two to
+        // generate on the tiers that run the larger models, and those two
+        // numbers have never overlapped: the learner finishes, presses "Next
+        // lesson", and only then does anything start being written. So it
+        // starts a third of the way through the current lesson instead — by
+        // the time they press the button the next lesson is already sitting in
+        // `progress`, which is exactly where a replayed one comes from, and it
+        // opens instantly.
+        //
+        // It also fixes the cache it rides on. The shared course context is
+        // cached for five minutes, and a learner takes longer than that per
+        // lesson, so a lesson requested *after* the previous one finishes
+        // always misses and pays the write premium again. Requested while the
+        // previous one is still on screen, it hits — which makes the next
+        // lesson both faster and about a tenth of the input price.
+        //
+        // What it must never do is spend a lesson the learner would not have:
+        // it runs only for the very next concept, only once, and only when
+        // there is quota left to spend on it.
+        const prefetching = new Map();   // concept index -> Promise<lesson|null>
+
+        function monthlyLessonsLeft() {
+            const limits = PLAN_LIMITS[entitlement?.planKey];
+            if (!limits || !usage.loaded) return Infinity;   // unknown is not "none"
+            return limits.courses * limits.lessonsPerCourse - (usage.lessonsMonth || 0);
+        }
+
+        function prefetchLesson(index) {
+            if (!courseData || !currentUser) return;
+            const concept = courseData.concepts?.[index];
+            if (!concept) return;
+            if (progress[index]?.lesson) return;             // already have it
+            if (prefetching.has(index)) return;              // already writing it
+            if (navigator.onLine === false) return;
+            // The last lesson of the month is the learner's to choose, not
+            // ours to spend on a guess about what they will open next.
+            if (monthlyLessonsLeft() <= 1) return;
+
+            const courseId = activeCourseId;
+            const promise = generateLesson(concept, { quiet: true })
+                .then(lesson => {
+                    // A course switched away from mid-flight has a different
+                    // `progress` object behind it now. Writing this lesson
+                    // into it would file lesson 4 of one course as lesson 4 of
+                    // another.
+                    if (lesson && activeCourseId === courseId) {
+                        if (!progress[index]) progress[index] = {};
+                        progress[index].lesson = lesson;
+                        saveProgress();
+                    }
+                    return lesson;
+                })
+                .catch(err => { console.warn('Prefetch failed:', err); return null; })
+                .finally(() => prefetching.delete(index));
+
+            prefetching.set(index, promise);
+        }
+
+        // Far enough in that the learner has clearly committed to this lesson,
+        // early enough that a slow tier still finishes writing the next one
+        // before they get there.
+        function maybePrefetchNext() {
+            if (!lessonState || lessonState.review) return;
+            const { step, steps } = lessonState;
+            if (step < Math.floor(steps.length / 3)) return;
+            prefetchLesson(currentLessonIndex + 1);
+        }
+
         async function loadLesson(index) {
             if (lessonLoading) return;          // already fetching one
             lessonLoading = true;
@@ -6115,6 +6494,26 @@ ${languageRule()}`;
 
                 if (lesson) {
                     recordCacheHit();           // served from cache, no API call
+                } else if (prefetching.has(index)) {
+                    // Already being written in the background. Waiting on that
+                    // one is the whole point — starting a second call for the
+                    // same lesson would spend two of the month's lessons and
+                    // arrive later than the one already in flight.
+                    showMessage("Almost ready…");
+                    showProgress('This lesson was already being written');
+                    lesson = await prefetching.get(index);
+                    if (!lesson) {
+                        // The background attempt failed quietly. Now that
+                        // someone is actually waiting, try again in the
+                        // foreground, where both the failure and the progress
+                        // are visible.
+                        showMessage("Preparing lesson...");
+                        lesson = await generateLesson(concept);
+                    }
+                    if (!lesson) { closeLessonScreen(); return; }
+                    if (!progress[index]) progress[index] = {};
+                    progress[index].lesson = lesson;
+                    saveProgress();
                 } else {
                     lesson = await generateLesson(concept);
                     if (!lesson) {
@@ -6129,6 +6528,10 @@ ${languageRule()}`;
 
                 // Build the step sequence, skipping anything the model omitted
                 const steps = [];
+                // Retrieval practice comes first, from an earlier lesson —
+                // before the new material has a chance to crowd it out.
+                const warmUp = pickWarmUp(index);
+                if (warmUp) steps.push({ type: 'warmup' });
                 if (lesson.hook) steps.push({ type: 'hook' });
                 if (lesson.prediction) steps.push({ type: 'prediction' });
                 if (lesson.explore) steps.push({ type: 'explore' });
@@ -6158,6 +6561,10 @@ ${languageRule()}`;
                     startedAt: Date.now(),
                     answered: {},
                     attempts: {},
+                    warmUp,
+                    // Questions that went wrong on both attempts, kept so the
+                    // lesson can come back to them before it calls itself done.
+                    missed: [],
                     result: null
                 };
 
@@ -6187,9 +6594,35 @@ ${languageRule()}`;
             }
         }
 
+        // The same question with the options moved, so a second look tests the
+        // idea rather than the memory of which button turned green.
+        function reshuffleOptions(q) {
+            if (!Array.isArray(q.options) || q.options.length < 2) return q;
+            if (!Number.isInteger(q.correct)) return q;
+            const order = shuffle(q.options.map((_, i) => i));
+            return { ...q, options: order.map(i => q.options[i]), correct: order.indexOf(q.correct) };
+        }
+
+        // Three is the most anyone will work through at the end of a lesson.
+        // Past that it stops being a second chance and becomes a punishment
+        // for a bad run.
+        const MAX_REPAIR = 3;
+
         function advanceStep() {
             if (!lessonState) return;
-            if (lessonState.step < lessonState.steps.length - 1) {
+            const { steps, step } = lessonState;
+
+            // The lesson is one step from declaring itself finished. Anything
+            // that went wrong on the way gets asked once more first — and only
+            // once, which is what `lessonState.repair` being set records.
+            if (steps[step + 1]?.type === 'complete' && !lessonState.repair && lessonState.missed?.length) {
+                lessonState.repair = lessonState.missed.slice(0, MAX_REPAIR)
+                    .map(m => ({ ...m, question: reshuffleOptions(m.question) }));
+                steps.splice(step + 1, 0, ...lessonState.repair.map((_, i) => ({ type: 'repair', i })));
+                buildStepSegments(steps.length);
+            }
+
+            if (lessonState.step < steps.length - 1) {
                 lessonState.step++;
                 renderStep();
             }
@@ -6216,8 +6649,14 @@ ${languageRule()}`;
             // "7 min · Difficulty · 16 steps" answers "should I start this?" — a
             // question you only ask once. Leaving it above every question ate the
             // top of a phone screen on all sixteen steps.
+            //
+            // It belongs on the lesson's own first step, which is the one after
+            // the warm-up when there is one: the warm-up is a question, and a
+            // panel of statistics about a different lesson above a question is
+            // exactly what this was moved off.
             const meta = document.getElementById('lessonMeta');
-            if (meta) meta.hidden = step > 0;
+            const introAt = steps.findIndex(x => x.type !== 'warmup');
+            if (meta) meta.hidden = step !== introAt;
 
             const body = document.getElementById('lessonExplanation');
 
@@ -6230,6 +6669,8 @@ ${languageRule()}`;
             }
 
             const renderers = {
+                warmup: () => stepWarmUp(),
+                repair: () => stepRepair(s.i),
                 hook: () => stepHook(lesson),
                 prediction: () => stepPrediction(lesson),
                 explore: () => stepExplore(lesson),
@@ -6248,6 +6689,8 @@ ${languageRule()}`;
             // Interactive diagrams arrive inert, whichever step drew them.
             wireVisuals(body);
             wireStep(s);
+            // The next lesson is written while this one is being read.
+            maybePrefetchNext();
             const scroller = document.getElementById('lessonScroll');
             if (scroller) {
                 scroller.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
@@ -6255,6 +6698,33 @@ ${languageRule()}`;
         }
 
         // ---- Step renderers ----
+        // The one question in the lesson that is not about this lesson. It
+        // says which concept it came from, because being reminded that you
+        // learned this on Tuesday is part of what the step is for.
+        function stepWarmUp() {
+            const { lessonIndex, question } = lessonState.warmUp;
+            const concept = courseData.concepts[lessonIndex];
+            return `
+                <div class="step-eyebrow">Still know this? · ${esc(concept.name)}</div>
+                ${renderQuestion(question, 'warm')}`;
+        }
+
+        // A question the learner got wrong twice, asked once more at the end of
+        // the lesson with the explanation already behind it.
+        //
+        // The old ending was: get it wrong, read why, walk on, finish, see 60%.
+        // The number was the only consequence, and a number is not a second
+        // chance to understand. This is — and it deliberately does not move
+        // the score, so it is a chance to get it right rather than a chance to
+        // score better, which is the difference between practice and a resit.
+        function stepRepair(i) {
+            const { question, label } = lessonState.repair[i];
+            return `
+                <div class="step-eyebrow">Let's fix that · ${esc(label)}</div>
+                <div class="step-note">This one didn't land the first time. No marks in it — just get it right.</div>
+                ${renderQuestion(question, 'fix' + i)}`;
+        }
+
         function stepHook(l) {
             return `
                 <div class="step-eyebrow">A moment of curiosity</div>
@@ -6501,7 +6971,26 @@ ${languageRule()}`;
             if (s.type === 'quiz' || s.type === 'challenge') {
                 const l = lessonState.lesson;
                 const item = s.type === 'quiz' ? l.quiz[s.i] : l.challenge;
-                wireQuestion(item);
+                const label = s.type === 'quiz' ? `Question ${s.i + 1}` : 'Final challenge';
+                wireQuestion(item, correct => {
+                    if (!correct) lessonState.missed.push({ question: item, label });
+                });
+            }
+
+            if (s.type === 'warmup') {
+                const { lessonIndex, question } = lessonState.warmUp;
+                wireQuestion(question, correct => {
+                    // Getting it wrong is the useful outcome: it says that
+                    // lesson needs seeing again sooner than the schedule
+                    // thought. Getting it right changes nothing — one question
+                    // answered under no pressure is not evidence enough to
+                    // push a review further out.
+                    if (!correct) nudgeReviewSooner(lessonIndex);
+                }, { scored: false });
+            }
+
+            if (s.type === 'repair') {
+                wireQuestion(lessonState.repair[s.i].question, null, { scored: false });
             }
 
             if (s.type === 'reviewq') {

@@ -19,13 +19,42 @@ subscribing after that isn't wired up yet (see below).
 
 ## What a lesson contains
 
-Hook → prediction → concept cards → worked example → guided practice → a mixed-format
-quiz → a capstone challenge → summary → a memory check, where the learner writes the
-idea in their own words and the model responds.
+A warm-up from an earlier lesson → hook → prediction → concept cards → worked example
+→ guided practice → a mixed-format quiz → a capstone challenge → summary → a memory
+check, where the learner writes the idea in their own words and the model responds →
+and, if anything went wrong along the way, a second look at it.
 
 Every lesson is grounded in the source document: the relevant passage is retrieved via
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come
 from that passage, not general knowledge.
+
+**The lesson opens on something you already learned.** One question, drawn from the
+quiz of an earlier lesson in the same course — the one furthest past its review date,
+because the material closest to being forgotten is the material worth a question. It
+costs nothing: that question was written, paid for and cached when that lesson was
+built. It is not marked, it takes no heart, and it cannot lower a score. Getting it
+wrong pulls that lesson's review forward to tomorrow but leaves its SM-2 ease alone —
+one question under no pressure is evidence that something is shaky, not a review
+session, and it should not be able to undo weeks of correctly earned interval. The
+course could always test what you learned last week; it kept it behind a banner and a
+tab of its own, which is a place you go when you have decided to revise. Almost nobody
+decides to revise.
+
+**A wrong answer comes back before the lesson ends.** The old ending was: get it wrong,
+read why, walk on, finish, see 60%. The number was the only consequence, and a number is
+not a second chance to understand. Now up to three missed questions are asked once more
+before the complete screen, options reordered so the second try tests the idea rather
+than the memory of which button turned green. They are explicitly unmarked — the score
+was earned already. It is a chance to get it right, not a resit.
+
+**The lesson knows how you have been doing.** Every lesson in a course used to be
+pitched identically no matter what happened in the previous nine: someone averaging
+100% got the same gentleness as someone averaging 45%. One line in the prompt now says
+which of those is true, and asks for harder questions or smaller steps accordingly. It
+speaks only above 90% or below 60% — in the middle "keep doing what you are doing" is
+not an instruction — and only once two lessons are done, because one score is a mood
+rather than a level. No extra call, no second model, one sentence in a prompt that was
+being sent anyway.
 
 ## The lesson toolkit
 
@@ -135,9 +164,14 @@ One constraint worth knowing before adding to either catalogue: the lesson promp
 retrieved passage share one content block, and `ai-proxy` clamps that block to
 `excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
 which is where its own JSON schema lives. The widest prompt (a maths concept, whose shelf
-is the largest) is currently about 11,000 of the 12,000 characters allowed, and the test
+is the largest) is currently about 11,600 of the 13,000 characters allowed, and the test
 fails if an addition leaves under 500 spare. Raising the ceiling means raising
-`TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function.
+`TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function — which is what
+was done when the calibration line was added and the margin fell to 350. It is a ceiling,
+not a payload: nothing is sent because the room exists.
+
+The prompt-size test measures the widest prompt *with* that line in it, and with the
+longer of its two wordings, because that is the prompt a real learner gets.
 
 ## Reading the PDF
 
@@ -271,6 +305,12 @@ starts a short session built from the quiz questions already generated for those
 lessons — no new AI calls, so reviewing is free. Doing well pushes the lesson further
 out; doing poorly resets it to a daily review.
 
+The schedule also reaches into the lessons themselves. Each lesson opens with one
+question from the course's most overdue completed lesson (see *What a lesson contains*),
+which is retrieval practice for the learner who never opens the Review tab. A miss there
+pulls that lesson's `dueAt` forward to tomorrow and touches nothing else — no ease, no
+rep count. A single question is not a review session and must not be scored like one.
+
 ## Architecture
 
 The frontend is `index.html` (`<style>` + markup) plus `app.js` (vanilla JS, no
@@ -295,8 +335,66 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   of the document is read, and the monthly course/lesson quota are all rewritten from
   the `subscriptions` row. A modified client can send anything it likes and still gets
   its own tier's answer. Its source lives in `supabase/functions/ai-proxy` — the rules
-  in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`.
+  in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
+  streams: the model's answer is forwarded to the browser as it is written rather than
+  held until it is finished (see *Why the bigger plans felt slower* below).
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
+
+## Why the bigger plans felt slower, and what was done about it
+
+Buying a larger plan used to make the app *feel* worse. Max reads 120,000 characters of
+the document and plans the course on Opus; a lesson is up to 6,000 output tokens. Output
+tokens are produced one at a time, so that is minutes of wall clock, and no amount of
+clamping the input removes it — a bigger plan buys a bigger model reading more, which is
+strictly more work. Basic finished sooner because it was doing less.
+
+That much is the deal. What was wrong was everything around it.
+
+**The call was held closed until it finished.** One request, one response, nothing on
+screen but a spinner for the whole of it — and a spinner that runs for two minutes is
+indistinguishable from a hung tab. Past a certain length it was also the request most
+likely to hit a gateway's idle timeout and come back as nothing at all.
+
+Now `ai-proxy` streams. It passes Anthropic's SSE straight through to the browser and
+reads the meter on the way past — the usage is picked out of `message_start` and
+`message_delta` as they go by, and written when the stream ends, so a stream that dies
+halfway is still billed for the tokens it burned. The client shows what that buys:
+which part of the lesson is being written right now, read off the JSON while it is still
+half-written, and a bar whose fraction is a count of parts that have genuinely arrived
+rather than a timer dressed up as progress. Building a course counts concepts as they
+land — *Found 7 concepts* — against the number that tier returns.
+
+The client asks for streaming rather than getting whichever way the function was last
+deployed, and decides how to read the answer by what came back, not by what it asked
+for. Old client with the new function, new client with the old one: both work, so the
+two can be deployed in either order.
+
+**Nothing was written until the learner asked for it.** This is the one that actually
+removes the wait. A lesson takes five to ten minutes to work through and one to two to
+generate, and those numbers had never been allowed to overlap: the learner finished,
+pressed *Next lesson*, and only then did anything start. A third of the way through the
+current lesson, the next one now starts being written in the background — by the time
+the button is pressed it is already in `progress`, which is where a replayed lesson
+comes from, and it opens instantly. If they get there first, the open waits on the
+generation already in flight rather than starting a second one.
+
+It also repairs the cache it rides on. The shared course context is cached with a
+five-minute TTL, and a learner takes longer than that per lesson, so a lesson requested
+*after* the previous one finished always missed and paid the write premium again.
+Requested while the previous lesson is still on screen, it hits — which makes the next
+lesson both faster and about a tenth of the input price. The TTL was the right one all
+along; nothing was arriving inside it.
+
+What a prefetch must never do is spend a lesson the learner would not have. It runs for
+the very next concept only, once, never for one already in hand, never offline or signed
+out, and never when fewer than two lessons remain in the month — the last one belongs to
+whatever they choose to open, not to a guess about what that will be. It reports its
+failures to the console rather than onto a screen showing something else, and a course
+switched away from mid-flight discards what lands, because writing it into the new
+course's `progress` would file one course's lesson 4 as another's.
+
+`tests/lesson-flow.js` covers the guards, the SSE scanner on every chunk boundary, and
+the progress readers; `tests/ai-proxy-policy.mjs` covers the server half of the stream.
 
 ## Tiers
 

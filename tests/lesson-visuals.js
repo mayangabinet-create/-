@@ -104,7 +104,7 @@ const names = [
   'function normaliseQuestion',
   // the prompt
   'const RTL_LANGUAGES', 'function courseLanguage', 'function languageRule',
-  'function buildLessonPrompt',
+  'function calibrationNote', 'function buildLessonPrompt',
   'function normaliseLesson',
 ];
 
@@ -113,6 +113,8 @@ const names = [
 let code = `
 let visualSeq = 0;
 let courseData = { language: 'English' };
+// What the learner has done so far, which is what calibrationNote() reads.
+let progress = {};
 const document = {
   createElement: () => ({
     textContent: '',
@@ -130,8 +132,14 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
-  buildLessonPrompt, normaliseLesson,
-  setLanguage: l => { courseData = { language: l }; } };
+  buildLessonPrompt, normaliseLesson, calibrationNote,
+  setLanguage: l => { courseData = { language: l }; },
+  // A course history to calibrate against: n lessons all finished at the same
+  // accuracy, which is enough for a note that only reads the mean.
+  setHistory: (n, accuracy) => {
+    progress = {};
+    for (let i = 0; i < n; i++) progress[i] = { completed: true, accuracy };
+  } };
 `;
 
 const m = new module.constructor();
@@ -515,8 +523,30 @@ console.log('\n== the lesson prompt ==');
   ok('but not another subject\'s',
      !P.buildLessonPrompt({ ...concept, domain: 'math' }, 'S').includes('"ohms-law"'));
 
-  const widest = domains.map(d => ({ d, n: P.buildLessonPrompt({ ...concept, domain: d }, '').length }))
-                        .sort((a, b) => b.n - a.n)[0];
+  // Calibration: the one line that changes with how the learner is doing.
+  P.setHistory(0, 0);
+  ok('a first lesson is pitched at nobody in particular', P.calibrationNote() === '');
+  P.setHistory(1, 100);
+  ok('one score is a mood, not a level', P.calibrationNote() === '');
+  P.setHistory(3, 96);
+  ok('a learner getting everything right is asked harder questions',
+     /Pitch harder/.test(P.calibrationNote()));
+  P.setHistory(3, 45);
+  ok('a struggling learner is taught slower', /Go slower/.test(P.calibrationNote()));
+  P.setHistory(3, 75);
+  ok('the middle of the range says nothing, because there is nothing to say',
+     P.calibrationNote() === '');
+  ok('and the note reaches the prompt',
+     (P.setHistory(3, 45), P.buildLessonPrompt(concept, 'S').includes('Go slower')));
+
+  // The prompt a real learner gets carries the note, so the size guarded below
+  // has to be the size with the longest of them in it.
+  const widest = domains.flatMap(d =>
+    [[0, 0], [3, 96], [3, 45]].map(([n, acc]) => {
+      P.setHistory(n, acc);
+      return { d, n: P.buildLessonPrompt({ ...concept, domain: d }, '').length };
+    })).sort((a, b) => b.n - a.n)[0];
+  P.setHistory(0, 0);
 
   // The prompt and the retrieved passage share one block, and the server
   // clamps that block. Overrun it and the tail is cut — which is the JSON

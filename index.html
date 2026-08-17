@@ -1638,6 +1638,29 @@
             --btn-bg: var(--warn-text); --btn-bg-hover: var(--warn-text); --btn-edge: var(--warn-text);
         }
 
+        /* Streamed progress: what is being written, and how far in it is. The
+           bar is only drawn when there is a real fraction behind it — a
+           made-up percentage is worse than none, because it is believed.
+           Both sit inside .loading-card, a flex column with its own gap, so
+           neither carries a margin of its own. */
+        .loading-detail {
+            font-size: var(--fs-sm); font-weight: 600;
+            color: var(--text-muted); text-align: center;
+        }
+        .loading-bar {
+            width: 100%; height: 6px;
+            background: var(--surface-sunken); border-radius: var(--r-xs);
+            overflow: hidden;
+        }
+        .loading-bar > span {
+            display: block; height: 100%; width: 0;
+            background: var(--brand); border-radius: var(--r-xs);
+            transition: width var(--dur-3) var(--ease);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .loading-bar > span { transition: none; }
+        }
+
         .loading-stages {
             list-style: none; margin: var(--sp-4) 0 0; padding: 0;
             display: grid; gap: var(--sp-2); text-align: start; width: 100%;
@@ -2512,6 +2535,12 @@
         <div class="loading-card" role="status" aria-live="polite">
             <div class="spinner spinner-lg" aria-hidden="true"></div>
             <div id="loadingText"></div>
+            <!-- What the model is writing at this moment, read off the stream.
+                 On the tiers that run the larger models a lesson is minutes of
+                 generation, and "Preparing lesson…" for all of it says nothing
+                 about whether it is nearly done or barely started. -->
+            <div id="loadingDetail" class="loading-detail" hidden></div>
+            <div id="loadingBar" class="loading-bar" hidden><span id="loadingBarFill"></span></div>
             <!-- Named stages, filled in only for work that has more than one.
                  A build takes half a minute; a spinner for that long is
                  indistinguishable from a hung tab. -->
@@ -2630,7 +2659,7 @@
         <button type="button" onclick="location.reload()">Reload</button>
     </div>
 
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

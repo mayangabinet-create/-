@@ -254,6 +254,22 @@ ever left showing underneath something else.
 Each screen's empty state carries the button that resolves it: no courses yet ends
 in "Create a course", signed out ends in "Sign in".
 
+## First-run onboarding
+
+The first time an account has zero courses, it doesn't land on the bare upload
+screen — it gets a short explainer (what the app does, in the spirit of
+Brilliant's "swipe through the value prop" opener) and then "What do you want
+to learn about?": a grid of topic chips plus a free-text "Something else…".
+Picking one skips the upload entirely. The app writes a substantial primer on
+that topic itself and feeds it through the exact same pipeline an uploaded
+document goes through — the same suitability check, the same concept
+extraction, the same excerpt-grounded lessons — so the first course is real,
+not a canned sample. It runs once per account (tracked in `localStorage` as
+`onboarded:<user id>`, the same pattern the streak cache uses) and can be
+skipped at any point; skipping or finishing marks it seen either way, so a
+returning learner who later deletes every course never gets steered back
+through it.
+
 On a phone the tabs are a bottom bar; from 900px up the same four buttons become a
 left rail, so a wide window buys content width instead of stretching a phone layout
 across it.

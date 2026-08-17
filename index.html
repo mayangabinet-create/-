@@ -914,6 +914,55 @@
         }
         .screen-empty-actions { display: flex; gap: var(--sp-2); justify-content: center; flex-wrap: wrap; }
 
+        /* ========================== First-run onboarding ==========================
+           A separate page, same idea as the lesson screen: it covers the app
+           rather than sharing space with it, because there is nothing useful
+           to do underneath it yet. */
+        .onboarding-screen {
+            position: fixed; inset: 0; z-index: 300;
+            display: flex; flex-direction: column;
+            background: var(--bg); overflow-y: auto;
+            padding: var(--sp-12) var(--sp-5) var(--sp-6);
+        }
+        .onboarding-skip {
+            position: absolute; top: var(--sp-4); right: var(--sp-4);
+            min-height: var(--tap); padding: 0 var(--sp-3);
+            border: none; background: none; color: var(--text-muted);
+            font-family: var(--font); font-weight: 700; font-size: var(--fs-sm); cursor: pointer;
+        }
+        .onboarding-skip:hover { color: var(--text); }
+        .onboarding-step {
+            flex: 1; display: flex; flex-direction: column; justify-content: center;
+            width: 100%; max-width: 34ch; margin: 0 auto; text-align: center;
+        }
+        .onboarding-icon {
+            width: 56px; height: 56px; margin: 0 auto var(--sp-5);
+            border-radius: var(--r-full);
+            background: var(--brand-tint); color: var(--brand-strong);
+            font-size: var(--fs-h1);
+            display: grid; place-items: center;
+        }
+        .onboarding-title { font-size: var(--fs-h2); font-weight: 800; line-height: var(--lh-tight); margin-bottom: var(--sp-3); }
+        .onboarding-body { color: var(--text-muted); font-size: var(--fs-body); line-height: var(--lh-body); margin-bottom: var(--sp-6); }
+        .interest-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2);
+            margin-bottom: var(--sp-4);
+        }
+        .interest-chip {
+            min-height: var(--tap); padding: var(--sp-3);
+            border: 1px solid var(--border); border-radius: var(--r-md);
+            background: var(--surface); color: var(--text);
+            font-family: var(--font); font-weight: 700; font-size: var(--fs-sm);
+            cursor: pointer; transition: border-color var(--dur-2) var(--ease), background var(--dur-2) var(--ease);
+        }
+        .interest-chip:hover { border-color: var(--brand-border); background: var(--brand-tint); }
+        .interest-custom { text-align: start; margin-top: var(--sp-2); }
+        .interest-custom .field-label { display: block; margin-bottom: var(--sp-2); font-weight: 700; font-size: var(--fs-sm); }
+        .interest-custom .auth-input { margin-bottom: var(--sp-3); }
+        @media (max-width: 380px) {
+            .interest-grid { grid-template-columns: 1fr; }
+        }
+
         /* ========================== Home: source picker ========================== */
         .source-picker { animation: slideUp var(--dur-3) var(--ease) both; }
         .demo-lesson-banner {
@@ -1620,7 +1669,7 @@
 
         /* Path recedes while the lesson is open */
         body.lesson-open .container { transform: scale(0.98); filter: brightness(0.96); }
-        body.lesson-open { overflow: hidden; }
+        body.lesson-open, body.onboarding-open { overflow: hidden; }
 
         /* The topbar shares the reading column instead of running edge to edge: a
            full-width progress bar over a 720px centred lesson read as two unrelated
@@ -2665,6 +2714,34 @@
         </div>
     </div>
 
+    <!-- ===== First-run onboarding (separate page, shown once) ===== -->
+    <div id="onboardingScreen" class="onboarding-screen" hidden aria-hidden="true">
+        <button type="button" class="onboarding-skip" id="onboardingSkip">Skip</button>
+
+        <div id="onboardingWelcome" class="onboarding-step">
+            <div class="onboarding-icon" id="onboardingIcon" aria-hidden="true"></div>
+            <h2 class="onboarding-title">Turn anything into a course you'll actually remember</h2>
+            <p class="onboarding-body">
+                Give us a PDF, an article, or just tell us what you're curious about — we'll
+                write real lessons from it: an explanation, a worked example, a quiz, and a
+                review that brings each idea back right before you'd forget it.
+            </p>
+            <button type="button" class="button button-block" id="onboardingStart">Get started</button>
+        </div>
+
+        <div id="onboardingInterests" class="onboarding-step" hidden>
+            <h2 class="onboarding-title">What do you want to learn about?</h2>
+            <p class="onboarding-body">Pick one and we'll write your first course right now — no upload needed.</p>
+            <div class="interest-grid" id="interestGrid"></div>
+            <div class="interest-custom" id="interestCustom" hidden>
+                <label class="field-label" for="interestCustomInput">What's the topic?</label>
+                <input type="text" id="interestCustomInput" class="auth-input" maxlength="60"
+                       placeholder="e.g. Ancient Rome, chess openings, Python…" autocomplete="off" />
+                <button type="button" class="button button-block" id="interestCustomGo">Build my course</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Loading overlay: works regardless of which screen is showing -->
     <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
         <div class="loading-card" role="status" aria-live="polite">
@@ -2794,7 +2871,7 @@
         <button type="button" onclick="location.reload()">Reload</button>
     </div>
 
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=10"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

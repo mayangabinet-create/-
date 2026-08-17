@@ -134,7 +134,7 @@
         // to whatever `classify()` allows: asking for more than the deployed
         // Edge Function grants is harmless — it comes back clamped, exactly as
         // before — so the client and the function can be deployed in either order.
-        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250 };
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1600 };
 
         let lastCallTruncated = false;
 
@@ -1952,6 +1952,114 @@ ${languageRule()}`;
             } finally {
                 hideMessage();
             }
+        }
+
+        // ============= First-run onboarding =============
+        // A brand-new account used to land straight on a blank upload screen —
+        // functional, but it explains nothing and asks the visitor to already
+        // know what to feed it. This runs once, right after the first sign-up
+        // (in practice: whenever a signed-in account has no courses yet and
+        // hasn't seen it before): a short explainer, then "what interests
+        // you", then a real first course built from an AI-written primer on
+        // whatever they picked — no upload required. Marked per account in
+        // localStorage, the same pattern the streak cache uses, so it never
+        // nags a returning learner who later deleted every course.
+        const ONBOARDED_STORAGE = 'onboarded';
+
+        function onboardedKey() {
+            return currentUser ? `${ONBOARDED_STORAGE}:${currentUser.id}` : null;
+        }
+
+        function hasOnboarded() {
+            const key = onboardedKey();
+            if (!key) return true;   // nothing to gate for a signed-out visitor
+            try { return localStorage.getItem(key) === '1'; } catch (_) { return true; }
+        }
+
+        function markOnboarded() {
+            const key = onboardedKey();
+            if (!key) return;
+            try { localStorage.setItem(key, '1'); } catch (_) { /* private mode */ }
+        }
+
+        const INTEREST_TOPICS = [
+            'Psychology', 'History', 'Money & Investing', 'The Human Body',
+            'Physics', 'Philosophy', 'Astronomy', 'Business',
+            'Nutrition', 'Ancient Civilizations', 'Climate & Earth', 'Coding',
+        ];
+
+        function startOnboarding() {
+            renderInterestGrid();
+            document.body.classList.add('onboarding-open');
+            const screen = document.getElementById('onboardingScreen');
+            screen.hidden = false;
+            screen.setAttribute('aria-hidden', 'false');
+            showOnboardingStep('welcome');
+        }
+
+        function showOnboardingStep(step) {
+            document.getElementById('onboardingWelcome').hidden = step !== 'welcome';
+            document.getElementById('onboardingInterests').hidden = step !== 'interests';
+        }
+
+        function finishOnboarding() {
+            markOnboarded();
+            const screen = document.getElementById('onboardingScreen');
+            screen.hidden = true;
+            screen.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('onboarding-open');
+        }
+
+        function skipOnboarding() {
+            finishOnboarding();
+            setScreen('home');
+        }
+
+        function renderInterestGrid() {
+            const grid = document.getElementById('interestGrid');
+            grid.innerHTML = INTEREST_TOPICS.map(t =>
+                `<button type="button" class="interest-chip" data-topic="${esc(t)}">${esc(t)}</button>`
+            ).join('') + `<button type="button" class="interest-chip" id="interestOtherBtn">Something else…</button>`;
+
+            grid.querySelectorAll('[data-topic]').forEach(btn => {
+                btn.onclick = () => pickInterest(btn.dataset.topic);
+            });
+            document.getElementById('interestOtherBtn').onclick = () => {
+                document.getElementById('interestCustom').hidden = false;
+                document.getElementById('interestCustomInput').focus();
+            };
+        }
+
+        // A short, substantial piece of writing on the chosen topic — not the
+        // course itself. It exists so the topic can flow through the exact
+        // same "material in, course out" pipeline every uploaded document
+        // does: the same suitability check, the same concept extraction, the
+        // same excerpt-grounded lessons. A bare topic string can't do that;
+        // a few hundred words of real prose about it can.
+        async function generateInterestPrimer(topic) {
+            const prompt = `Write a substantial, engaging introduction to "${topic}" for someone learning about it for the first time.
+
+Cover its core ideas, key terms, how it connects to everyday life, and a few concrete examples. Plain prose in paragraphs — no headings, no bullet points, no markdown. 700-900 words. Write only the material itself, nothing about a course or about writing it.`;
+            return await callAI(prompt, '', { maxTokens: MAX_TOKENS.primer, task: 'primer', quiet: true });
+        }
+
+        async function pickInterest(topic) {
+            topic = (topic || '').trim();
+            if (!topic) return;
+
+            finishOnboarding();
+            setScreen('home');
+            document.getElementById('backToLibraryBtn').hidden = true;
+
+            showStages(BUILD_STAGES, 'read');
+            showMessage(`Writing material on ${topic}…`);
+            const primer = await generateInterestPrimer(topic);
+            if (!primer) {
+                hideMessage();
+                showError("Couldn't put together material on that topic. Try again, or upload your own.");
+                return;
+            }
+            await processLearningMaterial(primer, topic);
         }
 
         // Concepts are grouped into fixed-size units purely for the path's visual
@@ -7317,6 +7425,15 @@ ${languageRule()}`;
         // ============= Event Listeners =============
         document.getElementById('tryDemoLessonBtn').addEventListener('click', startDemoLesson);
 
+        document.getElementById('onboardingSkip').addEventListener('click', skipOnboarding);
+        document.getElementById('onboardingStart').addEventListener('click', () => showOnboardingStep('interests'));
+        document.getElementById('interestCustomGo').addEventListener('click', () => {
+            pickInterest(document.getElementById('interestCustomInput').value);
+        });
+        document.getElementById('interestCustomInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); document.getElementById('interestCustomGo').click(); }
+        });
+
         document.getElementById('uploadSection').addEventListener('click', () => {
             document.getElementById('fileInput').click();
         });
@@ -7690,6 +7807,8 @@ ${languageRule()}`;
                     await openCourse(lastId);
                 } else if (library.length) {
                     await showLibrary();
+                } else if (!hasOnboarded()) {
+                    startOnboarding();
                 } else {
                     setScreen('home');
                 }
@@ -7874,6 +7993,7 @@ ${languageRule()}`;
         const staticIcons = {
             hudIconStreak: 'flame', hudIconXp: 'star',
             libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh', demoLessonIcon: 'book',
+            onboardingIcon: 'star',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             authCloseBtn: 'x', courseRenameBtn: 'pencil',
         };

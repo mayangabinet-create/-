@@ -29,6 +29,50 @@
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
         const MAX_COURSES = 8;
 
+        // ============= Theme =============
+        // Absent key = follow the OS. An explicit 'light'/'dark' overrides it.
+        // The inline script in <head> reads this same key to set data-theme
+        // before first paint, so a returning learner never sees a flash of the
+        // wrong theme; everything here just keeps the rest of the page (meta
+        // chrome colour, live system-change updates, the Account toggle) in sync
+        // with whatever that script already decided.
+        const THEME_STORAGE = 'theme_pref';
+
+        function themePref() {
+            try { return localStorage.getItem(THEME_STORAGE); } catch (_) { return null; }
+        }
+
+        function effectiveTheme() {
+            const pref = themePref();
+            if (pref === 'light' || pref === 'dark') return pref;
+            return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+
+        function applyTheme() {
+            const pref = themePref();
+            const html = document.documentElement;
+            if (pref === 'light' || pref === 'dark') html.setAttribute('data-theme', pref);
+            else html.removeAttribute('data-theme');
+
+            const themeColor = document.getElementById('metaThemeColor');
+            if (themeColor) themeColor.setAttribute('content', effectiveTheme() === 'dark' ? '#14171C' : '#F4F5F7');
+            const colorScheme = document.getElementById('metaColorScheme');
+            if (colorScheme) colorScheme.setAttribute('content', pref === 'light' ? 'light' : pref === 'dark' ? 'dark' : 'light dark');
+        }
+
+        function setThemePref(pref) {
+            try {
+                if (pref) localStorage.setItem(THEME_STORAGE, pref);
+                else localStorage.removeItem(THEME_STORAGE);
+            } catch (_) { /* private mode: theme just won't persist across visits */ }
+            applyTheme();
+        }
+
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)')
+                .addEventListener('change', () => { if (!themePref()) applyTheme(); });
+        }
+
         let currentUser = null;
         let courseData = null;
         let currentLessonIndex = 0;
@@ -70,6 +114,7 @@
             key: svgIcon('<circle cx="8" cy="12" r="4"/><path d="M12 12h9M17 12v3.5M20 12v2.5"/>'),
             clock: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/>'),
             trash: svgIcon('<path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/><path d="M6 7l1 13h10l1-13"/>'),
+            moon: svgIcon('<path d="M20 14.5A8.5 8.5 0 019.5 4 8.5 8.5 0 1020 14.5z"/>'),
         };
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
@@ -2713,6 +2758,41 @@ ${languageRule()}`;
             return entitlement;
         }
 
+        // Shared between the signed-out and signed-in renders of the Account
+        // screen: the theme is a device preference, not account data, so it
+        // shouldn't need a sign-in just to change.
+        function appearanceSectionHTML() {
+            return `
+                <section class="account-card">
+                    <div class="account-card-head"><h3>Appearance</h3></div>
+                    <button class="account-row" id="acctAppearance">
+                        <span class="account-row-icon">${ICONS.moon}</span>
+                        <span class="account-row-text">
+                            <strong>Theme</strong>
+                            <span id="acctAppearanceValue"></span>
+                        </span>
+                    </button>
+                </section>`;
+        }
+
+        function wireAppearanceRow() {
+            const btn = document.getElementById('acctAppearance');
+            const valueEl = document.getElementById('acctAppearanceValue');
+            if (!btn || !valueEl) return;
+            const describe = () => {
+                const pref = themePref();
+                valueEl.textContent = pref === 'light' ? 'Light — tap to switch to dark'
+                    : pref === 'dark' ? 'Dark — tap to match your device'
+                    : `Matches your device, currently ${effectiveTheme()} — tap for light`;
+            };
+            describe();
+            btn.onclick = () => {
+                const pref = themePref();
+                setThemePref(pref === 'light' ? 'dark' : pref === 'dark' ? null : 'light');
+                describe();
+            };
+        }
+
         async function showAccount() {
             setScreen('account');
             renderAccount();
@@ -2734,9 +2814,10 @@ ${languageRule()}`;
                     body: 'An account is what holds your courses, your progress and your review schedule — and it syncs them to any device you open this on. New accounts get a free trial course straight away.',
                     actionId: 'acctSignIn', actionLabel: 'Sign in',
                     secondary: { id: 'acctSignUp', label: 'Create an account' },
-                });
+                }) + appearanceSectionHTML();
                 document.getElementById('acctSignIn').onclick = () => showAuthModal('signin');
                 document.getElementById('acctSignUp').onclick = () => showAuthModal('signup');
+                wireAppearanceRow();
                 return;
             }
 
@@ -2832,6 +2913,8 @@ ${languageRule()}`;
                     </div>
                 </section>
 
+                ${appearanceSectionHTML()}
+
                 <section class="account-card">
                     <div class="account-card-head"><h3>Settings</h3></div>
                     <button class="account-row" id="acctPassword">
@@ -2860,6 +2943,7 @@ ${languageRule()}`;
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
             const reviewBtn = document.getElementById('acctReview');
             if (reviewBtn) reviewBtn.onclick = () => showReview();
+            wireAppearanceRow();
 
             document.getElementById('acctPassword').onclick = async () => {
                 const { error } = await supabaseClient.auth.resetPasswordForEmail(currentUser.email);
@@ -5896,6 +5980,7 @@ ${languageRule()}`;
 
         // Leave a lesson without finishing it. No reward, no confetti.
         function exitLesson() {
+            if (demoMode) { exitDemoLesson(); return; }
             closeLessonScreen();
             setTimeout(() => {
                 displayLearningPath();
@@ -6393,6 +6478,111 @@ ${languageRule()}`;
 
         let lessonLoading = false;   // guards against double-entry
 
+        // ============= Demo lesson =============
+        // A hand-written, zero-cost lesson a brand-new visitor can try before
+        // committing to an upload and a wait. It runs through the exact same
+        // step engine as a real lesson — same renderers, same question
+        // grading — because the point is to show the actual thing, not a
+        // mockup of it. The only special handling is making sure it can never
+        // write anything: it ends on its own step type instead of `complete`
+        // (so commitLessonResult/saveProgress/bumpStreak never run for it),
+        // and it snapshots and restores every global the real lesson flow
+        // touches, so trying it can't disturb a course someone already has
+        // open.
+        let demoMode = false;
+        let demoSnapshot = null;
+
+        function demoLessonContent() {
+            return {
+                title: 'Why the Sky Is Blue',
+                estimatedMinutes: 2,
+                hook: {
+                    text: 'Sunlight looks white, but it’s secretly every color mixed together. '
+                        + 'Something in the air is pulling the blue out of that mix before it reaches your eyes.',
+                },
+                cards: [
+                    {
+                        idea: 'Light scatters off tiny things',
+                        text: 'Air is mostly empty space, but it’s full of gas molecules far smaller than a '
+                            + 'wavelength of light. When sunlight hits one, it bounces off in a random direction — '
+                            + 'physicists call this scattering.',
+                        analogy: 'Like a wave hitting a buoy: the buoy doesn’t block the wave, it just sends out little ripples of its own.',
+                        visual: null,
+                    },
+                    {
+                        idea: 'Blue scatters the most',
+                        text: 'Shorter wavelengths scatter far more than longer ones — blue light scatters about '
+                            + 'five times more than red. So blue gets bounced all over the sky, arriving at your eyes '
+                            + 'from every direction, while red mostly goes straight through.',
+                        analogy: null,
+                        visual: null,
+                    },
+                ],
+                quiz: [
+                    {
+                        type: 'choice',
+                        text: 'Why does the sky look blue instead of red?',
+                        options: ['Blue light scatters more than red light', 'The atmosphere is naturally blue', 'Red light gets absorbed by clouds'],
+                        correct: 0,
+                        hint: 'Think about which color got mentioned as bouncing around the most.',
+                        explanation: 'Shorter wavelengths (blue) scatter far more off air molecules than longer ones (red), so blue light reaches your eyes from all over the sky.',
+                    },
+                    {
+                        type: 'choice',
+                        text: 'What would sunsets look like with a much thinner atmosphere?',
+                        options: ['Less colorful — less air means less scattering', 'Even more red and orange', 'Exactly the same'],
+                        correct: 0,
+                        hint: 'Scattering is what paints the sky — what happens if there’s less of the thing doing the scattering?',
+                        explanation: 'A sunset’s color comes from sunlight travelling through a lot of atmosphere at a low angle, scattering out the blue and leaving red and orange. Less air means less of that effect.',
+                    },
+                ],
+                challenge: null, summary: null, memoryCheck: null, prediction: null, explore: null,
+                workedExample: null, practice: null,
+            };
+        }
+
+        function startDemoLesson() {
+            demoSnapshot = { courseData, progress, activeCourseId, currentLessonIndex, lessonState };
+            demoMode = true;
+
+            // No courseName means renderLessonBreadcrumb() stays hidden — there is
+            // no real course to jump back to from inside the demo.
+            courseData = { courseName: '', language: 'English', concepts: [{ name: 'Why the Sky Is Blue' }] };
+            progress = {};
+            activeCourseId = null;
+            currentLessonIndex = 0;
+
+            const lesson = demoLessonContent();
+            const steps = [
+                { type: 'hook' }, { type: 'card', i: 0 }, { type: 'card', i: 1 },
+                { type: 'quiz', i: 0 }, { type: 'quiz', i: 1 }, { type: 'demoComplete' },
+            ];
+            lessonState = {
+                lesson, steps, step: 0, correct: 0, total: 0, heartsLeft: 5,
+                startedAt: Date.now(), answered: {}, attempts: {},
+                warmUp: null, missed: [], result: null,
+            };
+
+            document.getElementById('lessonXpBadge').textContent = 'Example — nothing is saved';
+            document.getElementById('lessonMeta').innerHTML = `
+                <span class="meta-chip">2 min</span>
+                <span class="meta-chip">${steps.length} steps</span>`;
+
+            applyContentDirection();
+            buildStepSegments(steps.length);
+            renderHearts();
+            openLessonScreen();
+            renderStep();
+        }
+
+        function exitDemoLesson() {
+            closeLessonScreen();
+            ({ courseData, progress, activeCourseId, currentLessonIndex, lessonState } = demoSnapshot);
+            demoSnapshot = null;
+            demoMode = false;
+            setScreen('home');
+        }
+
         // ============= Writing the next lesson during this one =============
         //
         // Streaming makes the wait legible. This is the one that removes it.
@@ -6682,6 +6872,7 @@ ${languageRule()}`;
                 summary: () => stepSummary(lesson),
                 memory: () => stepMemory(lesson),
                 complete: () => stepComplete(lesson),
+                demoComplete: () => stepDemoComplete(),
                 reviewq: () => stepReviewQuestion(s.i),
                 reviewComplete: () => stepReviewComplete(),
             };
@@ -6918,6 +7109,24 @@ ${languageRule()}`;
                 </div>`;
         }
 
+        // The demo's own ending — deliberately not `complete`, so nothing here
+        // ever reaches commitLessonResult() (no XP, no streak, no save).
+        function stepDemoComplete() {
+            const { correct, total } = lessonState;
+            return `
+                <div class="complete-screen">
+                    <div class="complete-badge">${ICONS.check}</div>
+                    <h3 class="complete-title">That's a full lesson</h3>
+                    <div class="complete-stats">
+                        <div class="cstat"><div class="cstat-val">${correct}/${total}</div><div class="cstat-lbl">Correct</div></div>
+                    </div>
+                    <div class="step-note">Every real lesson works exactly like this one — written from your own material, with a warm-up, a quiz, and a repair round if something doesn't stick.</div>
+                    <div class="complete-actions">
+                        <button class="button" id="demoExitBtn">Build my own course</button>
+                    </div>
+                </div>`;
+        }
+
         // ---- Wiring ----
         function wireStep(s) {
             const next = document.getElementById('stepNext');
@@ -7039,6 +7248,10 @@ ${languageRule()}`;
             if (s.type === 'reviewComplete') {
                 document.getElementById('backToPath').onclick = completeLesson;
             }
+
+            if (s.type === 'demoComplete') {
+                document.getElementById('demoExitBtn').onclick = exitDemoLesson;
+            }
         }
 
         async function evaluateMemory() {
@@ -7102,6 +7315,8 @@ ${languageRule()}`;
         }
 
         // ============= Event Listeners =============
+        document.getElementById('tryDemoLessonBtn').addEventListener('click', startDemoLesson);
+
         document.getElementById('uploadSection').addEventListener('click', () => {
             document.getElementById('fileInput').click();
         });
@@ -7652,11 +7867,13 @@ ${languageRule()}`;
         });
 
         // Initialize
+        applyTheme();
+
         // Static icon slots that never change — filled once here rather than
         // duplicating the SVG markup inline in the HTML.
         const staticIcons = {
             hudIconStreak: 'flame', hudIconXp: 'star',
-            libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh',
+            libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh', demoLessonIcon: 'book',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             authCloseBtn: 'x', courseRenameBtn: 'pencil',
         };

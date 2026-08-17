@@ -5,8 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <meta name="description" content="Turn a PDF or your own notes into an interactive, spaced-repetition learning path.">
-    <meta name="theme-color" content="#F4F5F7">
-    <meta name="color-scheme" content="light">
+    <meta name="theme-color" content="#F4F5F7" id="metaThemeColor">
+    <meta name="color-scheme" content="light dark" id="metaColorScheme">
+    <!-- Runs before the stylesheet paints anything, so a learner who chose
+         Dark in Account settings never sees a flash of the light theme on
+         load. app.js re-derives the same value later and keeps it in sync
+         with system-preference changes; this is only the first paint. -->
+    <script>
+        (function () {
+            try {
+                var pref = localStorage.getItem('theme_pref');
+                if (pref === 'light' || pref === 'dark') document.documentElement.setAttribute('data-theme', pref);
+            } catch (_) {}
+        })();
+    </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
     <!-- One family, four weights. A second display face only put two rounded fonts
@@ -197,6 +209,104 @@
             --nav-w:         232px;   /* desktop rail */
             --nav-h:         72px;    /* mobile tab bar, incl. padding */
             --tap:           44px;    /* minimum touch target */
+        }
+
+        /* ---- Dark theme ------------------------------------------------------
+           Same token names, new values — nothing downstream of the token layer
+           has to know a second theme exists. Two triggers, one value set each:
+           the media query for a learner who never touched the toggle, the
+           attribute for one who did (set by the inline anti-flash script in
+           <head> and by the Appearance row in Account settings). The attribute
+           always wins over the system preference, in both directions.
+
+           The five hue "fill" tokens (--brand, --info, --warn, --danger,
+           --gold, --accent) are left unchanged: they're paired with white
+           --text-inverse text on solid buttons/toasts/badges, a pairing that
+           doesn't care which theme surrounds it. Everything that changes here
+           is either a neutral (bg/surface/border/text) or a "-strong"/"-text"
+           hue variant — those do double duty as small-scale foreground (SVG
+           diagram strokes, hover text) and as another solid fill, so they're
+           tuned to a middle brightness that stays legible both ways rather
+           than optimised for either alone. ---- */
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --brand-strong:       #7ED957;
+                --brand-hover:        #5AAE35;
+                --brand-tint:         #1B2A14;
+                --brand-tint-strong:  #223417;
+                --brand-border:       #35502A;
+
+                --info-strong:        #6FC3F0;
+                --info-tint:          #10222E;
+                --info-border:        #2C4B60;
+
+                --warn-strong:        #D68C1F;
+                --warn-text:          #D68C1F;
+                --warn-tint:          #2E2210;
+                --warn-border:        #4F3A18;
+
+                --danger-strong:      #E5726B;
+                --danger-hover:       #E64545;
+                --danger-tint:        #2E1414;
+                --danger-border:      #4A2222;
+
+                --gold-strong:        #F5C04A;
+
+                --accent-strong:      #B98AEE;
+                --accent-tint:        #241733;
+                --accent-tint-hover:  #2D1D3F;
+                --accent-border:      #4A3465;
+
+                --bg:                 #14171C;
+                --surface:            #1E222A;
+                --surface-sunken:     #11141A;
+                --border:             #2C333E;
+                --border-strong:      #3E4753;
+                --text:               #ECEEF3;
+                --text-muted:         #ABB3C0;
+                --text-subtle:        #838C9C;
+
+                --veil:               rgba(20, 23, 28, 0.88);
+            }
+        }
+        :root[data-theme="dark"] {
+            --brand-strong:       #7ED957;
+            --brand-hover:        #5AAE35;
+            --brand-tint:         #1B2A14;
+            --brand-tint-strong:  #223417;
+            --brand-border:       #35502A;
+
+            --info-strong:        #6FC3F0;
+            --info-tint:          #10222E;
+            --info-border:        #2C4B60;
+
+            --warn-strong:        #D68C1F;
+            --warn-text:          #D68C1F;
+            --warn-tint:          #2E2210;
+            --warn-border:        #4F3A18;
+
+            --danger-strong:      #E5726B;
+            --danger-hover:       #E64545;
+            --danger-tint:        #2E1414;
+            --danger-border:      #4A2222;
+
+            --gold-strong:        #F5C04A;
+
+            --accent-strong:      #B98AEE;
+            --accent-tint:        #241733;
+            --accent-tint-hover:  #2D1D3F;
+            --accent-border:      #4A3465;
+
+            --bg:                 #14171C;
+            --surface:            #1E222A;
+            --surface-sunken:     #11141A;
+            --border:             #2C333E;
+            --border-strong:      #3E4753;
+            --text:               #ECEEF3;
+            --text-muted:         #ABB3C0;
+            --text-subtle:        #838C9C;
+
+            --veil:               rgba(20, 23, 28, 0.88);
         }
 
         /* ========================== Base ========================== */
@@ -806,6 +916,19 @@
 
         /* ========================== Home: source picker ========================== */
         .source-picker { animation: slideUp var(--dur-3) var(--ease) both; }
+        .demo-lesson-banner {
+            display: flex; align-items: center; gap: var(--sp-3); width: 100%;
+            background: var(--info-tint); border: 1px solid var(--info-border);
+            border-radius: var(--r-md); padding: var(--sp-3) var(--sp-4);
+            margin-bottom: var(--sp-5); text-align: start; cursor: pointer;
+            transition: background var(--dur-2) var(--ease);
+        }
+        .demo-lesson-banner:hover { background: var(--info-border); }
+        .demo-lesson-banner-icon { font-size: var(--fs-h2); display: inline-flex; flex: none; color: var(--info-strong); }
+        .demo-lesson-banner-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+        .demo-lesson-banner-text strong { font-size: var(--fs-sm); color: var(--info-strong); }
+        .demo-lesson-banner-text span { font-size: var(--fs-xs); color: var(--text-muted); }
+        .demo-lesson-banner-arrow { flex: none; color: var(--info-strong); }
         .course-name-field { margin-bottom: var(--sp-5); }
 
         .upload-section {
@@ -2389,6 +2512,18 @@
 
             <!-- Source picker: two tabs, both reachable at any time -->
             <div id="sourcePicker" class="source-picker">
+                <!-- Zero-cost, no-upload preview: the actual lesson engine, running
+                     on a hand-written example, so a first-time visitor sees what a
+                     lesson feels like before spending a minute on an upload. -->
+                <button type="button" class="demo-lesson-banner" id="tryDemoLessonBtn">
+                    <span class="demo-lesson-banner-icon" id="demoLessonIcon" aria-hidden="true"></span>
+                    <span class="demo-lesson-banner-text">
+                        <strong>Not sure what a lesson looks like?</strong>
+                        <span>Try a 2-minute example — no upload, nothing saved.</span>
+                    </span>
+                    <span class="demo-lesson-banner-arrow" aria-hidden="true">→</span>
+                </button>
+
                 <div class="course-name-field">
                     <label class="field-label" for="courseNameInput">Course name</label>
                     <input type="text" id="courseNameInput" class="auth-input" maxlength="80"
@@ -2659,7 +2794,7 @@
         <button type="button" onclick="location.reload()">Reload</button>
     </div>
 
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=9"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

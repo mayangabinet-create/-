@@ -9,9 +9,12 @@ import {
   normaliseContent,
   planFor,
   prepareBlocks,
+  sseScanner,
+  streamUsage,
   TEMPLATE_ALLOWANCE,
   clampText,
   usageFrom,
+  wantsStream,
 } from "./policy.mjs";
 
 // The one place the real Anthropic key lives. Never sent to the browser.
@@ -126,6 +129,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { system, messages, max_tokens, task } = body;
+  const stream = wantsStream(body);
   if (!messages || !Array.isArray(messages) || !messages.length) {
     return json({ error: "messages is required" }, 400);
   }
@@ -213,8 +217,17 @@ Deno.serve(async (req: Request) => {
       max_tokens: Math.min(Number(max_tokens) || 1024, cap),
       system: typeof system === "string" ? clampText(system, TEMPLATE_ALLOWANCE) : system,
       messages: safeMessages,
+      ...(stream ? { stream: true } : {}),
     }),
   });
+
+  // A refused request is a JSON body whichever mode was asked for — an
+  // overloaded model, a bad key, a rate limit. It is short, it is the whole
+  // answer, and the client's error handling already reads it, so it goes back
+  // as it arrives rather than being wrapped in an event stream.
+  if (stream && anthropicRes.ok && anthropicRes.body) {
+    return streamThrough(anthropicRes, admin, user.id);
+  }
 
   const result = await anthropicRes.json();
 
@@ -227,3 +240,52 @@ Deno.serve(async (req: Request) => {
     headers: { ...corsHeaders, "content-type": "application/json" },
   });
 });
+
+/**
+ * Hand the model's stream to the browser, and read the meter on the way past.
+ *
+ * The bytes are forwarded untouched — the client parses the same events
+ * Anthropic emits, so nothing here has to understand a lesson. What this does
+ * understand is cost: the scanner picks the usage out of `message_start` and
+ * `message_delta` as they go by, and `flush` writes the total once the stream
+ * ends. Usage has to be recorded from inside the pipe because there is no
+ * "after the response" left to do it in — the response *is* the pipe.
+ *
+ * A stream that dies halfway still lands in `flush`, so a lesson that failed
+ * to finish is still billed for the tokens it burned. Losing those is how the
+ * quota starts disagreeing with the invoice.
+ */
+function streamThrough(anthropicRes: Response, admin: any, userId: string) {
+  const scan = sseScanner();
+  const meter = streamUsage();
+  const decoder = new TextDecoder();
+
+  const passthrough = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+      // `stream: true` keeps a multi-byte character split across two chunks
+      // from decoding as two replacement characters — which would corrupt
+      // exactly the Hebrew these courses are written in, if we were rewriting
+      // the bytes. We are not; this copy is only read for the numbers.
+      for (const event of scan(decoder.decode(chunk, { stream: true }))) {
+        meter.feed(event);
+      }
+    },
+    async flush() {
+      if (meter.sawUsage) await recordUsage(admin, userId, meter.result());
+    },
+  });
+
+  return new Response(anthropicRes.body!.pipeThrough(passthrough), {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache, no-transform",
+      // Some proxies buffer a response until it closes, which would give the
+      // client one long silence and then everything at once — the exact
+      // failure streaming exists to remove.
+      "x-accel-buffering": "no",
+    },
+  });
+}

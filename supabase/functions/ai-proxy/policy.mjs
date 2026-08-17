@@ -40,7 +40,20 @@ export const PLANS = {
   max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: OPUS, modelLesson: SONNET },
 };
 
-export const TEMPLATE_ALLOWANCE = 12_000;
+/**
+ * How much the lesson prompt itself may take, on top of the excerpt it shares
+ * a block with. Raised from 12,000 when the prompt started carrying a line
+ * about how the learner has been doing: at 11,500 characters the widest
+ * prompt — a maths concept, whose template shelf is the largest — had 350
+ * characters of room left, and a prompt that overruns is truncated from the
+ * tail, where its own JSON schema lives.
+ *
+ * It is a ceiling, not a payload. Nothing is sent because the room exists;
+ * raising it costs whatever the prompt actually grows by, which is a fraction
+ * of a cent per lesson, and buys back the margin that catches the next few
+ * templates in the test rather than in a lesson that will not open.
+ */
+export const TEMPLATE_ALLOWANCE = 13_000;
 export const FREE_CALL_CHARS = 20_000;
 export const FREE_CALLS_PER_DAY = 200;
 /**
@@ -200,6 +213,105 @@ export function prepareBlocks(blocks, { kind, plan, model }) {
     first.cache_control = { type: "ephemeral" };   // 5-minute TTL, the default
   }
   return [first, ...rest];
+}
+
+/**
+ * Streaming.
+ *
+ * A lesson is up to 6,000 output tokens and a Max course plan is 4,000 of
+ * Opus's, and output tokens are generated one at a time: that is minutes of
+ * wall clock no amount of clamping removes. Held as one request/response the
+ * caller sees nothing at all until the last token lands — and past a certain
+ * length nothing is what it sees, because a non-streamed request is also the
+ * one that hits a gateway's idle timeout.
+ *
+ * So the proxy streams. The bytes go to the browser as they arrive, which
+ * moves the wait from "a spinner for two minutes" to "text appearing", and
+ * removes the timeout with it.
+ *
+ * The client asks for it (`stream: true`) rather than getting it whichever way
+ * the function was last deployed: a browser that predates this still sends
+ * nothing and still gets one JSON body back. Old client, new function; new
+ * client, old function — both work, which is what lets the two be deployed in
+ * either order.
+ */
+export function wantsStream(body) {
+  return body?.stream === true;
+}
+
+/**
+ * Split an SSE byte stream into the JSON payloads it carries.
+ *
+ * Chunks arrive at whatever boundary the network chose — half a frame, three
+ * frames, a frame split mid-word — so the scanner keeps the tail and only
+ * emits frames terminated by a blank line. Everything else here is a
+ * consequence of that: parse nothing until the frame is whole.
+ *
+ * Returns the parsed `data:` payloads. A frame whose data is not JSON (the
+ * `[DONE]` sentinel other vendors send, a comment keep-alive) is skipped
+ * rather than thrown, because a passthrough must survive frames it does not
+ * understand.
+ */
+export function sseScanner() {
+  let buffer = "";
+  return function push(chunk) {
+    buffer += chunk;
+    const out = [];
+    // \r\n\r\n is as legal a frame terminator as \n\n, and a proxy that
+    // rewrites line endings would otherwise silently stop the whole stream.
+    const parts = buffer.split(/\r?\n\r?\n/);
+    buffer = parts.pop() ?? "";
+    for (const frame of parts) {
+      const data = frame
+        .split(/\r?\n/)
+        .filter(line => line.startsWith("data:"))
+        .map(line => line.slice(5).trim())
+        .join("\n");
+      if (!data || data === "[DONE]") continue;
+      try { out.push(JSON.parse(data)); } catch { /* not ours to interpret */ }
+    }
+    return out;
+  };
+}
+
+/**
+ * Usage, accumulated from the events rather than read off a finished body.
+ *
+ * A stream reports its cost in two places: `message_start` carries the input
+ * side (including the cache read and write, which is the number that says
+ * whether the shared context paid for itself), and `message_delta` carries a
+ * running output count whose last value is the total. Neither alone is the
+ * bill.
+ *
+ * `sawUsage` is what the caller meters on. A stream that broke halfway
+ * reports the tokens it did use — the tokens were spent whether or not the
+ * learner got a lesson out of them, and not recording them is how usage
+ * accounting quietly drifts from what the API charged.
+ */
+export function streamUsage() {
+  const totals = {
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_creation_input_tokens: 0,
+    cache_read_input_tokens: 0,
+  };
+  let seen = false;
+
+  return {
+    feed(event) {
+      const u = event?.type === "message_start" ? event.message?.usage : event?.usage;
+      if (!u) return;
+      seen = true;
+      // input and cache figures are stated once, on message_start; output is
+      // restated on every delta and the last one wins.
+      for (const key of ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]) {
+        if (Number.isFinite(Number(u[key]))) totals[key] = Math.max(totals[key], Number(u[key]) || 0);
+      }
+      if (Number.isFinite(Number(u.output_tokens))) totals.output_tokens = Number(u.output_tokens) || 0;
+    },
+    get sawUsage() { return seen; },
+    result() { return usageFrom(totals); },
+  };
 }
 
 /**

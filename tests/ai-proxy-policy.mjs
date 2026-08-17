@@ -26,7 +26,10 @@ import {
   normaliseContent,
   planFor,
   prepareBlocks,
+  sseScanner,
+  streamUsage,
   usageFrom,
+  wantsStream,
 } from "../supabase/functions/ai-proxy/policy.mjs";
 
 let pass = 0, fail = 0;
@@ -186,6 +189,64 @@ console.log("\n== usage accounting ==");
   const plain = usageFrom({ input_tokens: 1_000, output_tokens: 500 });
   ok("an uncached call is unchanged", plain.totalRead === 1_000 && plain.hit === false);
   ok("a missing usage object does not throw", usageFrom(undefined).totalRead === 0);
+}
+
+console.log("\n== streaming ==");
+{
+  ok("a client that says nothing gets one body back, as it always did",
+     wantsStream({ messages: [] }) === false);
+  ok("only the literal true turns it on", wantsStream({ stream: "yes" }) === false);
+  ok("and it does turn it on", wantsStream({ stream: true }) === true);
+
+  // The scanner's whole job is the boundary case: chunks arrive wherever the
+  // network split them, and a half-frame parsed as a whole one is a lesson
+  // with a hole in it.
+  const frame = (type, obj) => `event: ${type}\ndata: ${JSON.stringify({ type, ...obj })}\n\n`;
+  {
+    const scan = sseScanner();
+    const whole = frame("ping", {});
+    const events = [...scan(whole.slice(0, 9)), ...scan(whole.slice(9))];
+    ok("a frame split across two chunks is read once, whole", events.length === 1);
+  }
+  {
+    const scan = sseScanner();
+    const events = scan(frame("a", {}) + frame("b", {}) + "event: c\ndata: {\"type\":\"c\"");
+    ok("two whole frames arrive and a third is held back", events.length === 2);
+  }
+  {
+    const scan = sseScanner();
+    ok("\\r\\n line endings are frames too",
+       scan("data: {\"type\":\"x\"}\r\n\r\n").length === 1);
+    ok("a keep-alive comment is not an event", sseScanner()(": ping\n\n").length === 0);
+    ok("an unparseable frame is skipped, not thrown",
+       sseScanner()("data: not json\n\n").length === 0);
+  }
+
+  // The bill is in two places: message_start carries the input side and the
+  // cache figures, message_delta restates a running output count.
+  {
+    const meter = streamUsage();
+    ok("a stream that reported nothing is not metered", meter.sawUsage === false);
+    meter.feed({ type: "message_start", message: { usage: {
+      input_tokens: 400, cache_creation_input_tokens: 0, cache_read_input_tokens: 12_000,
+      output_tokens: 1,
+    } } });
+    meter.feed({ type: "message_delta", usage: { output_tokens: 900 } });
+    meter.feed({ type: "message_delta", usage: { output_tokens: 2_400 } });
+    const u = meter.result();
+    ok("the last output count wins, it does not accumulate", u.output === 2_400);
+    ok("the cache read survives to the meter", u.cacheRead === 12_000);
+    ok("a streamed cache hit is recorded as a hit", u.hit === true);
+    ok("and counts everything the request read", u.totalRead === 12_400, String(u.totalRead));
+  }
+  {
+    // A stream that died after message_start still spent those tokens, and
+    // dropping them is how the quota drifts away from the invoice.
+    const meter = streamUsage();
+    meter.feed({ type: "message_start", message: { usage: { input_tokens: 8_000, output_tokens: 0 } } });
+    ok("a stream that broke halfway is still billed", meter.sawUsage === true);
+    ok("for what it actually read", meter.result().totalRead === 8_000);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

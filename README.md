@@ -245,7 +245,8 @@ ever left showing underneath something else.
   next review date when nothing is due and an early-practice run that deliberately
   leaves the schedule alone.
 - **Account** — email, plan and trial status, this month's course/lesson quota as
-  meters, learning stats, AI spend, password reset, sign out, delete everything.
+  meters, learning stats, AI spend, the subjects picked during the first run,
+  password reset, sign out, delete everything.
 
 Each screen's empty state carries the button that resolves it: no courses yet ends
 in "Create a course", signed out ends in "Sign in".
@@ -253,6 +254,44 @@ in "Create a course", signed out ends in "Sign in".
 On a phone the tabs are a bottom bar; from 900px up the same four buttons become a
 left rail, so a wide window buys content width instead of stretching a phone layout
 across it.
+
+## The first run
+
+What a new account used to get, one second after signing up, was the upload box: a
+file picker, a paste tab, and no answer to the only question anyone actually has at
+that moment — *what is this going to do with my document, and why should I hand one
+over*. The answer costs four screens and is said once.
+
+**What the app does**, as three things rather than a feature list: it teaches your
+material and not a syllabus, its lessons are done rather than read, and it brings
+things back before you forget them. Then **what are you learning for** — an exam, work,
+curiosity, teaching someone else — and **what are you interested in**, a grid of seven
+subjects, as many as you like.
+
+The last screen is the point of the other three. Instead of an empty upload box it
+offers **a course to start on**: a short piece of real material in a subject just
+picked, which becomes a course through exactly the same pipeline an upload goes
+through — planned, written, cached, counted against the month's quota like any other,
+and theirs to rename or delete. Six of them ship in `app.js`, one per interest, and
+`tests/onboarding.js` runs every one through `assessMaterial()`, the same gate an
+upload passes: a starter the app refuses would greet a new account with "this doesn't
+read like study material" about a document the app wrote itself. "I'd rather upload my
+own material" is on the same screen, and Skip is in the top bar throughout.
+
+Both answers are stored, shown back on the Account screen under *What you're interested
+in*, and editable there — the same four screens reopen, and a replay changes the answers
+without rewriting the date the account finished its first run. An answer nobody can see
+or change afterwards is a question that should not have been asked.
+
+**Once** is the part with the failure modes, so it is where the tests are. The flag
+lives in `user_stats.onboarding` — on the account, not the browser — with localStorage
+in front of it as a cache, which is what stops the intro flashing up over a screen it
+is about to hand back on a slow connection. An account that already has courses is not
+a new account: it gets the flag written silently rather than a tour of an app it has
+been using for a month. A read that fails, including the column not being deployed
+yet, leaves the cache in charge rather than replaying the intro at someone who has
+already been through it — so the client and its migration can be deployed in either
+order.
 
 ## Design system
 
@@ -328,6 +367,9 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   paints the HUD before the row arrives and keeps a streak earned offline. On sign-in
   the two are merged by whichever saw you more recently, higher count breaking a tie —
   which is also how an existing local streak survives the move to the server.
+- **The first run** lives in the same row, as `user_stats.onboarding` — whether the
+  intro has been shown and the answers given during it (see *The first run* above),
+  cached per account in `localStorage` for the same reason the streak is.
 - **`ai-proxy` Edge Function** — holds the real Anthropic key as a project secret,
   checks the caller has an active subscription or trial, then applies that account's
   tier before forwarding to Anthropic. Every limit is a server-side clamp, not a

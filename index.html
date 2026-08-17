@@ -2243,6 +2243,146 @@
         .numeric-unit { font-size: var(--fs-body); font-weight: 700; color: var(--text-muted); }
         .hotspot-figure { margin: var(--sp-5) 0; }
 
+        /* ========================== First run ==========================
+           The same shape as the lesson screen — a full-height layer with a
+           progress bar at the top and one button pinned at the bottom — because
+           it is the same promise: one thing on screen, one way forward. The
+           choices are the app's existing .option, .picked and all, so a first
+           run looks like the lessons it is introducing. */
+        .onb-screen {
+            position: fixed;
+            inset: 0;
+            z-index: 800;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity var(--dur-3) var(--ease), transform var(--dur-3) var(--ease);
+        }
+        .onb-screen.open { opacity: 1; transform: none; }
+        body.onboarding-open { overflow: hidden; }
+
+        .onb-topbar {
+            flex: none;
+            display: grid;
+            grid-template-columns: var(--tap) 1fr auto;
+            align-items: center;
+            gap: var(--sp-3);
+            padding: var(--sp-3) var(--sp-4);
+            width: 100%; max-width: calc(var(--content-max) + var(--sp-10)); margin-inline: auto;
+        }
+        /* The back arrow is hidden on the first step, and a hidden grid item
+           still holds its column — which is what keeps the bar from jumping
+           sideways between steps. */
+        .onb-topbar .back-btn[hidden] { display: grid !important; visibility: hidden; }
+        .onb-skip { color: var(--text-muted); }
+
+        .onb-scroll {
+            flex: 1;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: var(--sp-4) var(--sp-5) 0;
+        }
+        .onb-inner { max-width: var(--content-max); margin: 0 auto; width: 100%; padding-bottom: var(--sp-6); }
+        /* Focused on every step change so a screen reader starts at the top of
+           the new one. It is a scroll container, not a control, so it takes the
+           ring only when someone actually tabs to it. */
+        .onb-scroll:focus { outline: none; }
+        .onb-enter { animation: slideUp var(--dur-3) var(--ease) both; }
+
+        .onb-title {
+            font-size: var(--fs-h1);
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            margin-bottom: var(--sp-2);
+        }
+        .onb-lede {
+            color: var(--text-muted);
+            font-weight: 600;
+            line-height: var(--lh-body);
+            margin-bottom: var(--sp-6);
+        }
+        .onb-foot-note {
+            color: var(--text-subtle);
+            font-size: var(--fs-sm);
+            font-weight: 600;
+            line-height: var(--lh-snug);
+            margin-top: var(--sp-5);
+        }
+        .onb-count {
+            margin-top: var(--sp-4);
+            font-size: var(--fs-sm);
+            font-weight: 700;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* ---- What the app does: three rows, not three cards. They are read
+           once, in order, and boxing each one only added edges. ---- */
+        .onb-values { list-style: none; display: flex; flex-direction: column; gap: var(--sp-5); }
+        .onb-value { display: flex; gap: var(--sp-4); align-items: flex-start; }
+        .onb-value-icon {
+            flex: none;
+            width: 44px; height: 44px;
+            display: grid; place-items: center;
+            border-radius: var(--r-md);
+            background: var(--brand-tint);
+            color: var(--brand-strong);
+            font-size: var(--fs-h3);
+        }
+        .onb-value-text { display: flex; flex-direction: column; gap: var(--sp-1); }
+        .onb-value-text strong { font-size: var(--fs-h3); font-weight: 800; line-height: var(--lh-snug); }
+        .onb-value-text span { color: var(--text-muted); font-size: var(--fs-sm); line-height: var(--lh-body); }
+
+        /* ---- The answers. .option carries the frame, the press edge and the
+           picked state; these only lay the contents out. ---- */
+        .onb-choice, .onb-starter { display: flex; gap: var(--sp-4); align-items: flex-start; }
+        .onb-icon {
+            flex: none;
+            width: 36px; height: 36px;
+            display: grid; place-items: center;
+            border-radius: var(--r-sm);
+            background: var(--info-tint);
+            color: var(--info-strong);
+            font-size: var(--fs-h3);
+        }
+        .option.picked .onb-icon, .option.picked .onb-tile-icon { color: var(--info-strong); }
+        .onb-choice-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .onb-choice-text strong { font-weight: 800; }
+        .onb-choice-text span {
+            color: var(--text-muted); font-size: var(--fs-sm);
+            font-weight: 600; line-height: var(--lh-snug);
+        }
+        .onb-starters { display: flex; flex-direction: column; gap: var(--sp-3); }
+
+        .onb-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: var(--sp-3);
+        }
+        .onb-tile {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: var(--sp-2); text-align: center; min-height: 108px;
+        }
+        .onb-tile-icon { font-size: 28px; line-height: 1; color: var(--info-strong); display: inline-flex; }
+        .onb-tile-label { font-weight: 700; font-size: var(--fs-sm); line-height: var(--lh-snug); }
+
+        .onb-footer {
+            flex: none;
+            padding: var(--sp-4) var(--sp-5) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
+            width: 100%; max-width: calc(var(--content-max) + var(--sp-10)); margin-inline: auto;
+            background: var(--surface);
+            border-top: 1px solid var(--border);
+        }
+        .onb-footer .button[disabled] { opacity: 0.45; cursor: not-allowed; filter: saturate(0.4); }
+
+        @media (max-width: 768px) {
+            .onb-scroll { padding: var(--sp-3) var(--sp-4) 0; }
+            .onb-footer { padding-inline: var(--sp-4); }
+            .onb-value-icon { width: 40px; height: 40px; }
+        }
+
         /* ========================== Animations ========================== */
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -2583,6 +2723,32 @@
         <!-- Duolingo-style sliding feedback banner: docked at the foot of the
              lesson, filled after each grade -->
         <div class="feedback-bar" id="feedbackBar"></div>
+    </div>
+
+    <!-- First run. Shown once, on the first sign-in of an account, and never
+         again: what the app does, two questions, and a course to start on
+         instead of an empty upload box. app.js owns everything inside #onbBody;
+         the shell here is the part that does not change between steps. -->
+    <div id="onboardingScreen" class="onb-screen" aria-hidden="true" role="dialog"
+         aria-modal="true" aria-label="Welcome" hidden>
+        <header class="onb-topbar">
+            <button type="button" class="back-btn" id="onbBack" aria-label="Back a step" hidden>
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 5l-7 7 7 7"/>
+                </svg>
+            </button>
+            <div class="lesson-step-bar" id="onbStepBar" role="img" aria-label="Step 1 of 4"></div>
+            <button type="button" class="button button-ghost button-sm onb-skip" id="onbSkip">Skip</button>
+        </header>
+
+        <div class="onb-scroll" id="onbScroll" tabindex="-1">
+            <div class="onb-inner" id="onbBody"></div>
+        </div>
+
+        <footer class="onb-footer">
+            <button type="button" class="button button-block" id="onbNext">Continue</button>
+        </footer>
     </div>
 
     <!-- Auth Modal: sign in / sign up. No API key ever touches the browser.

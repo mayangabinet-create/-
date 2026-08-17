@@ -70,6 +70,19 @@
             key: svgIcon('<circle cx="8" cy="12" r="4"/><path d="M12 12h9M17 12v3.5M20 12v2.5"/>'),
             clock: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/>'),
             trash: svgIcon('<path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2"/><path d="M6 7l1 13h10l1-13"/>'),
+            // The first run's subjects and goals. Same line style as the rest —
+            // a row of emoji next to Nunito would be a second typeface, chosen
+            // by the operating system, in the first thing anyone sees.
+            cap:       svgIcon('<path d="M2 9l10-4.5L22 9l-10 4.5z"/><path d="M6 11v5.5c0 1.7 2.7 3 6 3s6-1.3 6-3V11"/>'),
+            briefcase: svgIcon('<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7"/><path d="M3 12.5h18"/>'),
+            compass:   svgIcon('<circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/>'),
+            shapes:    svgIcon('<path d="M5 19h14L5 6z"/><path d="M8.5 19v-3.5H5"/>'),
+            atom:      svgIcon('<circle cx="12" cy="12" r="2"/><ellipse cx="12" cy="12" rx="10" ry="4.2"/><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(60 12 12)"/><ellipse cx="12" cy="12" rx="10" ry="4.2" transform="rotate(120 12 12)"/>'),
+            pulse:     svgIcon('<path d="M2.5 12h4.2l2.1-5.5 3.6 11L14.8 12h6.7"/>'),
+            chip:      svgIcon('<rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/>'),
+            coins:     svgIcon('<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/>'),
+            bulb:      svgIcon('<path d="M12 3a6 6 0 00-3.4 10.9c.5.4.9 1 .9 1.6v.5h5v-.5c0-.6.4-1.2.9-1.6A6 6 0 0012 3z"/><path d="M9.5 19h5M10.5 21.5h3"/>'),
+            sparkle:   svgIcon('<path d="M11 3l1.6 4.9L17.5 9.5l-4.9 1.6L11 16l-1.6-4.9L4.5 9.5l4.9-1.6z"/><path d="M18 15l.6 1.9 1.9.6-1.9.6-.6 1.9-.6-1.9-1.9-.6 1.9-.6z"/>'),
         };
 
         // PDF.js setup — guarded because PDF upload is optional (pasting text still
@@ -2834,6 +2847,13 @@ ${languageRule()}`;
 
                 <section class="account-card">
                     <div class="account-card-head"><h3>Settings</h3></div>
+                    <button class="account-row" id="acctIntro">
+                        <span class="account-row-icon">${ICONS.star}</span>
+                        <span class="account-row-text">
+                            <strong>What you're interested in</strong>
+                            <span>${esc(interestSummary())}</span>
+                        </span>
+                    </button>
                     <button class="account-row" id="acctPassword">
                         <span class="account-row-icon">${ICONS.key}</span>
                         <span class="account-row-text">
@@ -2858,6 +2878,7 @@ ${languageRule()}`;
                 </section>`;
 
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
+            document.getElementById('acctIntro').onclick = () => startOnboarding({ replay: true });
             const reviewBtn = document.getElementById('acctReview');
             if (reviewBtn) reviewBtn.onclick = () => showReview();
 
@@ -7304,6 +7325,536 @@ ${languageRule()}`;
             }
         });
 
+        // ============= First run =============
+        // What a new account used to get, one second after signing up, was an
+        // empty upload box: a file picker, a paste tab, and no answer to the
+        // only question a person actually has at that moment — what is this
+        // going to do with my document, and why should I hand one over.
+        //
+        // This is the answer, said once. Three things the app does, two
+        // questions worth asking (what you are here for, and what you are
+        // interested in), and then a course to start with rather than a blank
+        // field: a short piece of real material in a subject they just picked,
+        // built through exactly the same pipeline as an upload. It runs on the
+        // first sign-in and never again — the flag lives on the account, so a
+        // second device does not repeat it — and it is skippable at every step,
+        // because the fastest first run is the one belonging to someone who
+        // already has a PDF open in the next tab.
+
+        const ONBOARDING_STORAGE = 'onboarding';   // cache; the account row is the truth
+        const onboardingKey = () => currentUser ? `${ONBOARDING_STORAGE}:${currentUser.id}` : ONBOARDING_STORAGE;
+
+        // What the app does, in the order it does it. Said as three promises
+        // rather than a feature list: nothing here names a screen or a button.
+        const ONBOARDING_VALUES = [
+            {
+                icon: 'file',
+                title: 'It teaches your material, not a syllabus',
+                body: 'Give it a PDF, a chapter or a page of notes. It reads the whole thing, '
+                    + 'finds the 10 to 20 ideas inside it, and puts them in the order they have to be learned.',
+            },
+            {
+                icon: 'star',
+                title: 'Lessons you do, not lessons you read',
+                body: 'Every idea becomes a short lesson: a question before the explanation, diagrams you can '
+                    + 'drag, a worked example, a quiz. Every fact in it comes from your document.',
+            },
+            {
+                icon: 'refresh',
+                title: 'It brings things back before you forget them',
+                body: 'Each finished lesson is scheduled for review by how well it went — and the next lesson '
+                    + 'opens with one question from whatever is closest to being forgotten.',
+            },
+        ];
+
+        // Why they are here. It does not gate anything — it is stored on the
+        // account, shown back on the Account screen, and it is the difference
+        // between two questions that feel like being met and one that feels
+        // like a form.
+        const ONBOARDING_GOALS = [
+            { id: 'exam',     icon: 'cap', label: 'An exam or a course',     detail: 'Textbook chapters, lecture notes, past papers' },
+            { id: 'work',     icon: 'briefcase', label: 'Something for work',      detail: 'A manual, a spec, a field you have just moved into' },
+            { id: 'curious',  icon: 'compass', label: 'My own curiosity',        detail: 'No deadline, no exam — I just want to understand it' },
+            { id: 'teaching', icon: 'chat', label: 'I teach or explain this', detail: 'Material I need to know well enough to hand on' },
+        ];
+
+        // The interests exist to choose a starter course, so every one of them
+        // except `other` has one. Adding an interest without a starter would put
+        // a card on the last screen that leads nowhere.
+        const INTERESTS = [
+            { id: 'math',    icon: 'shapes', label: 'Maths & logic' },
+            { id: 'science', icon: 'atom', label: 'Physics & how things work' },
+            { id: 'life',    icon: 'pulse', label: 'Biology & health' },
+            { id: 'tech',    icon: 'chip', label: 'Computers & AI' },
+            { id: 'money',   icon: 'coins', label: 'Money & business' },
+            { id: 'mind',    icon: 'bulb', label: 'Mind & learning' },
+            { id: 'other',   icon: 'sparkle', label: 'Something else' },
+        ];
+
+        // Six pieces of material, one per interest, each written to be exactly
+        // what the pipeline is good at: prose, a few hundred words, ten or so
+        // ideas in it that depend on each other. They are the *source document*
+        // for a real course — planned, written and cached like any other, and
+        // costing the same one course from the month's quota, which the last
+        // screen says out loud rather than spending it quietly.
+        const STARTER_COURSES = [
+            {
+                id: 'pythagoras',
+                interest: 'math',
+                icon: 'shapes',
+                title: 'Right triangles and Pythagoras',
+                blurb: 'The one rule that turns two sides of a triangle into the third — and the surprising number of things that are secretly a right triangle.',
+                text: `A right triangle is a triangle with one angle of exactly 90 degrees. That single angle changes everything about it, because it fixes the relationship between the lengths of the three sides. The two sides that meet at the right angle are called the legs. The third side, opposite the right angle, is called the hypotenuse, and it is always the longest side of the triangle. That is not a coincidence: the largest angle in any triangle always faces the longest side, and in a right triangle the 90 degree angle is necessarily the largest, because the three angles of a triangle add to 180 degrees and two right angles would already use all of it.
+
+The Pythagorean theorem says that in a right triangle, the square of the hypotenuse equals the sum of the squares of the two legs. If the legs are a and b, and the hypotenuse is c, then a squared plus b squared equals c squared. A triangle with legs of 3 and 4 has a hypotenuse of 5, because 9 plus 16 is 25, and 25 is 5 squared. A triangle with legs of 6 and 8 has a hypotenuse of 10. These whole number combinations are called Pythagorean triples, and 3-4-5, 5-12-13 and 8-15-17 are the ones worth recognising on sight, because they appear constantly in textbook problems and in building work.
+
+The theorem works in both directions, and the second direction is the more useful one in practice. If you know the hypotenuse and one leg, you subtract instead of adding: the missing leg squared equals the hypotenuse squared minus the known leg squared. A ladder 5 metres long leaning against a wall, with its foot 3 metres out from the wall, reaches 4 metres up the wall, because 25 minus 9 is 16, and the square root of 16 is 4. Notice how easy it is to get this backwards. Adding 25 and 9 would give a wall height of about 5.8 metres, which is longer than the ladder itself — impossible, and a useful check. The hypotenuse can never be shorter than either leg.
+
+The converse of the theorem is a test rather than a calculation. If the three sides of a triangle satisfy a squared plus b squared equals c squared, then that triangle must contain a right angle. Builders use this to square a corner without a protractor: measure 3 units along one wall, 4 units along the other, and adjust until the diagonal between those two marks is exactly 5 units. When it is, the corner is exactly 90 degrees. If the diagonal comes out longer than 5, the corner is open wider than a right angle; if it comes out shorter, the corner is too tight.
+
+The same rule measures distance on a map or a graph. The straight line between two points is the hypotenuse of a right triangle whose legs are the horizontal and vertical gaps between them. Two points separated by 3 kilometres east and 4 kilometres north are 5 kilometres apart in a straight line, even though walking the two legs would cover 7 kilometres. That difference between the direct distance and the walked distance is why the theorem matters far outside geometry class: it is the arithmetic behind navigation, screen sizes measured on the diagonal, roof pitches, and the shortest path across any grid.
+
+A common mistake is applying the theorem to a triangle that has no right angle. It simply does not hold there, and the number it produces is meaningless. Before using it, find the right angle and identify which side is opposite it — that side, and only that side, is the c in the formula.`,
+            },
+            {
+                id: 'forces',
+                interest: 'science',
+                icon: 'atom',
+                title: 'Forces, motion and why things speed up',
+                blurb: "Newton's three laws, and what they say about a car braking, a rocket launching and a coffee cup sliding off a dashboard.",
+                text: `Speed is how fast something is moving; velocity is how fast it is moving in a particular direction. The distinction sounds pedantic until something goes round a corner. A car driving round a roundabout at a steady 30 kilometres per hour has a constant speed but a constantly changing velocity, because its direction keeps changing. Acceleration is the rate at which velocity changes, so that car is accelerating even though the speedometer never moves. Acceleration also covers slowing down, which is simply acceleration in the direction opposite to the motion.
+
+Newton's first law says that an object keeps doing whatever it is already doing — staying still, or moving in a straight line at a constant speed — unless a force acts on it. This is why a coffee cup slides forward off the dashboard when the car brakes. Nothing pushed the cup forward. The car slowed down and the cup, with no meaningful force acting on it, carried on at the speed it already had. The tendency of matter to resist changes in its motion is called inertia, and mass is the measure of it: the heavier the object, the more force it takes to change its motion.
+
+Newton's second law makes that quantitative. The acceleration of an object equals the force applied to it divided by its mass, usually written as force equals mass times acceleration. Doubling the force doubles the acceleration; doubling the mass halves it. This is the law that explains why a loaded lorry takes far longer to stop than an empty one with the same brakes, and why the same engine makes a small car quicker than a large one.
+
+Mass and weight are constantly confused, and the second law is what separates them. Mass is the amount of matter in an object and does not change. Weight is the force that gravity exerts on that mass, which is mass times the strength of gravity. An astronaut with a mass of 70 kilograms has the same mass on the Moon, but weighs about a sixth as much there, because the Moon pulls more weakly.
+
+Newton's third law says that forces always come in pairs: if one object pushes on another, the second pushes back with equal size in the opposite direction. A rocket does not push against the ground or the air. It throws hot gas downwards, and the gas pushes the rocket upwards by exactly as much, which is why rockets work in the vacuum of space. When you walk, you push backwards on the ground and the ground pushes you forwards. The two forces in the pair act on different objects, which is why they do not simply cancel out.
+
+Friction is the force that resists sliding between two surfaces in contact, and it always acts against the direction of motion. Friction is the reason a pushed box eventually stops, which for centuries made it look as though motion needed a continuous force to keep going. It does not — friction was the hidden force all along, and on an ice rink, where friction is small, the first law is easy to see.
+
+Falling objects show all of this at once. Gravity accelerates everything near the Earth's surface at about 9.8 metres per second squared, regardless of mass, so in a vacuum a feather and a hammer fall side by side. In air, the feather is slowed by air resistance, a force that grows with speed. When air resistance grows large enough to balance the weight, the total force is zero, acceleration stops, and the object continues at a constant terminal velocity — which is what makes a parachute work.`,
+            },
+            {
+                id: 'immune',
+                interest: 'life',
+                icon: 'pulse',
+                title: 'How your immune system fights an infection',
+                blurb: 'From the first barrier to the memory cells that make you immune — the week your body spends beating a virus, step by step.',
+                text: `An infection begins when a pathogen — a bacterium, a virus, a fungus or a parasite — gets past the body's outer defences and starts to multiply. Those outer defences do most of the work and get none of the credit. Intact skin is a physical barrier that almost nothing crosses. Mucus in the airways traps particles, and tiny hairs called cilia sweep them back out. Stomach acid destroys most of what is swallowed. Tears and saliva carry enzymes that break bacterial cell walls apart.
+
+Once something is through, the innate immune system responds. It is called innate because it is present from birth and does not need to have met the pathogen before, and it acts within minutes to hours. Damaged cells release chemical signals that widen nearby blood vessels and make them leaky, which is the inflammation you see as redness, heat and swelling. That leakiness lets white blood cells out of the bloodstream and into the tissue. Neutrophils arrive first and in enormous numbers, engulfing bacteria and dying in the process; the pus at an infected wound is largely spent neutrophils. Macrophages, larger and longer lived, engulf pathogens and debris and keep working for days.
+
+Fever is part of this response rather than a side effect of it. The brain raises the body's set temperature in response to signals from immune cells, which slows the reproduction of many pathogens and speeds up immune cell activity. This is why suppressing a mild fever is not automatically helpful.
+
+If the innate response cannot finish the job, the adaptive immune system takes over, and it works quite differently. It is specific: it targets one particular pathogen, recognised by molecules on its surface called antigens. A macrophage that has engulfed a pathogen displays fragments of its antigens on its own surface, effectively holding up a description of the intruder. Helper T cells read that description and coordinate the response, activating the two arms that do the damage.
+
+B cells produce antibodies — proteins shaped to lock onto one specific antigen. Antibodies neutralise pathogens by sticking to them, clumping them together, blocking their entry into cells, and marking them so that macrophages destroy them. Killer T cells take a different route: they identify the body's own cells that have already been infected by a virus and destroy them, removing the factory rather than the product. This is necessary because a virus inside a cell is invisible to antibodies.
+
+The adaptive response is powerful but slow the first time. Finding and multiplying the few B and T cells that happen to match a new pathogen takes about a week, which is roughly how long a first infection makes you ill.
+
+The last step is what makes the whole system worth having. After the infection clears, a small population of memory B and T cells remains, already matched to that pathogen. If it returns, the response takes hours instead of days and is often finished before symptoms appear. That is immunity. Vaccines exploit it directly: they present the immune system with antigens — from a weakened or inactivated pathogen, a piece of one, or instructions for making a piece of one — so that memory cells are built without the illness that would otherwise be needed to build them.`,
+            },
+            {
+                id: 'neural',
+                interest: 'tech',
+                icon: 'chip',
+                title: 'How a neural network learns',
+                blurb: 'Weights, loss and gradient descent — what is actually happening when a model is "trained", without the hype and without the calculus.',
+                text: `A neural network is a function: numbers go in, numbers come out, and everything in between is arithmetic. What makes it interesting is that the arithmetic contains thousands or billions of adjustable numbers, called weights, and that there is a mechanical procedure for tuning those weights until the function does something useful.
+
+The smallest unit is an artificial neuron. It takes several input numbers, multiplies each by its own weight, adds the results together along with a constant called a bias, and passes the total through an activation function. The activation function is what stops the whole network collapsing into simple multiplication: without it, stacking layers of neurons would be mathematically identical to a single layer, no matter how many you stacked. A common activation simply replaces negative totals with zero and leaves positive ones alone, which is enough to introduce the nonlinearity that lets a network represent complicated relationships.
+
+Neurons are arranged in layers. The input layer holds the data — the pixel values of an image, say. Each hidden layer takes the previous layer's outputs as its inputs, and the output layer produces the answer, such as a score for each possible category. Passing data through in this direction is called the forward pass, and at the start, with weights set to random values, the answer it produces is nonsense.
+
+Training needs a way to measure how wrong the answer is, and that measure is called the loss. A loss function compares the network's output with the correct answer from labelled training data and returns a single number: large when the prediction is far off, small when it is close. Training is the search for weights that make the average loss small across the whole training set.
+
+The search method is gradient descent. For each weight, you ask how the loss would change if that weight increased slightly. That quantity is the gradient, and it points uphill; you move each weight a small step in the opposite direction, which reduces the loss slightly. Repeat this millions of times and the network descends towards a set of weights that works. The size of the step is called the learning rate, and it matters enormously: too small and training takes forever, too large and the steps overshoot the minimum and the loss bounces around instead of settling.
+
+Backpropagation is what makes computing all those gradients affordable. Rather than testing each weight separately, it starts from the loss at the output and works backwards through the layers, using the chain rule to calculate every weight's contribution to the error in a single pass. The whole cycle — forward pass, loss, backward pass, weight update — is repeated over batches of examples, and one sweep through the training data is called an epoch.
+
+The goal is never to do well on the training data. It is to do well on data the network has never seen, which is called generalisation. A network with enough capacity can memorise its training examples, achieving near-zero training loss while failing badly on anything new. This is overfitting, and it is why performance is always measured on a held-out validation set that the network never trains on. When training loss keeps falling while validation loss starts rising, the network has stopped learning the pattern and started memorising the examples — the point at which more training makes the model worse.`,
+            },
+            {
+                id: 'interest',
+                interest: 'money',
+                icon: 'coins',
+                title: 'Compound interest, loans and what a rate really costs',
+                blurb: 'Why savings grow slowly then suddenly, why a credit card at 20% is worse than it sounds, and how to read a rate before you sign it.',
+                text: `Interest is the price of money over time. If you lend money, interest is what you are paid for waiting; if you borrow, it is what you pay for not waiting. The amount you start with is called the principal, and the rate is expressed as a percentage per year.
+
+Simple interest is calculated only on the original principal. Put 1,000 into an account paying 5% simple interest and you receive 50 every year, forever: 50 in year one, 50 in year twenty. Compound interest is calculated on the principal plus the interest already earned. The same 1,000 at 5% compound earns 50 in the first year, but 52.50 in the second, because the second year's interest is calculated on 1,050. After ten years the simple account holds 1,500 and the compound account holds about 1,629. After forty years, the gap is enormous: 3,000 against about 7,040.
+
+That shape — flat for years, then steep — is why compound growth is so consistently underestimated. The growth is exponential rather than linear, and most of the total arrives late. A useful shortcut is the rule of 72: divide 72 by the annual percentage rate and you get roughly the number of years for the money to double. At 6%, money doubles in about twelve years. At 12%, about six.
+
+How often interest is added matters too. A rate of 12% per year added monthly is 1% each month applied to a growing balance, which comes to about 12.68% over the year rather than 12%. This is the difference between a nominal rate and an effective rate. Advertised loan rates are often quoted in ways that hide this, which is exactly what the standardised figures exist to prevent: an APR on a loan is meant to include compounding and mandatory fees, so that two offers can be compared honestly.
+
+Loans run the same arithmetic backwards. A repayment loan is priced so that a fixed monthly payment covers the interest accrued that month and repays part of the principal as well. Early on, most of the payment is interest, because the balance is large; late on, most of it is principal. This is why paying an extra amount early in a mortgage saves far more than the same amount paid near the end — the early payment removes principal that would otherwise have accrued interest for decades.
+
+Credit cards are where compounding does the most damage, because the rate is high and the compounding is monthly. A balance of 3,000 at 20% APR, paid off at the minimum of about 2% of the balance each month, takes well over twenty years to clear and costs more in interest than the original purchase. The minimum payment is set close to the monthly interest, so almost nothing comes off the principal.
+
+Two adjustments are needed to judge any return honestly. The first is inflation: a savings account paying 3% while prices rise 4% is losing about 1% of purchasing power a year, and only that real return matters. The second is fees, which compound exactly as returns do — an annual charge of 1% on an investment growing at 7% removes roughly a fifth of the final balance over thirty years, even though 1% sounds negligible next to 7%.`,
+            },
+            {
+                id: 'memory',
+                interest: 'mind',
+                icon: 'bulb',
+                title: 'Why you forget, and how spacing fixes it',
+                blurb: 'The forgetting curve, retrieval practice and interleaving — the small number of study habits that are actually supported by evidence.',
+                text: `Remembering has three stages, and study advice that ignores the difference between them tends to fail. Encoding is getting information in; storage is holding it over time; retrieval is getting it back out when you need it. Most study failures are not failures of storage. The material is still in there — it simply cannot be reached under the conditions of an exam, which is a retrieval failure.
+
+Forgetting is fastest immediately after learning and slows down afterwards. Hermann Ebbinghaus mapped this in the 1880s by memorising nonsense syllables and testing himself at intervals, producing the forgetting curve: a steep drop in the first day, then a long, shallow tail. The practical consequence is that the timing of the second exposure matters more than its length. A short review the next day is worth more than three times as long a review a fortnight later, once most of the material has already gone.
+
+Each successful review flattens the curve. After the first review, forgetting is slower; after the second, slower again. This is the basis of spaced repetition, in which the gap between reviews grows each time a piece of material is recalled successfully — a day, then three days, then a week, then a month. The gaps are the point. Reviewing something you still remember perfectly teaches you very little, so the schedule aims to bring material back just as it is starting to slip.
+
+How you review matters as much as when. Rereading notes produces a strong feeling of familiarity and very little durable memory, because recognising something is not the same as being able to produce it. Trying to recall the material without looking — retrieval practice — is far more effective, and this is called the testing effect. The effort of retrieval is what strengthens the trace, so an attempt that ends in failure, followed by seeing the correct answer, still beats rereading. This is deeply counterintuitive: the strategy that feels least productive during study is the one that produces the best results at test.
+
+Robert Bjork's term for this is desirable difficulty. Conditions that make learning feel slower and harder — spacing sessions out, testing rather than reviewing, mixing topics together — tend to produce better long-term retention, while conditions that make it feel easy produce fast gains that disappear. Fluency during study is a poor predictor of memory later.
+
+Interleaving is the mixing part. Practising one type of problem twenty times in a row (blocked practice) feels efficient and produces good performance within the session, but the learner is really practising the execution of a method they have already been told to use. Mixing problem types forces you to work out which method applies, which is the harder skill and the one an exam actually tests.
+
+Cramming does work, briefly. Massed study before an exam can produce a decent grade the next morning and almost nothing a month later, which is why material crammed for one exam has to be relearned from scratch for the next.
+
+Two other factors do real work. Sleep consolidates memories — the hours after studying are part of the learning, not a pause in it. And memory is cue-dependent: what you can recall depends on the cues available when you try. Studying in varied contexts, and practising with the kind of prompts you will face later, gives a memory more routes back to the surface.`,
+            },
+        ];
+
+        // Which starters to offer, given what they picked. Their own interests
+        // first, in the order the tiles are laid out, then whatever else is
+        // needed to make up three — a screen offering one card looks like the
+        // app has one course in it.
+        function starterPicks(interests, max = 3) {
+            const chosen = new Set(interests || []);
+            const mine = STARTER_COURSES.filter(s => chosen.has(s.interest));
+            const rest = STARTER_COURSES.filter(s => !chosen.has(s.interest));
+            return [...mine, ...rest].slice(0, max);
+        }
+
+        // What the Account screen shows for the answers given during the first
+        // run. An answer nobody can see afterwards, and nobody can change, is a
+        // question that should not have been asked.
+        function interestSummary() {
+            const picked = (onboarding.interests || [])
+                .map(id => INTERESTS.find(i => i.id === id))
+                .filter(Boolean)
+                .map(i => i.label);
+            if (!picked.length) return 'Not set yet — tap to pick your subjects and see the intro again';
+            const shown = picked.slice(0, 3).join(', ');
+            const more = picked.length - 3;
+            return `${shown}${more > 0 ? ` and ${more} more` : ''} — tap to change`;
+        }
+
+        // { done, goal, interests, completedAt, skipped } — what the account
+        // remembers about its first run.
+        let onboarding = { done: false };
+        // The live wizard, only while it is on screen.
+        let onboardingRun = null;
+        let onboardingRelease = null;
+
+        const ONBOARDING_STEPS = ['welcome', 'goal', 'interests', 'starter'];
+
+        function readLocalOnboarding() {
+            try {
+                const raw = JSON.parse(localStorage.getItem(onboardingKey()) || 'null');
+                return raw && typeof raw === 'object' ? raw : null;
+            } catch (_) { return null; }
+        }
+
+        function writeLocalOnboarding(state) {
+            try { localStorage.setItem(onboardingKey(), JSON.stringify(state)); } catch (_) {}
+        }
+
+        // Local first, because it is instant and because it is what keeps the
+        // intro from flashing up on a slow connection. The row is the truth for
+        // a second device, and a failure to read it — including the case where
+        // the column has not been deployed yet — leaves the cache in charge
+        // rather than replaying the intro at someone who has already seen it.
+        async function loadOnboarding() {
+            const local = readLocalOnboarding();
+            onboarding = local || { done: false };
+            if (!currentUser || onboarding.done) return onboarding;
+
+            const { data, error } = await supabaseClient
+                .from('user_stats')
+                .select('onboarding')
+                .eq('user_id', currentUser.id)
+                .maybeSingle();
+            if (error) {
+                console.error('loadOnboarding failed:', error);
+                return onboarding;
+            }
+            const remote = data && data.onboarding;
+            if (remote && remote.done) {
+                onboarding = remote;
+                writeLocalOnboarding(remote);
+            }
+            return onboarding;
+        }
+
+        // Fire-and-forget, like saveStreak: the cache is already correct, and a
+        // write that fails costs one repeated intro on another device.
+        async function saveOnboarding(state) {
+            onboarding = state;
+            writeLocalOnboarding(state);
+            if (!currentUser) return;
+            const { error } = await supabaseClient.from('user_stats').upsert({
+                user_id: currentUser.id,
+                onboarding: state,
+                updated_at: new Date().toISOString(),
+            }, { onConflict: 'user_id' });
+            if (error) console.error('saveOnboarding failed:', error);
+        }
+
+        // Called once per sign-in, after the library has loaded. An account with
+        // courses in it is not a new account — someone who signed up before this
+        // existed gets the flag written silently instead of a tour of an app
+        // they have already been using.
+        async function maybeShowOnboarding() {
+            if (!currentUser) return false;
+            const state = await loadOnboarding();
+            if (state.done) return false;
+            if (library.length) {
+                saveOnboarding({ done: true, completedAt: Date.now(), skipped: 'had-courses' });
+                return false;
+            }
+            // Whatever is underneath is going to be uncovered the moment this
+            // closes, so put it in the state it should be in when that happens.
+            setScreen('home');
+            startOnboarding();
+            return true;
+        }
+
+        function startOnboarding({ replay = false } = {}) {
+            onboardingRun = {
+                step: 0,
+                goal: onboarding.goal || null,
+                interests: Array.isArray(onboarding.interests) ? [...onboarding.interests] : [],
+                starter: null,
+                replay,
+            };
+            const screen = document.getElementById('onboardingScreen');
+            screen.hidden = false;
+            screen.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('onboarding-open');
+            requestAnimationFrame(() => screen.classList.add('open'));
+            renderOnboarding();
+            // The step content, not the button at the bottom: this is where a
+            // screen reader should start reading, and it is what every later
+            // step moves focus back to.
+            onboardingRelease = trapFocus(screen, document.getElementById('onbScroll'));
+        }
+
+        function closeOnboarding() {
+            const screen = document.getElementById('onboardingScreen');
+            screen.classList.remove('open');
+            screen.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('onboarding-open');
+            if (onboardingRelease) { onboardingRelease(); onboardingRelease = null; }
+            onboardingRun = null;
+            // Matches --dur-3; hiding it outright would cut the exit animation.
+            setTimeout(() => { screen.hidden = true; }, 240);
+        }
+
+        function onboardingStepId() {
+            return ONBOARDING_STEPS[onboardingRun.step];
+        }
+
+        // The one rule for the footer button: a step that asks a question is not
+        // finished until it has an answer. Nothing here is compulsory — Skip is
+        // in the topbar throughout — but a disabled Continue is what says "this
+        // one is waiting on you" without a line of error text.
+        function onboardingCanContinue() {
+            const step = onboardingStepId();
+            if (step === 'goal') return !!onboardingRun.goal;
+            if (step === 'interests') return onboardingRun.interests.length > 0;
+            if (step === 'starter') return !!onboardingRun.starter;
+            return true;
+        }
+
+        function onboardingNextLabel() {
+            const step = onboardingStepId();
+            if (step === 'welcome') return "Show me";
+            if (step === 'starter') return 'Build this course';
+            return 'Continue';
+        }
+
+        function onboardingBody() {
+            const step = onboardingStepId();
+
+            if (step === 'welcome') {
+                return `
+                    <h2 class="onb-title">Anything you're studying, as a course you can do</h2>
+                    <p class="onb-lede">Three things happen to whatever you give it.</p>
+                    <ul class="onb-values">
+                        ${ONBOARDING_VALUES.map(v => `
+                            <li class="onb-value">
+                                <span class="onb-value-icon">${ICONS[v.icon]}</span>
+                                <span class="onb-value-text">
+                                    <strong>${esc(v.title)}</strong>
+                                    <span>${esc(v.body)}</span>
+                                </span>
+                            </li>`).join('')}
+                    </ul>
+                    <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>`;
+            }
+
+            if (step === 'goal') {
+                return `
+                    <h2 class="onb-title">What are you learning for?</h2>
+                    <p class="onb-lede">One tap. It shapes what we suggest, and you can change it later.</p>
+                    <div class="options">
+                        ${ONBOARDING_GOALS.map(g => `
+                            <button type="button" class="option onb-choice${onboardingRun.goal === g.id ? ' picked' : ''}"
+                                    data-goal="${g.id}" aria-pressed="${onboardingRun.goal === g.id}">
+                                <span class="onb-icon">${ICONS[g.icon]}</span>
+                                <span class="onb-choice-text">
+                                    <strong>${esc(g.label)}</strong>
+                                    <span>${esc(g.detail)}</span>
+                                </span>
+                            </button>`).join('')}
+                    </div>`;
+            }
+
+            if (step === 'interests') {
+                const n = onboardingRun.interests.length;
+                return `
+                    <h2 class="onb-title">What are you interested in?</h2>
+                    <p class="onb-lede">Pick as many as you like — it decides which course we offer you to start on.</p>
+                    <div class="onb-grid">
+                        ${INTERESTS.map(i => {
+                            const on = onboardingRun.interests.includes(i.id);
+                            return `
+                            <button type="button" class="option onb-tile${on ? ' picked' : ''}"
+                                    data-interest="${i.id}" aria-pressed="${on}">
+                                <span class="onb-tile-icon">${ICONS[i.icon]}</span>
+                                <span class="onb-tile-label">${esc(i.label)}</span>
+                            </button>`;
+                        }).join('')}
+                    </div>
+                    <p class="onb-count" role="status">${n ? `${n} picked` : 'Nothing picked yet'}</p>`;
+            }
+
+            // starter
+            const picks = starterPicks(onboardingRun.interests);
+            return `
+                <h2 class="onb-title">Start with one of these</h2>
+                <p class="onb-lede">A short piece of real material, in a subject you picked — built into a
+                   course exactly the way your own PDF would be, and yours to keep, rename or delete.</p>
+                <div class="onb-starters">
+                    ${picks.map(s => `
+                        <button type="button" class="option onb-starter${onboardingRun.starter === s.id ? ' picked' : ''}"
+                                data-starter="${s.id}" aria-pressed="${onboardingRun.starter === s.id}">
+                            <span class="onb-icon">${ICONS[s.icon]}</span>
+                            <span class="onb-choice-text">
+                                <strong>${esc(s.title)}</strong>
+                                <span>${esc(s.blurb)}</span>
+                            </span>
+                        </button>`).join('')}
+                </div>
+                <p class="onb-foot-note">Building it takes about a minute and uses one course from your plan,
+                   exactly like uploading your own material would.</p>
+                <button type="button" class="button button-ghost button-block" id="onbOwnMaterial">
+                    I'd rather upload my own material
+                </button>`;
+        }
+
+        function renderOnboarding() {
+            if (!onboardingRun) return;
+
+            const bar = document.getElementById('onbStepBar');
+            bar.innerHTML = ONBOARDING_STEPS.map((_, i) =>
+                `<span class="step-segment${i < onboardingRun.step ? ' filled' : i === onboardingRun.step ? ' current' : ''}"></span>`
+            ).join('');
+            bar.setAttribute('aria-label', `Step ${onboardingRun.step + 1} of ${ONBOARDING_STEPS.length}`);
+
+            document.getElementById('onbBack').hidden = onboardingRun.step === 0;
+
+            const body = document.getElementById('onbBody');
+            body.innerHTML = onboardingBody();
+            body.classList.remove('onb-enter');
+            void body.offsetWidth;               // restart the animation on every step
+            body.classList.add('onb-enter');
+            document.getElementById('onbScroll').scrollTop = 0;
+
+            const next = document.getElementById('onbNext');
+            next.textContent = onboardingNextLabel();
+            next.disabled = !onboardingCanContinue();
+
+            body.querySelectorAll('[data-goal]').forEach(btn => {
+                btn.onclick = () => { onboardingRun.goal = btn.dataset.goal; renderOnboarding(); };
+            });
+            body.querySelectorAll('[data-interest]').forEach(btn => {
+                btn.onclick = () => {
+                    const id = btn.dataset.interest;
+                    const at = onboardingRun.interests.indexOf(id);
+                    if (at >= 0) onboardingRun.interests.splice(at, 1);
+                    else onboardingRun.interests.push(id);
+                    renderOnboarding();
+                };
+            });
+            body.querySelectorAll('[data-starter]').forEach(btn => {
+                btn.onclick = () => { onboardingRun.starter = btn.dataset.starter; renderOnboarding(); };
+            });
+            const own = document.getElementById('onbOwnMaterial');
+            if (own) own.onclick = () => finishOnboarding({ starterId: null });
+        }
+
+        function onboardingNext() {
+            if (!onboardingRun || !onboardingCanContinue()) return;
+            if (onboardingStepId() === 'starter') {
+                finishOnboarding({ starterId: onboardingRun.starter });
+                return;
+            }
+            onboardingRun.step++;
+            renderOnboarding();
+            document.getElementById('onbScroll').focus();
+        }
+
+        function onboardingBack() {
+            if (!onboardingRun || onboardingRun.step === 0) return;
+            onboardingRun.step--;
+            renderOnboarding();
+            document.getElementById('onbScroll').focus();
+        }
+
+        // The one exit. Whatever answers exist at this point are worth keeping —
+        // someone who skips on the last screen still told us two things — and
+        // the flag is written either way, because an intro that reappears after
+        // being dismissed is worse than one that was never shown.
+        async function finishOnboarding({ starterId = null, skipped = false } = {}) {
+            const run = onboardingRun;
+            if (!run) return;
+            closeOnboarding();
+
+            if (!run.replay || !onboarding.done) {
+                await saveOnboarding({
+                    done: true,
+                    goal: run.goal || null,
+                    interests: run.interests,
+                    completedAt: Date.now(),
+                    ...(skipped ? { skipped: true } : {}),
+                });
+            } else {
+                // A replay only updates the answers; it must not rewrite the
+                // date the account actually finished its first run.
+                await saveOnboarding({ ...onboarding, goal: run.goal || null, interests: run.interests });
+            }
+
+            const starter = starterId ? STARTER_COURSES.find(s => s.id === starterId) : null;
+            if (starter) {
+                await processLearningMaterial(starter.text, starter.title, starter.title);
+                return;
+            }
+            if (run.replay) { renderAccount(); return; }
+            setScreen('home');
+            if (!skipped) toast('Upload a PDF or paste a chapter to begin', 'info');
+        }
+
+        document.getElementById('onbNext').addEventListener('click', onboardingNext);
+        document.getElementById('onbBack').addEventListener('click', onboardingBack);
+        document.getElementById('onbSkip').addEventListener('click', () => finishOnboarding({ skipped: true }));
+
         // ============= Auth =============
         // Released on close: puts focus back on whatever opened the modal.
         let authModalRelease = null;
@@ -7470,6 +8021,14 @@ ${languageRule()}`;
                 // consulted later (the quota warning, the account screen), so
                 // nothing between here and there needs to wait for it specifically.
                 await Promise.all([refreshUsage(), loadLibrary()]);
+                // First sign-in on this account: say what the app does before
+                // handing over an empty upload box. It decides for itself
+                // whether it has anything to say, and takes the screen when it
+                // does — so nothing below should choose a screen as well.
+                if (await maybeShowOnboarding()) {
+                    loadDueOverview().then(() => { renderReviewBanner(); renderHud(); });
+                    return;
+                }
                 const lastId = localStorage.getItem(ACTIVE_STORAGE);
                 if (lastId && library.some(c => c.id === lastId)) {
                     await openCourse(lastId);
@@ -7506,6 +8065,9 @@ ${languageRule()}`;
             // The streak is the signed-out person's, not the one who just left —
             // it reloads from their own row (and their own cache) at next sign-in.
             streak = { count: 0, lastActive: null };
+            // Same reasoning as the streak: the next person to sign in on this
+            // browser gets their own first run, not the last one's.
+            onboarding = { done: false };
             document.getElementById('signInPromptBtn').hidden = false;
             // Left over from the signed-in session: a "back to my courses" button
             // that now only leads to the sign-in wall.

@@ -785,4 +785,42 @@ process.exit(fail ? 1 : 0);
  *
  * Signed-in flows (building a course, generating a lesson) were not driven this
  * way: they need an account and spend real tokens.
+ *
+ * Skeletons and the lesson breadcrumb, in a real browser
+ * --------------------------------------------------------
+ * Also not exercised by the cases above — these are about what is on screen
+ * *while* something is loading, which a Node harness that never renders a page
+ * cannot see. Driven through the real DOM once, worth repeating after any
+ * change to showLibrary, openCourse, renderAccount, or openLessonScreen:
+ *
+ *   - showLibrary() on a first visit (empty `library`)  → 3 .skel-card
+ *     placeholders, real cards replacing them once loadLibrary() resolves
+ *   - showLibrary() on a revisit (`library` already has rows) → the existing
+ *     cards paint immediately, no skeleton flash, refreshed underneath
+ *   - openCourse() → the path screen switches instantly with 6 shimmering
+ *     .lesson-circle nodes and a shimmering title, replaced by the real path
+ *     once both fetches resolve; a course that fails to load lands back on
+ *     the library rather than stranding the skeleton behind the error dialog
+ *   - renderAccount() before entitlement + usage have both loaded → every
+ *     number that would otherwise flip from a wrong default to the real one
+ *     (plan label, both quota rows and their meters, all seven stat values)
+ *     renders as a shimmer instead of a misleading number
+ *   - openLessonScreen() → #lessonBreadcrumb reads "{course} › Unit N" for an
+ *     ordinary lesson and "{course} › Review" (or "Extra practice") for a
+ *     review session; clicking the course-name crumb calls exitLesson(), the
+ *     same destination the X button already goes to
+ *
+ * Delaying a Supabase call to see the mid-flight state needs a stand-in that
+ * resolves on command, since the real client has no way to pause it:
+ *
+ *   supabaseClient.from = (table) => ({
+ *     select() { return this; }, eq() { return this; }, order() { return this; },
+ *     maybeSingle: () => pendingPromise,      // for a chain ending .maybeSingle()
+ *     then: (res, rej) => pendingPromise.then(res, rej),   // for one just awaited
+ *   });
+ *
+ * loadLibrary, loadEntitlement and refreshUsage are plain global functions in a
+ * non-module script, so reassigning window.loadLibrary = async () => { await
+ * new Promise(r => setTimeout(r, 300)); return real(); } delays them the same
+ * way, for the two skeletons that do not need a Supabase stand-in.
  */

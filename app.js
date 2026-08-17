@@ -1620,11 +1620,46 @@ ${languageRule()}`;
         // underlying course/progress data has no notion of units.
         const UNIT_SIZE = 5;
 
+        function unitNumber(index) {
+            return Math.floor(index / UNIT_SIZE) + 1;
+        }
+
+        // Shown the instant a course is opened, before either of openCourse()'s two
+        // fetches (the course row, then its progress) resolves. Without this,
+        // tapping a library card produced a silent pause — the tap registered, but
+        // nothing on screen said so until both round trips finished — and if a
+        // second course had been open before, its name and path stayed on screen
+        // as if they belonged to the one just tapped.
+        function showCoursePathSkeleton() {
+            setScreen('path');
+
+            const title = document.getElementById('courseTitle');
+            title.innerHTML = `<span class="skel" style="display:inline-block;width:9em;max-width:55vw;height:1.1em;border-radius:6px;vertical-align:middle"></span>`;
+            const renameBtn = document.getElementById('courseRenameBtn');
+            if (renameBtn) renameBtn.disabled = true;
+
+            document.getElementById('progressBar').style.width = '0%';
+            // Hiding the whole line, not blanking the three numbers inside it —
+            // those numbers sit between static words ("of", "lessons"), and
+            // clearing only the numbers left the words stranded around empty gaps.
+            const meta = document.querySelector('.course-progress-meta');
+            if (meta) meta.hidden = true;
+
+            // Same .lesson-node class the real path uses, so the wavy left/right
+            // rhythm applies for free — this is a placeholder for that shape, not
+            // a different one the eye has to reconcile once the real path lands.
+            document.getElementById('lessonPath').innerHTML = Array.from({ length: 6 }, () => `
+                <div class="lesson-node" aria-hidden="true" style="pointer-events:none">
+                    <div class="lesson-circle skel"></div>
+                </div>`).join('');
+        }
+
         function displayLearningPath() {
             setScreen('path');
 
             // Update stats
             document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
+            document.getElementById('courseRenameBtn').disabled = false;
             document.getElementById('totalLessons').textContent = courseData.concepts.length;
             updateProgress();
             renderHud();
@@ -1641,7 +1676,7 @@ ${languageRule()}`;
 
             courseData.concepts.forEach((concept, index) => {
                 if (index % UNIT_SIZE === 0) {
-                    const unitNum = Math.floor(index / UNIT_SIZE) + 1;
+                    const unitNum = unitNumber(index);
                     const banner = document.createElement('div');
                     banner.className = 'unit-banner';
                     banner.innerHTML = `
@@ -2227,7 +2262,7 @@ ${languageRule()}`;
         // the client just reflects it. "cached" (this app's own lesson cache, not
         // an API call at all) is session-only, there's nothing server-side to sync.
         let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0,
-                      coursesMonth: 0, lessonsMonth: 0, monthResetAt: null };
+                      coursesMonth: 0, lessonsMonth: 0, monthResetAt: null, loaded: false };
 
         async function refreshUsage() {
             if (!currentUser) return;
@@ -2246,6 +2281,11 @@ ${languageRule()}`;
                 usage.lessonsMonth = data.lessons_month || 0;
                 usage.monthResetAt = data.month_reset_at || null;
             }
+            // Set even when `data` came back empty (a brand new account with no
+            // usage row yet) — "loaded" means the fetch happened, not that it
+            // found something, and the zeros above are the correct real answer
+            // for that account, not a placeholder waiting to be replaced.
+            usage.loaded = true;
             renderUsage();
         }
 
@@ -2358,6 +2398,18 @@ ${languageRule()}`;
                 : null;
 
             const ent = entitlement;
+            // Neither has resolved yet on a first visit this session — entitlement
+            // and usage load in parallel in showAccount(). Rather than render real
+            // section shells around numbers that are still whatever they defaulted
+            // to (a brand new account's "0 / 1" trial numbers, shown as if they
+            // were this account's real plan before the real one is known), every
+            // figure that would otherwise flip from a wrong number to a right one
+            // renders as a shimmer instead, in the same spot the real text lands.
+            const loading = !ent || !usage.loaded;
+            const field = (real, width = '2.4em') => loading
+                ? `<span class="skel" style="display:inline-block;width:${width};height:0.9em;border-radius:5px;vertical-align:-0.1em"></span>`
+                : real;
+
             const limits = PLAN_LIMITS[ent?.planKey || 'trial'];
             const lessonAllowance = limits.courses * limits.lessonsPerCourse;
 
@@ -2395,42 +2447,42 @@ ${languageRule()}`;
 
                 <section class="account-card">
                     <div class="account-card-head">
-                        <h3>${esc(limits.label)}</h3>
-                        <span class="plan-status ${planTone}">${esc(planLine)}</span>
+                        <h3>${field(esc(limits.label), '7em')}</h3>
+                        <span class="plan-status ${planTone}">${field(esc(planLine), '6em')}</span>
                     </div>
                     <p class="account-card-note">
-                        ${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
-                        up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.
+                        ${loading ? field('', '85%') : `${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
+                        up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.`}
                     </p>
                     <div class="quota">
                         <div class="quota-row">
                             <span>Courses built this month</span>
-                            <span class="quota-num">${usage.coursesMonth} / ${limits.courses}</span>
+                            <span class="quota-num">${field(`${usage.coursesMonth} / ${limits.courses}`, '3.5em')}</span>
                         </div>
-                        ${meter(usage.coursesMonth, limits.courses)}
+                        ${loading ? `<div class="meter skel"></div>` : meter(usage.coursesMonth, limits.courses)}
                     </div>
                     <div class="quota">
                         <div class="quota-row">
                             <span>Lessons generated this month</span>
-                            <span class="quota-num">${usage.lessonsMonth} / ${lessonAllowance}</span>
+                            <span class="quota-num">${field(`${usage.lessonsMonth} / ${lessonAllowance}`, '3.5em')}</span>
                         </div>
-                        ${meter(usage.lessonsMonth, lessonAllowance)}
+                        ${loading ? `<div class="meter skel"></div>` : meter(usage.lessonsMonth, lessonAllowance)}
                     </div>
                     <p class="account-card-note">
-                        ${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free — only new generation counts.
+                        ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free — only new generation counts.`}
                     </p>
-                    <button class="button button-secondary" id="acctPlans">${ent?.active ? 'Change plan' : 'See plans'}</button>
+                    <button class="button button-secondary" id="acctPlans" ${loading ? 'disabled' : ''}>${loading ? field('', '5em') : (ent?.active ? 'Change plan' : 'See plans')}</button>
                 </section>
 
                 <section class="account-card">
                     <div class="account-card-head"><h3>Your learning</h3></div>
                     <div class="account-stats">
-                        <div class="astat"><div class="astat-val">${getStreak()}</div><div class="astat-lbl">Day streak</div></div>
-                        <div class="astat"><div class="astat-val">${totalXp()}</div><div class="astat-lbl">Total XP</div></div>
-                        <div class="astat"><div class="astat-val">${library.length}</div><div class="astat-lbl">Courses</div></div>
-                        <div class="astat"><div class="astat-val">${lessonsDone}</div><div class="astat-lbl">Lessons done</div></div>
+                        <div class="astat"><div class="astat-val">${field(getStreak())}</div><div class="astat-lbl">Day streak</div></div>
+                        <div class="astat"><div class="astat-val">${field(totalXp())}</div><div class="astat-lbl">Total XP</div></div>
+                        <div class="astat"><div class="astat-val">${field(library.length)}</div><div class="astat-lbl">Courses</div></div>
+                        <div class="astat"><div class="astat-val">${field(lessonsDone)}</div><div class="astat-lbl">Lessons done</div></div>
                     </div>
-                    ${dueNow ? `<button class="button button-secondary" id="acctReview">${dueNow} lesson${dueNow === 1 ? '' : 's'} due — review now</button>` : ''}
+                    ${!loading && dueNow ? `<button class="button button-secondary" id="acctReview">${dueNow} lesson${dueNow === 1 ? '' : 's'} due — review now</button>` : ''}
                 </section>
 
                 <section class="account-card">
@@ -2440,9 +2492,9 @@ ${languageRule()}`;
                         every lesson here is a real model call, not a canned one.
                     </p>
                     <div class="account-stats">
-                        <div class="astat"><div class="astat-val">$${totalCost().toFixed(4)}</div><div class="astat-lbl">Total</div></div>
-                        <div class="astat"><div class="astat-val">${usage.calls}</div><div class="astat-lbl">Model calls</div></div>
-                        <div class="astat"><div class="astat-val">${usage.cached}</div><div class="astat-lbl">Cached this session</div></div>
+                        <div class="astat"><div class="astat-val">${field(`$${totalCost().toFixed(4)}`)}</div><div class="astat-lbl">Total</div></div>
+                        <div class="astat"><div class="astat-val">${field(usage.calls)}</div><div class="astat-lbl">Model calls</div></div>
+                        <div class="astat"><div class="astat-val">${field(usage.cached)}</div><div class="astat-lbl">Cached this session</div></div>
                     </div>
                 </section>
 
@@ -5171,9 +5223,17 @@ ${languageRule()}`;
         }
 
         async function openCourse(id) {
+            showCoursePathSkeleton();
+
             const { data: courseRow, error } = await supabaseClient
                 .from('courses').select('*').eq('id', id).maybeSingle();
-            if (error || !courseRow) { showError('That course could not be found.'); return false; }
+            if (error || !courseRow) {
+                showError('That course could not be found.');
+                // Otherwise the skeleton is left on screen behind the alert with
+                // nothing that will ever replace it.
+                await showLibrary();
+                return false;
+            }
 
             courseData = {
                 courseName: courseRow.title,
@@ -5206,6 +5266,27 @@ ${languageRule()}`;
             const meta = library.find(c => c.id === id);
             if (!meta?.conceptCount) return 0;
             return Math.round((meta.completedCount / meta.conceptCount) * 100);
+        }
+
+        // Shaped like renderLibrary()'s real cards — same class names, so the grid
+        // does not jump size when the real ones replace them — but with nothing
+        // inside to read yet. Shown only on a true first load; a revisit paints
+        // whatever is already in memory immediately and refreshes underneath it,
+        // same as showReview() already does.
+        function renderLibrarySkeleton(count = 3) {
+            const grid = document.getElementById('libraryGrid');
+            const empty = document.getElementById('libraryEmpty');
+            if (!grid) return;
+            empty.hidden = true;
+            grid.innerHTML = Array.from({ length: count }, () => `
+                <div class="course-card skel-card" aria-hidden="true">
+                    <div class="skel" style="height:1.15em;width:65%;border-radius:6px"></div>
+                    <div class="skel" style="height:0.85em;width:40%;margin-top:10px;border-radius:6px"></div>
+                    <div class="course-progress-row" style="margin-top:14px">
+                        <div class="course-bar skel"></div>
+                        <span class="skel" style="display:inline-block;width:2.2em;height:0.85em;border-radius:6px"></span>
+                    </div>
+                </div>`).join('');
         }
 
         function renderLibrary() {
@@ -5298,9 +5379,16 @@ ${languageRule()}`;
                 showAuthModal('signin');
                 return;
             }
+            // The screen switches immediately — tapping "Courses" used to wait on
+            // a network round trip before anything on screen even changed, which
+            // reads as a missed tap on a slow connection. What fills it while the
+            // real list loads is whatever is already in memory, or a skeleton on
+            // the very first visit of the session, when there is nothing yet.
+            setScreen('courses');
+            if (library.length) renderLibrary();
+            else renderLibrarySkeleton();
             await loadLibrary();
             renderLibrary();
-            setScreen('courses');
         }
 
         async function showNewCourse() {
@@ -5380,10 +5468,44 @@ ${languageRule()}`;
         // ============= Screen Manager =============
         let savedPathScroll = 0;
 
+        // Where this lesson sits: {course} › {unit or "Review"}. Needed because the
+        // lesson screen is a full takeover — bottom nav, header, everything that
+        // normally says which course you're in disappears the moment it opens — and
+        // without this the only way to tell is to guess from the lesson's own
+        // content. Read here rather than passed in, because both entry points
+        // (loadLesson, startReviewSession) already set lessonState/currentLessonIndex
+        // before calling openLessonScreen, so there is nothing this needs that
+        // isn't already true by the time it runs.
+        function renderLessonBreadcrumb() {
+            const bar = document.getElementById('lessonBreadcrumb');
+            if (!bar) return;
+
+            const courseName = (courseData?.courseName || '').trim();
+            if (!courseName) { bar.hidden = true; bar.innerHTML = ''; return; }
+
+            const isReview = !!lessonState?.review;
+            const here = isReview
+                ? (lessonState.review.practice ? 'Extra practice' : 'Review')
+                : `Unit ${unitNumber(currentLessonIndex)}`;
+
+            bar.hidden = false;
+            bar.innerHTML = `
+                <button type="button" class="breadcrumb-home" id="breadcrumbHome"
+                        aria-label="Back to ${esc(courseName)}">
+                    ${ICONS.home}<span>${esc(courseName)}</span>
+                </button>
+                <span class="breadcrumb-sep" aria-hidden="true">›</span>
+                <span class="breadcrumb-here">${esc(here)}</span>`;
+            // Same destination the X button already goes to — a second, more
+            // legible way back, not a second behaviour to keep in sync.
+            document.getElementById('breadcrumbHome').onclick = exitLesson;
+        }
+
         function openLessonScreen() {
             const path = document.querySelector('.path-container');
             savedPathScroll = path ? path.scrollTop : 0;
 
+            renderLessonBreadcrumb();
             document.body.classList.add('lesson-open');
             const screen = document.getElementById('lessonScreen');
             screen.classList.add('open');
@@ -6419,6 +6541,8 @@ ${languageRule()}`;
             const total = courseData.concepts.length;
             const percent = Math.round((completed / total) * 100);
 
+            const meta = document.querySelector('.course-progress-meta');
+            if (meta) meta.hidden = false;    // showCoursePathSkeleton() may have hidden it
             document.getElementById('completedCount').textContent = completed;
             document.getElementById('progressPercent').textContent = percent + '%';
             document.getElementById('progressBar').style.width = percent + '%';

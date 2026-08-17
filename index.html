@@ -747,6 +747,26 @@
         .spinner-lg { width: 32px; height: 32px; border-width: 3px; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        /* ========================== Skeletons ==========================
+           Shaped like the content that is coming, not a blank screen or a bare
+           spinner: a card is still a card, a path node is still a circle, while
+           the real data is in flight. Nothing pops in from nothing, and nothing
+           reflows once the real content replaces the shimmer in place. */
+        .skel {
+            background: linear-gradient(100deg, var(--surface-sunken) 28%, var(--border) 50%, var(--surface-sunken) 72%);
+            background-size: 200% 100%;
+            animation: skel-sweep 1.4s ease-in-out infinite;
+            border-radius: var(--r-xs);
+        }
+        @keyframes skel-sweep { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+        @media (prefers-reduced-motion: reduce) {
+            .skel { animation: none; background: var(--surface-sunken); }
+        }
+        /* A placeholder course card: same class as the real .course-card, so
+           nothing to click and no hover/press state while it is still loading. */
+        .skel-card { pointer-events: none; }
+        .skel-card:hover, .skel-card:active { transform: none; border-color: var(--border); box-shadow: none; }
+
         /* ========================== Screen headings ========================== */
         .screen-head, .library-head {
             display: flex; align-items: center; justify-content: space-between;
@@ -1503,6 +1523,27 @@
             transition: background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
         }
         .back-btn:hover { background: var(--surface-sunken); color: var(--text); }
+
+        .lesson-breadcrumb {
+            flex: none;
+            display: flex; align-items: center; gap: var(--sp-2);
+            padding: 0 var(--sp-4) var(--sp-1);
+            width: 100%; max-width: calc(var(--content-max) + var(--sp-10)); margin-inline: auto;
+            font-size: var(--fs-xs); font-weight: 700;
+            overflow: hidden;
+        }
+        .breadcrumb-home {
+            display: inline-flex; align-items: center; gap: 5px;
+            background: none; border: none; padding: 0;
+            font: inherit; font-weight: 700; color: var(--brand-strong);
+            cursor: pointer;
+            max-width: 65%;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .breadcrumb-home:hover, .breadcrumb-home:focus-visible { text-decoration: underline; }
+        .breadcrumb-home svg { flex: none; width: 13px; height: 13px; }
+        .breadcrumb-sep, .breadcrumb-here { flex: none; color: var(--text-subtle); }
+        .breadcrumb-here { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         .topbar-title-row {
             flex: none;
@@ -2480,6 +2521,12 @@
             <div class="lesson-step-bar" id="lessonStepBar"></div>
             <div class="topbar-hearts" id="topbarHearts"></div>
         </header>
+        <!-- Where this lesson lives, since the lesson screen replaces every other
+             piece of chrome — bottom nav included — and without this the only way
+             to tell "which course am I in" is to guess from the content. The first
+             crumb is also the way back: same destination the X button already goes
+             to, offered a second, more legible way. -->
+        <div class="lesson-breadcrumb" id="lessonBreadcrumb" hidden></div>
         <div class="topbar-title-row">
             <div class="topbar-title" id="lessonTitle"></div>
             <div class="topbar-xp" id="lessonXpBadge"></div>

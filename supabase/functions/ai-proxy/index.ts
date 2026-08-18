@@ -9,6 +9,7 @@ import {
   normaliseContent,
   planFor,
   prepareBlocks,
+  shouldFixCourseSize,
   sseScanner,
   streamUsage,
   TEMPLATE_ALLOWANCE,
@@ -195,10 +196,12 @@ Deno.serve(async (req: Request) => {
       return json({ error: "invalid_content" }, 400);
     }
     const prepared = prepareBlocks(blocks, { kind, plan, model });
-    if (kind === "course") {
+    if (shouldFixCourseSize(kind, task)) {
       // The client asks for a fixed number of concepts, but it is the client
       // asking. Rewrite it to the tier's number so a course is a known
-      // quantity before it is built.
+      // quantity before it is built — unless this is a worksheet call, which
+      // asked to enumerate the material's own exercises instead of
+      // synthesizing a topic list of any particular size.
       const last = prepared.length - 1;
       prepared[last] = { ...prepared[last], text: fixCourseSize(prepared[last].text, plan.lessonsPerCourse) };
     }

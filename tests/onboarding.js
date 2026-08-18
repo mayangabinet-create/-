@@ -69,6 +69,9 @@ function grab(decl) {
 const names = [
   'const MATERIAL_MIN_CHARS', 'const MATERIAL_MIN_WORDS',
   'function materialStats', 'function assessMaterial',
+  'const WORKSHEET_MIN_CHARS', 'function assessWorksheetMaterial',
+  'const PLAN_DOMAIN_KIND_RULE', 'function planSchemaAndLanguage',
+  'function buildTopicPlanPrompt', 'function buildWorksheetPlanPrompt',
   'const ONBOARDING_STORAGE', 'const onboardingKey =',
   'const ONBOARDING_VALUES', 'const ONBOARDING_GOALS', 'const INTERESTS',
   'const STARTER_COURSES', 'function starterPicks', 'function interestSummary',
@@ -145,7 +148,8 @@ const console = { error: () => {}, log: () => {} };
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
-  assessMaterial, materialStats,
+  assessMaterial, materialStats, assessWorksheetMaterial,
+  planSchemaAndLanguage, buildTopicPlanPrompt, buildWorksheetPlanPrompt,
   INTERESTS, ONBOARDING_GOALS, ONBOARDING_VALUES, STARTER_COURSES, ONBOARDING_STEPS, VALUE_STEPS,
   starterPicks, interestSummary,
   primerFor: () => primerFor,
@@ -229,6 +233,69 @@ console.log('\n== the courses we hand a brand-new account ==');
     .map(i => i.id);
   ok('every interest except "something else" has a course behind it',
      uncovered.length === 0, uncovered.join(', '));
+}
+
+// -------------------------------------------------------------- worksheet mode
+console.log('\n== worksheet mode ==');
+{
+  // A worksheet is legitimately terse — digits, symbols, short problem
+  // statements — which is exactly what assessMaterial's prose-shape checks
+  // exist to catch. assessWorksheetMaterial has to let it through anyway.
+  const mathSheet = `1. Solve for x: 2x + 5 = 13.
+2. Find the area of a right triangle with legs 6 and 8.
+3. Simplify: (3x^2 - 5x + 2) - (x^2 + 3x - 7).
+4. A rectangle has width 4cm and height 9cm. Find its perimeter.
+5. What is 15% of 80?
+6. Solve: 3x - 7 = 8.
+7. Find the hypotenuse of a right triangle with legs 5 and 12.
+8. Simplify: 4(2x - 3) + 5.`;
+
+  ok('assessMaterial would refuse a terse math worksheet',
+     O.assessMaterial(mathSheet) !== null);
+  ok('assessWorksheetMaterial lets the same worksheet through',
+     O.assessWorksheetMaterial(mathSheet) === null);
+
+  ok('an empty paste is still refused', O.assessWorksheetMaterial('').code === 'too-short');
+  ok('a couple of words is still refused',
+     O.assessWorksheetMaterial('short').code === 'too-short');
+  ok('a couple of real exercises clear the (much lower) floor',
+     O.assessWorksheetMaterial(
+       '1. Solve for x: 2x + 5 = 13. 2. Find x if 3x - 7 = 8. '
+       + '3. Find the area of a rectangle with width 4cm and height 9cm. '
+       + '4. Find the hypotenuse of a right triangle with legs 5 and 12.') === null);
+
+  const repeated = Array(150).fill('Find x. Find x. Find x.').join(' ');
+  ok('the same line over and over is still refused',
+     O.assessWorksheetMaterial(repeated)?.code === 'repetitive');
+
+  // The prompt itself: no forced count, explicit no-skip / no-merge / no-invent
+  // rules, and the exact same JSON shape the topic prompt uses so nothing
+  // downstream — saveCourse, the path renderer, spaced repetition — needs to
+  // know which mode built the course.
+  const digest = '[BODY]\n1. Solve for x: 2x + 5 = 13.\n2. Find the area of a triangle with base 6 and height 4.';
+  const topicPrompt = O.buildTopicPlanPrompt(digest);
+  const worksheetPrompt = O.buildWorksheetPlanPrompt(digest);
+
+  ok('the topic prompt still asks for a range synthesised by the model',
+     /10-20 core concepts/.test(topicPrompt));
+  ok('the worksheet prompt does not — no count is suggested at all',
+     !/10-20/.test(worksheetPrompt) && !/core concepts/.test(worksheetPrompt));
+  ok('the worksheet prompt says not to skip, merge or invent',
+     /Do not skip any/.test(worksheetPrompt)
+     && /Do not merge two exercises into/.test(worksheetPrompt)
+     && /Do not invent one/.test(worksheetPrompt));
+  ok('the worksheet prompt asks for the exercise itself, not a summary',
+     /the actual question or\s+problem as written/.test(worksheetPrompt));
+  ok('both prompts carry the material verbatim',
+     topicPrompt.includes(digest) && worksheetPrompt.includes(digest));
+  ok('both prompts end in the same JSON schema and language rule',
+     topicPrompt.includes('"courseName": "Course title"')
+     && worksheetPrompt.includes('"courseName": "Course title"')
+     && topicPrompt.slice(topicPrompt.indexOf('LANGUAGE:'))
+        === worksheetPrompt.slice(worksheetPrompt.indexOf('LANGUAGE:')));
+  ok('both prompts offer the same domain/kind choices',
+     topicPrompt.includes('math | physics | cs | logic | data | science | finance | other')
+     && worksheetPrompt.includes('math | physics | cs | logic | data | science | finance | other'));
 }
 
 // ------------------------------------------------------------ what gets offered

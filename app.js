@@ -644,17 +644,46 @@
             return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
         }
 
-        async function generateLessonPath(text, structure = null) {
+        // Shared by both plan prompts below — the JSON shape and the language
+        // rule are identical either way, only the TASK section above them
+        // differs. Kept as one string so the two prompts cannot drift apart on
+        // the part that the rest of the app actually parses.
+        const PLAN_DOMAIN_KIND_RULE = `   - domain: the subject it belongs to, which decides which ready-made
+     figures its lesson may use. Exactly one of:
+       math | physics | cs | logic | data | science | finance | other
+     Use "other" honestly — for history, law, literature, medicine, business
+     and anything else. It is not a lesser option.
+   - kind: what sort of thing it is, which decides how its lesson will be
+     taught. Exactly one of:
+       geometry       — figures, shapes, sides, angles, areas
+       quantity       — formulas, rates, money, measurements, anything calculated
+       process        — steps or stages in an order, including repeating cycles
+       timeline       — events fixed in time
+       comparison     — two or more things set against each other
+       classification — a set of things divided into groups
+       definition     — a term and what it means
+       text           — wording, sources, terminology, interpretation`;
 
-            // Not the first N characters of the document. The opening pages of a
-            // textbook are a title page, a copyright notice and a table of contents
-            // — the least conceptual text in the whole file — and a course built
-            // from them lists the chapters instead of teaching them. The digest
-            // reads the whole document and spends the budget on the parts that
-            // actually carry concepts, spread from first page to last.
-            const digest = buildSourceDigest(text, planReadChars(), structure);
+        function planSchemaAndLanguage(exampleConcept) {
+            return `Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
+{
+  "courseName": "Course title",
+  "language": "The language of the MATERIAL above, as an English name (e.g. English, Hebrew, Spanish)",
+  "concepts": [
+    ${exampleConcept}
+  ]
+}
 
-            const extractPrompt = `Analyse the study material below and extract its key concepts.
+LANGUAGE: write every string above in the same language as the MATERIAL.
+If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
+The exceptions are "language", "domain" and "kind", which are labels the app
+reads: keep those in English, spelled exactly as listed above. "section" is not
+written at all — it is copied from the outline, character for character, in
+whatever language the outline is in, because the app looks it up there.`;
+        }
+
+        function buildTopicPlanPrompt(digest) {
+            return `Analyse the study material below and extract its key concepts.
 
 The material is a digest of a longer document. Lines in [SQUARE BRACKETS] are
 labels added by the app, not part of the document — do not treat them as content,
@@ -686,50 +715,86 @@ TASK:
    - description (one sentence)
    - difficulty (1-5)
    - why it matters
-   - domain: the subject it belongs to, which decides which ready-made
-     figures its lesson may use. Exactly one of:
-       math | physics | cs | logic | data | science | finance | other
-     Use "other" honestly — for history, law, literature, medicine, business
-     and anything else. It is not a lesser option.
-   - kind: what sort of thing it is, which decides how its lesson will be
-     taught. Exactly one of:
-       geometry       — figures, shapes, sides, angles, areas
-       quantity       — formulas, rates, money, measurements, anything calculated
-       process        — steps or stages in an order, including repeating cycles
-       timeline       — events fixed in time
-       comparison     — two or more things set against each other
-       classification — a set of things divided into groups
-       definition     — a term and what it means
-       text           — wording, sources, terminology, interpretation
+${PLAN_DOMAIN_KIND_RULE}
 
-Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
-{
-  "courseName": "Course title",
-  "language": "The language of the MATERIAL above, as an English name (e.g. English, Hebrew, Spanish)",
-  "concepts": [
-    {
+${planSchemaAndLanguage(`{
       "id": 1,
       "name": "Concept name",
       "description": "One-sentence description",
       "difficulty": 2,
       "domain": "other",
       "kind": "definition",
-      "section": "The [OUTLINE] heading this concept comes from, copied exactly, or \"\" if it spans the whole document",
+      "section": "The [OUTLINE] heading this concept comes from, copied exactly, or \\"\\" if it spans the whole document",
       "importance": "Why this matters",
       "examples": ["Example 1", "Example 2"]
-    }
-  ]
-}
+    }`)}`;
+        }
 
-LANGUAGE: write every string above in the same language as the MATERIAL.
-If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
-The exceptions are "language", "domain" and "kind", which are labels the app
-reads: keep those in English, spelled exactly as listed above. "section" is not
-written at all — it is copied from the outline, character for character, in
-whatever language the outline is in, because the app looks it up there.`;
+        // Worksheet mode: the model is not asked to synthesize themes, it is
+        // asked to enumerate the material's own exercises — every one of them,
+        // in the order they appear, none merged, none invented. There is no
+        // "10-20" here on purpose: the count is whatever the worksheet actually
+        // contains, and the server does not rewrite it to the tier's number
+        // for a `worksheet` call the way it does for `path` (see
+        // `shouldFixCourseSize` in policy.mjs). What still caps the cost is the
+        // same monthly lesson quota every course draws from — a worksheet with
+        // more exercises just spends more of that same budget, the way three
+        // short courses would.
+        function buildWorksheetPlanPrompt(digest) {
+            return `Analyse the worksheet below and list every exercise in it — not the topics
+behind them, the exercises themselves.
+
+The material is a digest of the document. Lines in [SQUARE BRACKETS] are labels
+added by the app, not part of the document — do not treat them as content, and
+do not let them influence which language you report. [...] marks text that was
+left out. If [OUTLINE] appears, it is the document's own structure (its parts,
+in order) — use it only to say which part an exercise belongs to, if the
+worksheet is organised into parts; most are not, and that is fine.
+
+MATERIAL:
+${digest}
+
+TASK:
+1. List every distinct exercise, problem or question in this material, in the
+   exact order they appear. Do not skip any. Do not merge two exercises into
+   one entry. Do not invent one the material does not contain.
+2. If the material numbers or labels them (Exercise 3, תרגיל ב, Question 12,
+   שאלה 4), start "name" with that exact label. If it does not label them,
+   number them yourself in the order they appear ("Exercise 1", "Exercise 2", …).
+3. For each exercise give:
+   - name: its label (see above), plus a 2-4 word hint at what it asks
+   - description: the exercise itself, in full — the actual question or
+     problem as written in the material, not a summary of its topic
+   - difficulty (1-5)
+   - why it matters: what solving it practises, in one short phrase
+${PLAN_DOMAIN_KIND_RULE}
+
+${planSchemaAndLanguage(`{
+      "id": 1,
+      "name": "Exercise 3 — solving for x",
+      "description": "The exercise itself, copied in full from the material",
+      "difficulty": 2,
+      "domain": "math",
+      "kind": "quantity",
+      "section": "The [OUTLINE] heading this exercise comes from, copied exactly, or \\"\\" if there is none",
+      "importance": "What solving it practises",
+      "examples": []
+    }`)}`;
+        }
+
+        async function generateLessonPath(text, structure = null, worksheet = false) {
+
+            // Not the first N characters of the document. The opening pages of a
+            // textbook are a title page, a copyright notice and a table of contents
+            // — the least conceptual text in the whole file — and a course built
+            // from them lists the chapters instead of teaching them. The digest
+            // reads the whole document and spends the budget on the parts that
+            // actually carry concepts, spread from first page to last.
+            const digest = buildSourceDigest(text, planReadChars(), structure);
+            const extractPrompt = worksheet ? buildWorksheetPlanPrompt(digest) : buildTopicPlanPrompt(digest);
 
             const result = await callAI(extractPrompt, '', {
-                maxTokens: MAX_TOKENS.path, task: 'path',
+                maxTokens: MAX_TOKENS.path, task: worksheet ? 'worksheet' : 'path',
                 stream: true, onProgress: pathProgress,
             });
             if (!result) return null;
@@ -870,23 +935,89 @@ whatever language the outline is in, because the app looks it up there.`;
             return '';
         }
 
+        // The three pieces below are the parts of the lesson prompt that do not
+        // depend on the concept: `lessonPrinciplesAndVisuals` and
+        // `lessonQuestionTypes` are identical for every lesson, of any domain,
+        // in any course, for any user; `lessonDomainToolkit` depends only on
+        // the concept's domain. `buildLessonPrompt` still assembles all three
+        // inline, byte-for-byte as before, for Trial and Basic — Haiku's cache
+        // minimum is 4,096 tokens and none of this clears it on its own, so
+        // there is nothing to gain there and the single-block prompt stays
+        // exactly what it always was. Pro and Max send these three as their
+        // own cache blocks instead (see `generateLesson`), which is the only
+        // reason `buildLessonPrompt` now takes a `standalone` flag: false
+        // leaves this content out because it is arriving separately, already
+        // cached, in front of it.
+        function lessonPrinciplesAndVisuals() {
+            return `Principles:
+- Never a wall of text. Each card = ONE idea, 2-3 sentences.
+- Assume no prior knowledge. Open with curiosity, not a definition.
+- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
+  comparison in it, draw it. Prose describing a figure the app could have drawn
+  is the worst thing this lesson can contain.
+- Distractors must be mistakes a real learner would make.
+- Vary the position of the correct answer. Never always first.
+
+VISUALS — attach one to a card, worked example, summary or question in its
+"visual" field; omit it where a diagram adds nothing. Never invent a type not on
+this list — it is discarded.
+
+${visualCatalogue()}
+
+Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
+"gematria" are drawn exactly as given — a wrong number is a wrong picture.`;
+        }
+
+        function lessonQuestionTypes() {
+            return `QUESTION TYPES — each needs "type", "text" and "explanation", and may carry a
+"visual" it asks about.
+
+${questionCatalogue()}`;
+        }
+
+        // Only this subject's shelf of templates is offered, and only if the
+        // subject has one. A concept with no domain gets the primitives and
+        // nothing else — which is the format exactly as it was.
+        function lessonDomainToolkit(domain) {
+            const templates = templateCatalogue(domain);
+            if (!templates) return '';
+            return `TEMPLATES — prefer these over writing a spec yourself. In "visual" write
+{ "template": "<id>", "params": { … } } and the app builds the figure and every
+calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
+— working those out is the app's job. One template may produce several figures.
+
+${templates}`;
+        }
+
+        // The domain-independent half of the toolkit, as one block: sent ahead
+        // of everything else on Pro/Max (see `generateLesson`) so it can cache
+        // at the widest possible scope — this text never changes, not between
+        // concepts, not between courses, not between accounts.
+        function lessonToolkitGlobal() {
+            return `${lessonPrinciplesAndVisuals()}
+
+${lessonQuestionTypes()}`;
+        }
+
         // Built as its own function so its size can be measured. The server
         // clamps this block to `excerptChars + TEMPLATE_ALLOWANCE`, and a prompt
         // that overruns is truncated silently — from the tail, which is where
         // the JSON schema and the quantity rules are. `tests/lesson-visuals.js`
         // asserts the template still fits on every tier — with the calibration
         // line above included, since that is the prompt a real learner gets.
-        function buildLessonPrompt(concept, excerpt) {
+        //
+        // `standalone` (default true) inlines the toolkit pieces above, giving
+        // the exact single string every tier sent before caching split it up.
+        // `generateLesson` passes false on Pro/Max, where those pieces are sent
+        // as their own cached blocks ahead of this one instead of inside it.
+        function buildLessonPrompt(concept, excerpt, standalone = true) {
             // A course planned by an older build has no kind, and a model can
             // still hand back a stray capital or a plural. Neither is worth
             // failing over — the playbook line is simply left out.
             const kindKey = String(concept.kind || '').trim().toLowerCase();
             const kind = KIND_PLAYBOOK[kindKey] ? kindKey : null;
-            // Only this subject's shelf of templates is offered, and only if the
-            // subject has one. A concept with no domain gets the primitives and
-            // nothing else — which is the format exactly as it was.
             const domain = String(concept.domain || '').trim().toLowerCase();
-            const templates = templateCatalogue(domain);
+            const toolkit = standalone ? lessonDomainToolkit(domain) : '';
 
             return `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
 
@@ -907,38 +1038,14 @@ GROUNDING RULES (these override everything else):
 - Any [COURSE MATERIAL] above is background: use it to place this concept in the document, never as a source of facts or quiz answers.
 ` : ''}
 ${languageRule()}
-
-Principles:
-- Never a wall of text. Each card = ONE idea, 2-3 sentences.
-- Assume no prior knowledge. Open with curiosity, not a definition.
-- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
-  comparison in it, draw it. Prose describing a figure the app could have drawn
-  is the worst thing this lesson can contain.
-- Distractors must be mistakes a real learner would make.
-- Vary the position of the correct answer. Never always first.
-
-VISUALS — attach one to a card, worked example, summary or question in its
-"visual" field; omit it where a diagram adds nothing. Never invent a type not on
-this list — it is discarded.
-
-${visualCatalogue()}
-
-Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
-"gematria" are drawn exactly as given — a wrong number is a wrong picture.
-${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${templates ? `
-TEMPLATES — prefer these over writing a spec yourself. In "visual" write
-{ "template": "<id>", "params": { … } } and the app builds the figure and every
-calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
-— working those out is the app's job. One template may produce several figures.
-
-${templates}
+${standalone ? `
+${lessonPrinciplesAndVisuals()}
+` : ''}${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${toolkit ? `
+${toolkit}
 ` : ''}
-QUESTION TYPES — each needs "type", "text" and "explanation", and may carry a
-"visual" it asks about.
+${standalone ? `${lessonQuestionTypes()}
 
-${questionCatalogue()}
-
-Return valid JSON only (no markdown, no surrounding prose):
+` : ''}Return valid JSON only (no markdown, no surrounding prose):
 
 {
   "title": "${concept.name}",
@@ -996,18 +1103,56 @@ another context, another representation — so memorising one answer is not enou
 ${languageRule()}`;
         }
 
+        /**
+         * Whether a lesson call may use the four-block cache split.
+         *
+         * This is the one change in this app that is NOT safe to deploy in
+         * either order, and the flag exists to make it so. An `ai-proxy` from
+         * before `prepareLessonBlocks` treats any lesson call with two or more
+         * blocks as `[context, ...prompt]`: it clamps block 0 to
+         * `contextChars` and gives every remaining block one shared
+         * `excerptChars + TEMPLATE_ALLOWANCE` budget. Send it four blocks and
+         * the course digest alone exhausts that budget — the domain shelf and
+         * then the lesson prompt itself are both clamped to zero characters,
+         * so the model is handed a toolkit and a truncated digest with no
+         * instructions and no JSON schema, and the lesson silently fails to
+         * build. It is not a degraded lesson; it is no lesson.
+         *
+         * So the split stays off until the function that understands it is
+         * live. Flip this to `true` in the same change that deploys, or in the
+         * one after it — never before. Off, `generateLesson` sends exactly the
+         * two blocks it always sent, which every deployed version of the
+         * function has always handled.
+         */
+        const LESSON_CACHE_SPLIT = false;
+
         // `quiet` is set when nobody is waiting on this lesson — a prefetch —
         // so a failure goes to the console instead of onto a screen showing
         // something else entirely.
         async function generateLesson(concept, { quiet = false } = {}) {
             // Ground the lesson in the actual document, not the model's priors.
             const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
-            const prompt = buildLessonPrompt(concept, excerpt);
+            const domain = String(concept.domain || '').trim().toLowerCase();
+            // Trial and Basic never cache (contextBudget() is 0 there — Haiku's
+            // cache minimum is higher than any of these pieces clears alone), so
+            // they still send the one flat, single-block prompt they always did.
+            // Pro and Max split it into four: the toolkit is cached for the
+            // whole app, the course digest for this course, the domain's
+            // template shelf for this course's concepts of this domain — only
+            // the last block, the concept itself, is never cached.
+            const cached = LESSON_CACHE_SPLIT && contextBudget() > 0;
+            const prompt = buildLessonPrompt(concept, excerpt, !cached);
             const report = msg => { if (!quiet) showError(msg); };
 
-            // The course context goes first and is the same on every lesson, so
-            // the API caches it; the prompt goes second because it changes.
-            const result = await callAI([courseContext(), prompt], '', {
+            // Content blocks in one message are concatenated with no separator
+            // of their own, so each cached piece below carries its own trailing
+            // blank line — courseContext() is left untouched since it is memoized
+            // and reused as-is.
+            const message = cached
+                ? [lessonToolkitGlobal() + '\n\n', courseContext() + '\n\n', lessonDomainToolkit(domain) + '\n\n', prompt]
+                : [courseContext(), prompt];
+
+            const result = await callAI(message, '', {
                 maxTokens: MAX_TOKENS.lesson, task: 'lesson', quiet,
                 stream: true, onProgress: quiet ? null : lessonProgress,
             });
@@ -1655,6 +1800,18 @@ ${languageRule()}`;
             return { text: text.slice(0, MAX_SOURCE_CHARS), structure: null };
         }
 
+        // Worksheet mode: the upload screen's one toggle, read by both submit
+        // paths below and by the resume-after-signup replay (see pendingAction).
+        // Reset on every fresh visit to the upload screen (see showNewCourse) so
+        // it never carries over from a previous course by accident.
+        let worksheetMode = false;
+
+        function setWorksheetMode(on) {
+            worksheetMode = on;
+            const btn = document.getElementById('worksheetModeToggle');
+            if (btn) btn.setAttribute('aria-checked', String(on));
+        }
+
         async function handleFileUpload(file) {
             // Name the file being read. "Reading PDF..." after picking the wrong one
             // from a list of near-identical names gives you nothing to check against.
@@ -1684,7 +1841,7 @@ ${languageRule()}`;
                 showError("No text found in that file. It may be a scanned PDF with no text layer — tools/pdf_prep can read one with OCR.");
                 return;
             }
-            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure);
+            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure, worksheetMode);
         }
 
 
@@ -1785,6 +1942,45 @@ ${languageRule()}`;
                     title: 'This repeats itself',
                     detail: `Only about ${Math.round(st.vocabulary * 100)}% of the words are different ones. `
                         + 'A document that says the same thing on every line has one idea in it, not ten.',
+                    fix: 'Try a document with more to say.',
+                    stats: st,
+                };
+            }
+
+            return null;
+        }
+
+        // The gate for worksheet mode (see generateLessonPath) is deliberately
+        // lighter than assessMaterial. Every "mostly-numbers" and "not-prose"
+        // check above assumes the document is narrative prose with a shape to
+        // judge — which is exactly what a worksheet is not, by design: "1. Solve
+        // 2x+5=13" is almost all digits and symbols, three real words, no
+        // sentence at all, and would fail every one of those checks despite
+        // being precisely what this mode exists to teach from. What still needs
+        // guarding against is the same as ever — nothing pasted, or the same
+        // line repeated down the page — so those two checks are kept and the
+        // shape-of-prose ones are dropped.
+        const WORKSHEET_MIN_CHARS = 150;
+
+        function assessWorksheetMaterial(text) {
+            const st = materialStats(text);
+
+            if (st.chars < WORKSHEET_MIN_CHARS) {
+                return {
+                    code: 'too-short',
+                    title: "There isn't enough here to teach",
+                    detail: `This has about ${st.chars} characters. Paste the whole worksheet, or a fuller page of it.`,
+                    fix: 'Paste more of the worksheet.',
+                    stats: st,
+                };
+            }
+
+            if (st.realWords > 400 && st.vocabulary < 0.12) {
+                return {
+                    code: 'repetitive',
+                    title: 'This repeats itself',
+                    detail: `Only about ${Math.round(st.vocabulary * 100)}% of the words are different ones. `
+                        + 'A worksheet whose lines just repeat has nothing new in it to build exercises from.',
                     fix: 'Try a document with more to say.',
                     stats: st,
                 };
@@ -1954,13 +2150,15 @@ ${languageRule()}`;
 
         // `title` is the fallback (filename, or nothing for pasted text); a name the
         // learner typed themselves always beats both that and the model's suggestion.
-        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null) {
+        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null, worksheet = false) {
             // The gate first, before the sign-up wall. Judging the material
             // costs nothing, and being asked to create an account and only then
             // told the document was never going to work is the worst order
-            // these two could happen in.
+            // these two could happen in. Worksheet mode uses a lighter gate —
+            // see assessWorksheetMaterial — since a page of terse exercises
+            // fails every shape-of-prose check assessMaterial runs.
             buildStage('check', 'Checking your material');
-            const verdict = assessMaterial(text);
+            const verdict = worksheet ? assessWorksheetMaterial(text) : assessMaterial(text);
             if (verdict && !(await confirmUnsuitable(verdict, text))) {
                 resetToUpload();
                 return;
@@ -1971,14 +2169,14 @@ ${languageRule()}`;
             // The gate runs again on the way back through and passes in
             // silence — the override was recorded against this document.
             if (!currentUser) {
-                pendingAction = { type: 'buildCourse', text, title, chosenName, structure };
+                pendingAction = { type: 'buildCourse', text, title, chosenName, structure, worksheet };
                 showAuthModal('signup');
                 return;
             }
 
-            buildStage('plan', 'Finding the concepts in your material');
+            buildStage('plan', worksheet ? 'Finding the exercises in your worksheet' : 'Finding the concepts in your material');
             try {
-                const course = await generateLessonPath(text, structure);
+                const course = await generateLessonPath(text, structure, worksheet);
                 if (!course) {
                     resetToUpload();   // error already surfaced; give them a way back
                     return;
@@ -6189,6 +6387,7 @@ ${languageRule()}`;
             }
             setScreen('home');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
+            setWorksheetMode(false);
         }
 
         // ============= Lesson preview =============
@@ -7841,11 +8040,13 @@ ${languageRule()}`;
             const btn = document.getElementById('submitTextBtn');
             setButtonBusy(btn, true);
             try {
-                await processLearningMaterial(text);
+                await processLearningMaterial(text, '', requestedCourseName(), null, worksheetMode);
             } finally {
                 setButtonBusy(btn, false);
             }
         });
+
+        document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
 
         // The title itself and the pencil beside it do the same thing — the pencil
         // exists so the affordance is visible without a caption explaining it.
@@ -8685,7 +8886,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         let pendingAction = null;
 
         async function runPendingAction(action) {
-            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName, action.structure);
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName, action.structure, action.worksheet);
             if (action.type === 'showLibrary') return showLibrary();
         }
 

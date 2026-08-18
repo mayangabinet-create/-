@@ -966,6 +966,41 @@
         .demo-lesson-banner-arrow { flex: none; color: var(--info-strong); }
         .course-name-field { margin-bottom: var(--sp-5); }
 
+        /* ---- Switch row: one on/off setting with a label, not a question with
+           options ---- */
+        .switch-row {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: var(--sp-3);
+            width: 100%; text-align: start;
+            background: var(--surface);
+            border: 1px solid var(--border-strong);
+            border-radius: var(--r-md);
+            padding: var(--sp-3) var(--sp-4);
+            margin-bottom: var(--sp-5);
+            cursor: pointer;
+        }
+        .switch-row:hover { border-color: var(--info); }
+        .switch-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .switch-row-text strong { font-size: var(--fs-sm); }
+        .switch-row-text span { color: var(--text-muted); font-size: var(--fs-xs); line-height: var(--lh-snug); }
+        .switch-track {
+            flex: none; width: 40px; height: 24px;
+            border-radius: var(--r-full);
+            background: var(--border-strong);
+            position: relative;
+            transition: background var(--dur-2) var(--ease);
+        }
+        .switch-knob {
+            position: absolute; top: 2px; inset-inline-start: 2px;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            background: var(--surface);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+            transition: inset-inline-start var(--dur-2) var(--ease);
+        }
+        .switch-row[aria-checked="true"] .switch-track { background: var(--brand); }
+        .switch-row[aria-checked="true"] .switch-knob { inset-inline-start: 18px; }
+
         .upload-section {
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             gap: var(--sp-2);
@@ -2751,6 +2786,17 @@
                            placeholder="e.g. Biology — Chapter 4" autocomplete="off" />
                     <p class="field-hint">Optional. Leave it blank and one is written for you — you can rename it later.</p>
                 </div>
+
+                <!-- Off by default: most uploads are a chapter to be taught, not a
+                     worksheet to be worked through problem by problem. See
+                     assessWorksheetMaterial and buildWorksheetPlanPrompt in app.js. -->
+                <button type="button" class="switch-row" id="worksheetModeToggle" role="switch" aria-checked="false">
+                    <span class="switch-row-text">
+                        <strong>This is a worksheet</strong>
+                        <span>Teach every exercise in order — nothing merged, nothing skipped.</span>
+                    </span>
+                    <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
+                </button>
 
                 <div class="source-tabs" role="tablist" aria-label="Where the material comes from">
                     <button type="button" class="source-tab active" id="tabFile" role="tab"

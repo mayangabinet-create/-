@@ -298,6 +298,44 @@ Courses are multi-language: the app writes in whatever language the source mater
 in, and the UI adapts direction (RTL) for Hebrew/Arabic content while the chrome itself
 stays English.
 
+## Worksheet mode
+
+The default course-planning prompt asks the model to synthesize 10-20 *topics* from the
+material, in a logical teaching order — the right question for a chapter, the wrong one
+for a worksheet. A page of homework has no topics to extract, it has exercises, and
+asking a topic-synthesizer to plan it produces exactly what a topic-synthesizer should
+produce: some exercises merged into one "concept", others dropped, the rest reordered by
+what reads as pedagogically sensible rather than kept in the order they were assigned.
+
+The upload screen's **"This is a worksheet"** toggle switches to a different prompt
+instead of asking the same one to behave differently. `buildWorksheetPlanPrompt()`
+tells the model to list every exercise, in the order it appears, none merged, none
+skipped, none invented — and if the material numbers them, to keep that numbering in the
+name. There is no "10-20" in it, on purpose: the count is whatever the worksheet actually
+contains. The server does not overwrite that count to the tier's fixed number the way it
+does for a normal course (`shouldFixCourseSize` in `policy.mjs` — the one place `task`
+changes what a call is allowed to do rather than just what it is billed as). What still
+bounds the cost is the same monthly lesson quota every course draws from: a 20-exercise
+worksheet just spends more of that one shared budget, the way two smaller courses would.
+
+Past that one prompt, nothing else changes. An exercise becomes a `concept` exactly like
+a topic does — `description` holds the exercise itself rather than a summary of it, so
+the lesson written from it teaches that literal problem — and flows through the same
+lesson generation, grounding, spaced repetition and path rendering as any other course.
+
+The suitability gate is the other thing that has to change, not just the prompt. A terse
+worksheet ("1. Solve for x: 2x + 5 = 13") is nearly all digits and symbols with no real
+sentence in it, and `assessMaterial()`'s prose-shape checks — mostly-numbers, not-prose —
+exist precisely to catch text shaped like that. Refusing a worksheet for not reading like
+a chapter would defeat the mode before it starts, so this toggle runs
+`assessWorksheetMaterial()` instead: the same floor against an empty paste and the same
+guard against a repeated line, without the checks that assume narrative prose.
+
+`tests/onboarding.js` covers both — the prompt (no count, the no-skip/no-merge/no-invent
+rules, the same JSON shape and language rule the topic prompt ends in) and the gate (a
+worksheet that `assessMaterial` would refuse, refused by neither `assessWorksheetMaterial`
+nor whatever floor keeps out an empty or repeated paste).
+
 ## The four tabs
 
 Every tab is a full screen, routed through one `setScreen()` call so nothing is
@@ -565,6 +603,37 @@ tokens, and below that the API accepts the request, caches nothing, and charges 
 premium anyway. Turning it on there means first raising the budget past ~16,000
 characters, which costs real money per course — a decision worth making against the
 hit rate the paid tiers are about to start reporting rather than against a guess.
+
+On Pro and Max, the shared context is one of three cached blocks sent ahead of the
+concept itself, least specific first. `lessonToolkitGlobal()` — Principles, every
+VISUALS spec, every QUESTION_TYPES spec — is identical for every lesson this server
+ever writes, for any concept, any course, any account, so it caches at the widest
+scope the API allows: the first lesson generated after a deploy pays to write it,
+every lesson after that reads it back. The shared context above is next. The
+concept's own domain gets a third block — `lessonDomainToolkit()`, the template
+shelf for that subject — which repeats across a course's concepts that share a
+domain but not across courses, so it earns a breakpoint of its own rather than
+forcing a rewrite of the shared-context cache every time a course's concepts change
+subject. Only the concept-specific prompt (`buildLessonPrompt(concept, excerpt,
+false)`) is never cached. Trial and Basic skip all of this and send the one flat
+prompt they always did — none of these three pieces clears Haiku's cache minimum on
+its own, so there is nothing to gain by splitting them there. `tests/lesson-visuals.js`
+checks the split against the standalone prompt content-for-content (nothing dropped,
+nothing duplicated) and against each block's own ceiling in `policy.mjs`
+(`GLOBAL_TOOLKIT_ALLOWANCE`, `DOMAIN_TOOLKIT_ALLOWANCE`); `tests/ai-proxy-policy.mjs`
+covers the server side of the same split.
+
+**This is the one change here that is not safe to deploy in either order**, which is
+why `LESSON_CACHE_SPLIT` in `app.js` exists and currently reads `false`. An `ai-proxy`
+from before `prepareLessonBlocks` treats any lesson call with two or more blocks as
+`[context, ...prompt]` — block 0 clamped to `contextChars`, everything after it sharing
+one `excerptChars + TEMPLATE_ALLOWANCE` budget. Send that server four blocks and the
+course digest alone exhausts the shared budget: the domain shelf and the lesson prompt
+are both clamped to zero characters, and the model gets a toolkit and a truncated digest
+with no instructions and no schema. The lesson does not degrade, it fails to build. With
+the flag off the client sends the same two blocks every deployed version has always
+handled, so the client can be merged whenever. Turn it on in the change that deploys the
+function, or any change after it — never before.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without

@@ -20,8 +20,12 @@
                 <div style="max-width:38ch;margin:15vh auto;text-align:center;padding:var(--sp-6);font-family:var(--font);color:var(--text);">
                     <h2 style="font-size:var(--fs-h2);margin-bottom:var(--sp-3);">Couldn't load the app</h2>
                     <p style="color:var(--text-muted);line-height:var(--lh-body);margin-bottom:var(--sp-5);">A required script didn't load. Check your internet connection, or try turning off an ad-blocker or VPN for this site, then try again.</p>
-                    <button onclick="location.reload()" style="min-height:48px;padding:0 var(--sp-5);border:none;border-bottom:var(--press) solid var(--brand-strong);border-radius:var(--r-md);background:var(--brand);color:var(--text-inverse);font-family:var(--font);font-weight:700;font-size:var(--fs-body);cursor:pointer;">Try again</button>
+                    <button id="cdnFailureRetry" style="min-height:48px;padding:0 var(--sp-5);border:none;border-bottom:var(--press) solid var(--brand-strong);border-radius:var(--r-md);background:var(--brand);color:var(--text-inverse);font-family:var(--font);font-weight:700;font-size:var(--fs-body);cursor:pointer;">Try again</button>
                 </div>`;
+            // addEventListener, not an inline onclick= attribute: the CSP in
+            // index.html's <head> has no 'unsafe-inline' for script-src, which
+            // blocks inline event handlers along with everything else it blocks.
+            document.getElementById('cdnFailureRetry').addEventListener('click', () => location.reload());
             throw new Error('supabase-js failed to load from CDN');
         }
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -129,11 +133,33 @@
             moon:      svgIcon('<path d="M20 14.5A8.5 8.5 0 019.5 4 8.5 8.5 0 1020 14.5z"/>'),
         };
 
-        // PDF.js setup — guarded because PDF upload is optional (pasting text still
-        // works without it); a blocked/slow CDN load should only disable that one
-        // feature, not throw here and take the rest of this script down with it.
-        if (window.pdfjsLib) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+        // PDF.js loads on first use, not at boot: PDF upload is one optional path
+        // into the app (pasting text is the other, and needs none of this), so
+        // every visitor who never touches it was paying ~320KB and a render-blocking
+        // script for a feature they didn't use. extractConceptsFromPDF() awaits this
+        // before touching pdfjsLib; a blocked/slow CDN load surfaces there as
+        // PDF_READER_UNAVAILABLE, same as it always did.
+        const PDFJS_VERSION = '3.11.174';
+        const PDFJS_BASE = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/`;
+        let pdfjsLoadPromise = null;
+        function loadPdfJs() {
+            if (window.pdfjsLib) return Promise.resolve();
+            if (pdfjsLoadPromise) return pdfjsLoadPromise;
+            pdfjsLoadPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = PDFJS_BASE + 'pdf.min.js';
+                // Same hash a static <script> tag would carry — computed from the
+                // file as published to npm, same as the two in index.html's <head>.
+                script.integrity = 'sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e';
+                script.crossOrigin = 'anonymous';
+                script.onload = () => {
+                    if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'pdf.worker.min.js';
+                    resolve();
+                };
+                script.onerror = () => reject(new Error('PDF_READER_UNAVAILABLE'));
+                document.head.appendChild(script);
+            });
+            return pdfjsLoadPromise;
         }
 
         // ============= API & AI Functions =============
@@ -587,6 +613,7 @@
         // Read the document. `onProgress` is called per page because a 300-page
         // textbook takes long enough that a frozen "Reading..." looks like a hang.
         async function extractConceptsFromPDF(file, onProgress) {
+            await loadPdfJs();
             if (!window.pdfjsLib) throw new Error('PDF_READER_UNAVAILABLE');
             const arrayBuffer = await file.arrayBuffer();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;

@@ -156,7 +156,7 @@ years, the rows of a truth table, the trace of a binary search — is computed h
 JavaScript, from the parameters. The model is asked for the figures the source material
 uses and explicitly not for the results.
 
-Twenty-eight templates, shelved by subject:
+Thirty-three templates, shelved by subject:
 
 | | |
 |---|---|
@@ -166,10 +166,23 @@ Twenty-eight templates, shelved by subject:
 | 🧠 **logic** | truth tables from an expression (and/or/not/xor/implies/iff, parsed and evaluated) · set operations |
 | 📊 **data** | mean, median, range and standard deviation · histograms binned from raw values · the normal curve with its 68/95 bands · dice distributions |
 | 💰 **finance** | compound vs simple interest, plotted and draggable · loan payments and total interest · percentage change |
-| 🌌 **science** | half-life, shared with physics |
+| 🌱 **science** | Punnett square (genotype and phenotype ratios from a cross) · pH from H⁺ concentration · exponential population growth · energy transfer up a food chain (the 10% rule) · density as a slider · half-life, shared with physics |
 
 A template may return several figures — the triangle *and* the working, the curve *and*
 the bands — which arrive as one grouped exhibit.
+
+**Science was one template deep until it wasn't.** Every other subject a real upload is
+likely to be — a chapter of biology, a page of chemistry, an ecology unit — landed in the
+`science` domain and got `half-life`, borrowed from physics, and nothing else: the
+primitives were still there, but nothing computed for them the way `quadratic` computes
+for algebra. `punnett-square` runs an actual cross (two parents in, the 2×2 grid and the
+genotype/phenotype ratio out — not stated, tallied from the four cells) and refuses a
+cross between two different genes rather than guess at one. `ph-scale` takes a hydrogen-ion
+concentration and computes the pH itself, `-log10(c)`, and where it falls on the acid-base
+line. `population-growth` and `energy-pyramid` are exponentials computed the same way
+`half-life` and `compound-interest` already are, just growing instead of decaying, and
+losing 90% a level instead of gaining a rate. `density` is a slider in the same family as
+`ohms-law` — drag the volume, watch mass ÷ volume recompute live.
 
 Three properties make the layer safe to grow. Templates compose the primitives, so a new
 one needs no new renderer. Every parameter is coerced, defaulted and clamped, so junk
@@ -180,8 +193,8 @@ spec rather than the template call, so a cached lesson keeps working after its t
 changes or is withdrawn.
 
 Only the concept's own subject reaches the prompt. That is what keeps a library this
-size affordable to offer — and it is why the model picks well: eight candidates that all
-fit, not thirty that mostly don't. A concept whose domain is `other` — history, law,
+size affordable to offer — and it is why the model picks well: a dozen candidates that
+all fit, not thirty-three that mostly don't. A concept whose domain is `other` — history, law,
 literature, medicine — is offered no templates and gets exactly the format described
 above.
 

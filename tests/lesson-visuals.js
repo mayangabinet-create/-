@@ -364,6 +364,54 @@ console.log('\n== templates ==');
 
   const poly = P.validVisual({ template: 'polygon-angles', params: { n: 8 } });
   ok('an octagon knows its interior angle', poly.caption.includes('135'), poly.caption);
+
+  // Life & earth science: until now `science` had exactly one template
+  // (half-life, borrowed from physics) — the domain most real uploads
+  // actually fall under (biology, chemistry, ecology) got nothing that
+  // computes for it the way the math shelf computes for algebra.
+  const cross = P.validVisual({ template: 'punnett-square',
+    params: { parent1: 'Aa', parent2: 'Aa', dominant: 'brown eyes', recessive: 'blue eyes' } });
+  ok('a heterozygous cross gives the classic 1:2:1 genotype split',
+     cross.caption.includes('1 AA') && cross.caption.includes('2 Aa') && cross.caption.includes('1 aa'),
+     cross.caption);
+  ok('and the 3:1 phenotype ratio that comes with it',
+     cross.caption.includes('3 brown eyes') && cross.caption.includes('1 blue eyes'), cross.caption);
+  ok('the grid itself is the 2x2 cross, not just the summary',
+     JSON.stringify(cross.cells) === JSON.stringify([['AA', 'Aa'], ['Aa', 'aa']]), JSON.stringify(cross.cells));
+  ok('a cross with no dominant allele at all is still counted honestly',
+     P.validVisual({ template: 'punnett-square', params: { parent1: 'aa', parent2: 'aa' } })
+       .caption.includes('0 dominant trait : 4 recessive trait'));
+  ok('two different genes are not a monohybrid cross',
+     P.validVisual({ template: 'punnett-square', params: { parent1: 'Aa', parent2: 'Bb' } }) === null);
+
+  const neutral = P.validVisual({ template: 'ph-scale', params: { concentration: 1e-7 } });
+  ok('pure water lands on pH 7, read as neutral', neutral.caption.includes('pH 7') && neutral.caption.includes('neutral'),
+     neutral.caption);
+  const acid = P.validVisual({ template: 'ph-scale', params: { concentration: 1e-2, label: 'vinegar' } });
+  ok('a higher concentration of H+ is a lower, acidic pH',
+     acid.caption.includes('pH 2') && acid.caption.includes('acidic'), acid.caption);
+
+  const growth = P.validVisual({ template: 'population-growth', params: { initial: 100, doublingTime: 1, periods: 3 } });
+  ok('three doublings of 100 is 800, not approximated',
+     JSON.stringify(growth).includes('"800"'), JSON.stringify(growth).slice(-200));
+
+  const pyramid = P.validVisual({ template: 'energy-pyramid',
+    params: { levels: ['producers', 'herbivores', 'carnivores', 'apex predators'], startEnergy: 10000, efficiencyPercent: 10 } });
+  ok('three 10% steps from 10,000 lands on 10, not stated, computed',
+     pyramid.bars.at(-1).value === 10, JSON.stringify(pyramid.bars));
+  ok('fewer than two levels is not a pyramid',
+     P.validVisual({ template: 'energy-pyramid', params: { levels: ['producers'] } }) === null);
+
+  const density = P.validVisual({ template: 'density', params: { mass: 100, volume: 20 } });
+  const dSlider = density.items.find(i => i.type === 'slider');
+  ok('the slider starts at the volume given, dragging from there',
+     dSlider.variable === 'volume' && dSlider.value === 20 && dSlider.constants.mass === 100,
+     JSON.stringify(dSlider));
+  // The stored spec is the formula, not a frozen answer — wireSlider()
+  // evaluates it live, the same way a drag would, so this is the actual
+  // number a learner sees on open, not a value trusted from the model.
+  ok('which computes to the real density: 5 g/cm\u00b3',
+     P.tryExpr(dSlider.outputs[0].expr, { ...dSlider.constants, volume: dSlider.value }) === 5);
 }
 
 console.log('\n== boolean logic ==');

@@ -4420,6 +4420,127 @@ ${languageRule()}`;
                 },
             },
 
+            // ---- Life & Earth science ---------------------------------------
+            // The one shelf every other domain quietly shares from: `science`
+            // covers biology, chemistry, ecology and earth science, and until
+            // now it had exactly one template (half-life, borrowed from
+            // physics). A course built from a biology or chemistry chapter —
+            // which is most of what a real upload actually is — got the
+            // primitives (shape, table, reveal…) and nothing that computes for
+            // it the way `quadratic` computes for algebra.
+            'punnett-square': {
+                domains: ['science'],
+                use: 'a monohybrid genetic cross (Punnett square) — genotype and phenotype ratios worked out from the two parents\' own genotypes, not guessed',
+                params: 'parent1, parent2 (each two letters of the same gene, e.g. "Aa"), dominant, recessive (what each allele shows)',
+                build: p => {
+                    const clean = g => String(g || '').replace(/[^A-Za-z]/g, '').slice(0, 2);
+                    const p1 = clean(tStr(p, 'parent1', 'Aa'));
+                    const p2 = clean(tStr(p, 'parent2', 'Aa'));
+                    if (p1.length !== 2 || p2.length !== 2) return null;
+                    const letter = p1[0].toLowerCase();
+                    // A cross needs both parents carrying the same gene — mixing
+                    // two different letters is not a monohybrid cross.
+                    if ([...p1, ...p2].some(c => c.toLowerCase() !== letter)) return null;
+                    const dominant = tStr(p, 'dominant', 'dominant trait');
+                    const recessive = tStr(p, 'recessive', 'recessive trait');
+                    // Dominant allele written first, so "aA" and "Aa" are one
+                    // genotype rather than two different-looking ones.
+                    const canon = (a, b) => [a, b].sort((x, y) =>
+                        (x === x.toUpperCase() ? 0 : 1) - (y === y.toUpperCase() ? 0 : 1)).join('');
+                    const cells = [], counts = new Map();
+                    for (let r = 0; r < 2; r++) {
+                        const row = [];
+                        for (let c = 0; c < 2; c++) {
+                            const g = canon(p2[r], p1[c]);
+                            row.push(g);
+                            counts.set(g, (counts.get(g) || 0) + 1);
+                        }
+                        cells.push(row);
+                    }
+                    const flat = cells.flat();
+                    const domCount = flat.filter(g => /[A-Z]/.test(g)).length;
+                    const recCount = flat.length - domCount;
+                    const genotypeRatio = [...counts.entries()].map(([g, n]) => `${n} ${g}`).join(' : ');
+                    return {
+                        type: 'grid', colHeaders: [p1[0], p1[1]], rowHeaders: [p2[0], p2[1]], cells,
+                        highlight: cells.flatMap((row, r) => row
+                            .map((g, c) => (/[A-Z]/.test(g) ? null : [r, c])).filter(Boolean)),
+                        caption: `Genotypes: ${genotypeRatio}. Phenotypes: ${domCount} ${dominant} : ${recCount} ${recessive}.`,
+                    };
+                },
+            },
+            'ph-scale': {
+                domains: ['science'],
+                use: 'pH computed from a hydrogen-ion concentration, and where it falls on the acid-base scale',
+                params: 'concentration (mol/L of H+), label',
+                build: p => {
+                    const c = tNum(p, 'concentration', 1e-7, 1e-14, 1);
+                    const label = tStr(p, 'label', '');
+                    const ph = -Math.log10(c);
+                    const cls = ph < 6.5 ? 'acidic' : ph > 7.5 ? 'basic' : 'neutral';
+                    return {
+                        type: 'numberline', min: 0, max: 14, step: 2,
+                        points: [{ value: ph, label: `pH ${fmtNum(ph, 1)}` }],
+                        caption: `${label ? label + ': ' : ''}[H+] = ${c.toExponential(1)} mol/L -> pH ${fmtNum(ph, 2)} (${cls})`,
+                    };
+                },
+            },
+            'population-growth': {
+                domains: ['science'],
+                use: 'exponential population growth from a starting size and a doubling time — the population plotted and computed at each interval',
+                params: 'initial, doublingTime, unit, periods',
+                build: p => {
+                    const n0 = tNum(p, 'initial', 100, 0.0001, 1e12);
+                    const dt = tNum(p, 'doublingTime', 1, 0.001, 1e6);
+                    const u = tStr(p, 'unit', 'generations');
+                    const periods = Math.round(tNum(p, 'periods', 5, 1, 10));
+                    return [
+                        { type: 'plot', xLabel: u, yLabel: 'population',
+                          series: [{ label: 'population', points: samplePoints(0, dt * periods, 30, t => n0 * Math.pow(2, t / dt)) }] },
+                        { type: 'table', headers: [`After (${u})`, 'Population'],
+                          rows: Array.from({ length: periods + 1 }, (_, i) =>
+                              [fmtNum(i * dt), fmtNum(n0 * Math.pow(2, i), 0)]) },
+                    ];
+                },
+            },
+            'energy-pyramid': {
+                domains: ['science'],
+                use: 'energy transfer up a food chain (the 10% rule) — how much of the energy at one trophic level reaches the next, computed at every level',
+                params: 'levels (list, e.g. "producers,herbivores,carnivores"), startEnergy, unit, efficiencyPercent',
+                build: p => {
+                    const levels = tWords(p, 'levels',
+                        ['producers', 'primary consumers', 'secondary consumers', 'tertiary consumers'], 6);
+                    if (levels.length < 2) return null;
+                    const start = tNum(p, 'startEnergy', 10000, 1, 1e12);
+                    const unit = tStr(p, 'unit', 'kcal');
+                    const eff = tNum(p, 'efficiencyPercent', 10, 0.1, 100) / 100;
+                    const bars = levels.map((label, i) => ({ label, value: Math.round(start * Math.pow(eff, i)) }));
+                    return {
+                        type: 'bar', unit: ` ${unit}`, bars,
+                        caption: `${fmtNum(eff * 100, 0)}% of each level's energy reaches the next. By ${levels.at(-1)}, `
+                            + `only ${fmtNum(bars.at(-1).value)} ${unit} is left of the original ${fmtNum(start)} ${unit}.`,
+                    };
+                },
+            },
+            'density': {
+                domains: ['science'],
+                use: 'density (mass over volume) as something to drag — change the volume and watch density recompute',
+                params: 'mass, volume, unit',
+                build: p => {
+                    const m = tNum(p, 'mass', 100, 0.01, 1e9), v = tNum(p, 'volume', 20, 0.01, 1e9);
+                    const u = tStr(p, 'unit', 'g/cm\u00b3');
+                    return [
+                        { type: 'formula', expression: 'density = mass / volume',
+                          where: [{ symbol: 'mass', meaning: 'grams' }, { symbol: 'volume', meaning: 'cm\u00b3' },
+                                  { symbol: 'density', meaning: u }] },
+                        { type: 'slider', variable: 'volume', label: 'Volume (cm\u00b3)',
+                          min: Math.max(0.1, v / 4), max: v * 4, step: Math.max(0.1, v / 20), value: v,
+                          unit: ' cm\u00b3', constants: { mass: m },
+                          outputs: [{ label: 'Density', expr: 'mass / volume', unit: ` ${u}`, decimals: 2 }] },
+                    ];
+                },
+            },
+
             // ---- Computing and logic ----------------------------------------
             'binary-number': {
                 domains: ['cs'],

@@ -1133,7 +1133,12 @@ ${languageRule()}`;
         // `quiet` is set when nobody is waiting on this lesson — a prefetch —
         // so a failure goes to the console instead of onto a screen showing
         // something else entirely.
-        async function generateLesson(concept, { quiet = false } = {}) {
+        //
+        // `onPartial` is called at most once, the moment enough of the lesson
+        // has streamed in to open it on its first steps (see `openingLesson`).
+        // A prefetch passes nothing: there is no screen to open early when
+        // nobody is waiting.
+        async function generateLesson(concept, { quiet = false, onPartial = null } = {}) {
             // Ground the lesson in the actual document, not the model's priors.
             const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
             const domain = String(concept.domain || '').trim().toLowerCase();
@@ -1156,9 +1161,35 @@ ${languageRule()}`;
                 ? [lessonToolkitGlobal() + '\n\n', courseContext() + '\n\n', lessonDomainToolkit(domain) + '\n\n', prompt]
                 : [courseContext(), prompt];
 
+            // Watch the stream for the moment the opening is complete enough to
+            // put on screen. `extractJSON` already closes off a truncated
+            // object, so a half-written lesson parses into whatever finished
+            // arriving — which for the opening fields is all this needs.
+            // Parsing every chunk would be wasteful on a 6,000-token answer, so
+            // it only starts looking once the field *after* the opening has
+            // begun, which is the marker that the opening itself is done.
+            let firedPartial = false;
+            const watchForOpening = onPartial ? (text) => {
+                if (firedPartial || !text.includes('"cards"')) return;
+                const draft = extractJSON(text);
+                if (!draft || !openingIsWorthShowing(draft)) return;
+                firedPartial = true;
+                try {
+                    onPartial(normaliseLesson(openingLesson(draft), concept));
+                } catch (err) {
+                    // An opening that will not render is not worth losing the
+                    // lesson over — the full one is still on its way.
+                    console.warn('Could not open the lesson early:', err);
+                }
+            } : null;
+
             const result = await callAI(message, '', {
                 maxTokens: MAX_TOKENS.lesson, task: 'lesson', quiet,
-                stream: true, onProgress: quiet ? null : lessonProgress,
+                stream: true,
+                onProgress: quiet ? null : (text) => {
+                    lessonProgress(text);
+                    if (watchForOpening) watchForOpening(text);
+                },
             });
 
             // callAI returns null when it already reported an error, and '' when
@@ -7185,6 +7216,49 @@ ${languageRule()}`;
             return Math.min(Math.max(cardCount - 1, 0), Math.floor(quizCount / 2));
         }
 
+        /**
+         * The part of a half-written lesson that is safe to show already.
+         *
+         * A lesson is opened before it has finished streaming (see
+         * `loadLesson`), and the one thing that must never happen is a step
+         * moving under a learner who is standing on it. `buildLessonSteps`
+         * lays the opening out as warm-up, hook, prediction, explore and only
+         * then reaches the cards — and none of those four depend on anything
+         * written later. Every field after `explore` is dropped here, cards
+         * included and *especially* cards: `interleavedCount` decides how many
+         * quiz questions sit between them, the quiz is written after them, so
+         * a card rendered early would have questions spliced in around it once
+         * the quiz landed.
+         *
+         * What this buys is the guarantee the whole feature rests on:
+         * `buildLessonSteps(openingLesson(l))` is always a prefix of
+         * `buildLessonSteps(l)`, so the steps a learner has already walked
+         * through are exactly the steps the finished lesson would have given
+         * them. `tests/lesson-flow.js` checks that against the real thing.
+         */
+        function openingLesson(lesson) {
+            if (!lesson) return null;
+            return {
+                title: lesson.title,
+                estimatedMinutes: lesson.estimatedMinutes,
+                hook: lesson.hook || null,
+                prediction: lesson.prediction || null,
+                explore: lesson.explore || null,
+                cards: [],
+                quiz: [],
+            };
+        }
+
+        // Worth opening early only if there is something to do in it. A hook
+        // alone is one screen and a Continue button, which lands the learner on
+        // the waiting state almost immediately — worse than a spinner, because
+        // it looks like the lesson broke.
+        function openingIsWorthShowing(lesson) {
+            const opening = openingLesson(lesson);
+            if (!opening?.hook) return false;
+            return !!(opening.prediction || opening.explore);
+        }
+
         // The whole step sequence for a lesson, skipping anything the model
         // omitted. Pure — it reads a lesson and returns a list — so the order
         // is testable without a browser, which is the only reason the run of
@@ -7250,6 +7324,11 @@ ${languageRule()}`;
         // before they get there.
         function maybePrefetchNext() {
             if (!lessonState || lessonState.review) return;
+            // This lesson is still being written. Starting the next one now
+            // would run two generations at once and, on a short opening, would
+            // trigger a third of the way into four steps rather than a third of
+            // the way into the lesson.
+            if (lessonState.partialFor != null) return;
             const { step, steps } = lessonState;
             if (step < Math.floor(steps.length / 3)) return;
             prefetchLesson(currentLessonIndex + 1);
@@ -7305,15 +7384,33 @@ ${languageRule()}`;
                     progress[index].lesson = lesson;
                     saveProgress();
                 } else {
-                    lesson = await generateLesson(concept);
+                    // The only branch that waits on the model with nobody
+                    // reading anything, so it is the only one that opens the
+                    // lesson early. A cached lesson is instant already, and one
+                    // being prefetched is most of the way written by the time
+                    // anyone asks for it.
+                    lesson = await generateLesson(concept, {
+                        onPartial: draft => openPartialLesson(draft, index, concept),
+                    });
                     if (!lesson) {
                         // Generation failed. Stay on the path; the error was already shown.
+                        // If the opening had already gone up, this closes it —
+                        // leaving a hook on screen with nothing behind it would
+                        // be a lesson that can never continue.
                         closeLessonScreen();
                         return;
                     }
                     if (!progress[index]) progress[index] = {};
                     progress[index].lesson = lesson;
                     saveProgress();
+                }
+
+                // Already on screen and half-read: the opening went up while
+                // this was still streaming, so swap the finished lesson in
+                // underneath rather than starting it over from step 0.
+                if (lessonState?.partialFor === index) {
+                    applyFinishedLesson(lesson, concept);
+                    return;
                 }
 
                 // Retrieval practice comes first, from an earlier lesson —
@@ -7342,23 +7439,15 @@ ${languageRule()}`;
                     // Questions that went wrong on both attempts, kept so the
                     // lesson can come back to them before it calls itself done.
                     missed: [],
-                    result: null
+                    result: null,
+                    // Set only while a half-written lesson is on screen.
+                    partialFor: null,
                 };
 
                 document.getElementById('sourcePicker').hidden = true;
                 document.getElementById('learningPath').classList.add('active');
 
-                // Max possible: base + 10 per gradeable question + perfect-run bonus.
-                const gradeable = (lesson.quiz?.length || 0)
-                    + (lesson.practice ? 1 : 0)
-                    + (lesson.challenge ? 1 : 0);
-                const maxXp = 20 + gradeable * 10 + (gradeable > 0 ? 25 : 0);
-                document.getElementById('lessonXpBadge').textContent = `Up to ${maxXp} XP`;
-                document.getElementById('lessonMeta').innerHTML = `
-                    <span class="meta-chip">${lesson.estimatedMinutes} min</span>
-                    <span class="meta-chip">Difficulty ${'●'.repeat(concept.difficulty || 1)}${'○'.repeat(Math.max(0, 5 - (concept.difficulty || 1)))}</span>
-                    <span class="meta-chip">${steps.length} steps</span>`;
-
+                setLessonChrome(lesson, concept, steps);
                 applyContentDirection();
                 buildStepSegments(steps.length);
                 displayLearningPath();
@@ -7368,6 +7457,92 @@ ${languageRule()}`;
                 lessonLoading = false;
                 hideMessage();
             }
+        }
+
+        // Max possible: base + 10 per gradeable question + perfect-run bonus.
+        // Read off the finished lesson, so it is only ever set once the quiz is
+        // all there — a half-written lesson has no honest number to show.
+        function setLessonChrome(lesson, concept, steps) {
+            const gradeable = (lesson.quiz?.length || 0)
+                + (lesson.practice ? 1 : 0)
+                + (lesson.challenge ? 1 : 0);
+            const maxXp = 20 + gradeable * 10 + (gradeable > 0 ? 25 : 0);
+            document.getElementById('lessonXpBadge').textContent = `Up to ${maxXp} XP`;
+            document.getElementById('lessonMeta').innerHTML = `
+                <span class="meta-chip">${lesson.estimatedMinutes} min</span>
+                <span class="meta-chip">Difficulty ${'●'.repeat(concept.difficulty || 1)}${'○'.repeat(Math.max(0, 5 - (concept.difficulty || 1)))}</span>
+                <span class="meta-chip">${steps.length} steps</span>`;
+        }
+
+        /**
+         * Put a lesson on screen before it has finished being written.
+         *
+         * Only the opening goes up (see `openingLesson`), followed by a
+         * `writing` step that the learner reaches only if they outrun the
+         * model. Nothing here is saved to `progress`: a half-written lesson is
+         * not a lesson, and filing one would hand it back from cache next time
+         * with everything after `explore` missing for good.
+         */
+        function openPartialLesson(draft, index, concept) {
+            const warmUp = pickWarmUp(index);
+            const steps = buildLessonSteps(draft, { warmUp: !!warmUp });
+            if (!steps.length) return false;
+            steps.push({ type: 'writing' });
+
+            lessonState = {
+                lesson: draft, steps, step: 0,
+                correct: 0, total: 0,
+                startedAt: Date.now(),
+                answered: {},
+                attempts: {},
+                warmUp,
+                missed: [],
+                result: null,
+                partialFor: index,
+            };
+
+            document.getElementById('sourcePicker').hidden = true;
+            document.getElementById('learningPath').classList.add('active');
+            // No chrome yet — the XP total and the step count are both
+            // unknowable until the quiz has arrived, and a number that changes
+            // under the learner is worse than no number.
+            document.getElementById('lessonXpBadge').textContent = '';
+            applyContentDirection();
+            buildStepSegments(steps.length);
+            displayLearningPath();
+            openLessonScreen();
+            renderStep();
+            hideMessage();
+            return true;
+        }
+
+        /**
+         * Swap the finished lesson in under a learner who is already reading it.
+         *
+         * Safe only because of the prefix guarantee `openingLesson` exists to
+         * provide: the steps built from the finished lesson begin with exactly
+         * the steps built from its opening, so `lessonState.step` still points
+         * at the same step it did a moment ago. Everything the learner has done
+         * — answers, attempts, the warm-up they were given — is carried across
+         * untouched.
+         *
+         * The screen is only redrawn if they are sitting on the `writing` step,
+         * where redrawing is the whole point. Redrawing anywhere else would
+         * wipe a half-typed answer to a question that has not changed.
+         */
+        function applyFinishedLesson(lesson, concept) {
+            const wasWaiting = lessonState.steps[lessonState.step]?.type === 'writing';
+            const steps = buildLessonSteps(lesson, { warmUp: !!lessonState.warmUp });
+            steps.push({ type: 'complete' });
+
+            lessonState.lesson = lesson;
+            lessonState.steps = steps;
+            lessonState.partialFor = null;
+
+            setLessonChrome(lesson, concept, steps);
+            buildStepSegments(steps.length);
+            updateStepSegments(lessonState.step, steps.length);
+            if (wasWaiting) renderStep();
         }
 
         // The same question with the options moved, so a second look tests the
@@ -7435,9 +7610,13 @@ ${languageRule()}`;
             // the warm-up when there is one: the warm-up is a question, and a
             // panel of statistics about a different lesson above a question is
             // exactly what this was moved off.
+            // Held back entirely while the lesson is still being written: two
+            // of the three chips it carries (the step count, and the XP the
+            // badge beside it shows) cannot be known until the quiz has
+            // arrived. `applyFinishedLesson` fills them in.
             const meta = document.getElementById('lessonMeta');
             const introAt = steps.findIndex(x => x.type !== 'warmup');
-            if (meta) meta.hidden = step !== introAt;
+            if (meta) meta.hidden = lessonState.partialFor != null || step !== introAt;
 
             const body = document.getElementById('lessonExplanation');
 
@@ -7466,6 +7645,7 @@ ${languageRule()}`;
                 demoComplete: () => stepDemoComplete(),
                 reviewq: () => stepReviewQuestion(s.i),
                 reviewComplete: () => stepReviewComplete(),
+                writing: () => stepWriting(),
             };
             body.innerHTML = renderers[s.type]();
             // Interactive diagrams arrive inert, whichever step drew them.
@@ -7480,6 +7660,24 @@ ${languageRule()}`;
         }
 
         // ---- Step renderers ----
+
+        // Only reachable on a lesson opened before it finished streaming, and
+        // only if the learner got through the opening faster than the model
+        // wrote the rest. There is no Continue on it: `applyFinishedLesson`
+        // replaces the step list and re-renders the moment the lesson lands, so
+        // the button would be gone before it could be pressed. It says what is
+        // happening rather than showing a bare spinner, because the learner is
+        // mid-lesson here and a spinner with no sentence reads as a hang.
+        function stepWriting() {
+            return `
+                <div class="step-writing">
+                    <span class="spinner" aria-hidden="true"></span>
+                    <h2 class="question-text">Still writing the rest…</h2>
+                    <p class="step-writing-note">You got through the opening faster than we could
+                    write the rest of it. This carries on by itself in a moment.</p>
+                </div>`;
+        }
+
         // The one question in the lesson that is not about this lesson. It
         // says which concept it came from, because being reminded that you
         // learned this on Tuesday is part of what the step is for.

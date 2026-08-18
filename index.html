@@ -1914,6 +1914,19 @@
 
         .tutor-thinking { display: flex; align-items: center; gap: var(--sp-3); color: var(--text-muted); font-size: var(--fs-sm); }
 
+        /* Reached only when the learner outruns a lesson that is still
+           streaming in. Centred and quiet — it is a pause inside a lesson, not
+           a state to act on, and it carries no button because it clears itself. */
+        .step-writing {
+            display: flex; flex-direction: column; align-items: center;
+            gap: var(--sp-4); text-align: center;
+            padding: var(--sp-10) var(--sp-4);
+        }
+        .step-writing-note {
+            color: var(--text-muted); font-size: var(--fs-sm);
+            line-height: var(--lh-body); max-width: 34ch; margin: 0;
+        }
+
         /* ========================== Lesson content ========================== */
         .step-eyebrow {
             font-size: var(--fs-xs); font-weight: 800; letter-spacing: 0.08em;

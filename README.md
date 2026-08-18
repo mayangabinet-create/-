@@ -577,8 +577,37 @@ failures to the console rather than onto a screen showing something else, and a 
 switched away from mid-flight discards what lands, because writing it into the new
 course's `progress` would file one course's lesson 4 as another's.
 
-`tests/lesson-flow.js` covers the guards, the SSE scanner on every chunk boundary, and
-the progress readers; `tests/ai-proxy-policy.mjs` covers the server half of the stream.
+**The lesson opens before it is finished.** Prefetching only helps a lesson somebody
+could see coming — the next one in a course. The first lesson of a new course has nothing
+running ahead of it, so it was the one place a learner still watched a spinner for the
+whole generation. Now the opening goes on screen as soon as it has streamed in: the
+proxy already streams, and `extractJSON` already closes off a truncated object, so a
+half-written lesson parses into whatever finished arriving. The learner reads the hook,
+makes a prediction and touches the explore widget — a minute or so — while the rest is
+still being written behind them.
+
+What makes this safe rather than merely fast is that **the opening is an exact prefix of
+the finished lesson**. `openingLesson()` keeps the hook, the prediction and the explore
+step and drops everything after them — cards included, and especially cards. The lesson
+interleaves part of the quiz between the cards, and `interleavedCount()` cannot know how
+many until the whole quiz has arrived; a card rendered early would have questions spliced
+in around it once it did. Holding the cards back means every step the learner has already
+walked through is exactly the step the finished lesson would have given them, so
+`applyFinishedLesson()` swaps the real lesson in underneath at whatever step they reached,
+carrying their answers across and redrawing nothing. `tests/lesson-flow.js` checks that
+prefix property across eighty lesson shapes rather than trusting the argument.
+
+A learner who outruns the model lands on a `writing` step, which clears itself. It should
+be rare: the opening takes about a minute to work through and the rest of a lesson takes
+one to two to write. Nothing partial is ever saved to `progress` — a half-written lesson
+filed as a lesson would come back from cache with everything after `explore` missing for
+good — and the XP total and step count stay hidden until the quiz has landed, because
+both are unknowable before then and a number that changes under the learner is worse than
+no number.
+
+`tests/lesson-flow.js` covers the guards, the SSE scanner on every chunk boundary, the
+progress readers, and the prefix property above; `tests/ai-proxy-policy.mjs` covers the
+server half of the stream.
 
 ## Tiers
 

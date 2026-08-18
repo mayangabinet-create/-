@@ -412,6 +412,43 @@ console.log('\n== templates ==');
   // number a learner sees on open, not a value trusted from the model.
   ok('which computes to the real density: 5 g/cm\u00b3',
      P.tryExpr(dSlider.outputs[0].expr, { ...dSlider.constants, volume: dSlider.value }) === 5);
+
+  // The `other` domain: no shelf of its own, but two new templates that
+  // guarantee an order or a scale rather than trust the model with either —
+  // and two existing ones (summary-stats, percent-change) widened to reach it.
+  const chrono = P.validVisual({ template: 'chronology', params: { events: [
+    { label: 'Founded', year: 1955 }, { label: 'Reorganised', year: 1962 }, { label: 'Dissolved', year: 1948 },
+  ] } });
+  ok('events come out in true chronological order, not the order given',
+     JSON.stringify(chrono.events.map(e => e.text)) === JSON.stringify(['Dissolved', 'Founded', 'Reorganised']),
+     JSON.stringify(chrono.events));
+  ok('the span and the gaps are computed, not estimated',
+     chrono.caption.includes('span 14 years') && chrono.caption.includes('closest two are 7 years')
+       && chrono.caption.includes('furthest 7 years'),
+     chrono.caption);
+  ok('one event alone is not a chronology',
+     P.validVisual({ template: 'chronology', params: { events: [{ label: 'only one', year: 2000 }] } }) === null);
+  ok('a plain "label:year" string works too, not only the documented object shape',
+     P.validVisual({ template: 'chronology', params: { events: ['A:1990', 'B:2000'] } }).events.length === 2);
+
+  const ranked = P.validVisual({ template: 'ranked-comparison', params: { unit: 'thousand',
+    items: [{ label: 'Battle A', value: 12 }, { label: 'Battle B', value: 340 }, { label: 'Battle C', value: 88 }] } });
+  ok('bars come out ranked largest to smallest, not in the order given',
+     JSON.stringify(ranked.bars.map(b => b.label)) === JSON.stringify(['Battle B', 'Battle C', 'Battle A']),
+     JSON.stringify(ranked.bars));
+  ok('the caption names the actual largest and smallest, with their real figures',
+     ranked.caption.includes('Battle B (340 thousand)') && ranked.caption.includes('Battle A (12 thousand)'),
+     ranked.caption);
+  ok('fewer than two things is not a comparison',
+     P.validVisual({ template: 'ranked-comparison', params: { items: [{ label: 'only one', value: 1 }] } }) === null);
+
+  // `other` now reaches a handful of general-purpose templates, and only
+  // those — the design that kept it at zero for the wrong reason (nothing
+  // computable exists for history) rather than the right one (no shelf
+  // narrow enough to fit history, law, literature and medicine at once).
+  ok('and every template `other` reaches assumes no subject at all',
+     ['summary-stats', 'percent-change', 'chronology', 'ranked-comparison']
+       .every(id => P.TEMPLATES[id].domains.includes('other')));
 }
 
 console.log('\n== boolean logic ==');
@@ -587,7 +624,19 @@ console.log('\n== the lesson prompt ==');
   const domains = [...new Set(Object.values(P.TEMPLATES).flatMap(t => t.domains))];
   ok('every template is reachable from the domain it claims',
      domains.every(d => P.templateCatalogue(d).length > 0));
-  ok('a concept with no domain is offered no templates', P.templateCatalogue('other') === '');
+  // A concept whose domain was never set at all — an old course plan, a
+  // malformed one — gets nothing, same as always. `other` is different: it is
+  // a domain the model actively chooses (history, law, literature, medicine),
+  // and it now carries the handful of templates that assume no subject at
+  // all — dates ordered correctly, numbers ranked and scaled correctly.
+  ok('a concept with no domain set carries no template', P.templateCatalogue('') === '');
+  ok('but "other" is a real domain, not an empty one, and reaches its own',
+     P.templateCatalogue('other').includes('"chronology"')
+     && P.templateCatalogue('other').includes('"ranked-comparison"'));
+  ok('and reaches the general-purpose ones widened to it, not the subject-specific rest',
+     P.templateCatalogue('other').includes('"summary-stats"')
+     && P.templateCatalogue('other').includes('"percent-change"')
+     && !P.templateCatalogue('other').includes('"right-triangle"'));
   ok('and one with a domain is offered its own',
      P.buildLessonPrompt({ ...concept, domain: 'math' }, 'S').includes('"right-triangle"'));
   ok('but not another subject\'s',

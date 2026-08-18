@@ -156,7 +156,7 @@ years, the rows of a truth table, the trace of a binary search — is computed h
 JavaScript, from the parameters. The model is asked for the figures the source material
 uses and explicitly not for the results.
 
-Thirty-three templates, shelved by subject:
+Thirty-five templates, shelved by subject:
 
 | | |
 |---|---|
@@ -167,6 +167,7 @@ Thirty-three templates, shelved by subject:
 | 📊 **data** | mean, median, range and standard deviation · histograms binned from raw values · the normal curve with its 68/95 bands · dice distributions |
 | 💰 **finance** | compound vs simple interest, plotted and draggable · loan payments and total interest · percentage change |
 | 🌱 **science** | Punnett square (genotype and phenotype ratios from a cross) · pH from H⁺ concentration · exponential population growth · energy transfer up a food chain (the 10% rule) · density as a slider · half-life, shared with physics |
+| 📚 **other** | events sorted into their true chronological order with the span and gaps computed · several figures ranked and scaled correctly · mean/median/range/spread, shared with data · percentage change, shared with finance and math |
 
 A template may return several figures — the triangle *and* the working, the curve *and*
 the bands — which arrive as one grouped exhibit.
@@ -184,6 +185,26 @@ line. `population-growth` and `energy-pyramid` are exponentials computed the sam
 losing 90% a level instead of gaining a rate. `density` is a slider in the same family as
 `ohms-law` — drag the volume, watch mass ÷ volume recompute live.
 
+**`other` went from zero templates to four, on purpose and without a subject.**
+It used to be offered nothing at all — the one deliberate exception to "every domain
+gets a shelf" — and the reason given was that a finite set of templates cannot cover
+an unbounded domain: there is no closed vocabulary for "history and law and literature
+and medicine and business" the way there is for algebra. That reasoning was right about
+narrow, subject-shaped templates and wrong about domain-general ones. A body count, a
+vote share, a print run, a population, a box-office gross: `other` is full of concepts
+that turn on a handful of numbers, and the arithmetic that describes them doesn't know
+or care which subject they came from. `chronology` takes a list of dated events — in
+whatever order the model happened to write them — and returns them in their true
+chronological order, with the span and the smallest and largest gaps computed, not
+estimated; a course would otherwise trust the model to both order and space events
+correctly, which is exactly the kind of arithmetic this whole layer exists to take off
+its hands. `ranked-comparison` takes a list of labelled figures and returns them sorted
+largest to smallest, drawn to true relative scale — deadliest battles, longest-reigning
+monarchs, best-selling novels, whatever the concept needs ranked. `summary-stats` and
+`percent-change` were already exactly this general underneath their finance- and
+data-flavoured wording, so they simply gained `other` as a third and fourth domain
+rather than being rewritten.
+
 Three properties make the layer safe to grow. Templates compose the primitives, so a new
 one needs no new renderer. Every parameter is coerced, defaulted and clamped, so junk
 from the model becomes a sensible figure rather than an exception — a template that
@@ -194,9 +215,10 @@ changes or is withdrawn.
 
 Only the concept's own subject reaches the prompt. That is what keeps a library this
 size affordable to offer — and it is why the model picks well: a dozen candidates that
-all fit, not thirty-three that mostly don't. A concept whose domain is `other` — history, law,
-literature, medicine — is offered no templates and gets exactly the format described
-above.
+all fit, not thirty-five that mostly don't. A concept whose domain is `other` — history,
+law, literature, medicine, business, philosophy — reaches only the four templates above
+that assume no subject; the thirty-one that assume algebra, circuits or a genetic cross
+stay off its shelf exactly as they always did.
 
 `tests/lesson-visuals.js` covers all of it — the geometry, the evaluator's refusal to run
 anything but arithmetic, the gematria tables, every template built from its defaults and

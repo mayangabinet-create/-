@@ -4639,7 +4639,9 @@ ${languageRule()}`;
 
             // ---- Data and statistics ----------------------------------------
             'summary-stats': {
-                domains: ['data'],
+                // A dataset is a dataset whether it counts survey responses or
+                // casualties in a battle — nothing here is data-specific.
+                domains: ['data', 'other'],
                 use: 'a set of numbers with mean, median, range and spread computed and drawn',
                 params: 'values (list), label',
                 build: p => {
@@ -4760,7 +4762,10 @@ ${languageRule()}`;
                 },
             },
             'percent-change': {
-                domains: ['finance', 'math'],
+                // A population, a body count, a print run, a vote share: `other`
+                // is full of numbers that changed between two points, and the
+                // arithmetic that describes the change is not finance-specific.
+                domains: ['finance', 'math', 'other'],
                 use: 'the percentage change between two figures, computed both ways round',
                 params: 'from, to, unit',
                 build: p => {
@@ -4775,6 +4780,86 @@ ${languageRule()}`;
                         { type: 'formula', expression: `(${fmtNum(to)} − ${fmtNum(from)}) / ${fmtNum(Math.abs(from))} = ${fmtNum(change, 1)}%`,
                           note: back === null ? '' : `Going back the other way is ${fmtNum(back, 1)}% — the two are not the same number.` },
                     ];
+                },
+            },
+
+            // ---- General purpose (`other`) -----------------------------------
+            // `other` is history, law, literature, medicine, business — anything
+            // with no shelf of its own, and by design it is offered no template
+            // that assumes a subject. What it can be offered, without pretending
+            // to know the subject, is arithmetic and ordering that any of them
+            // might need: dates that have to come out in the true order
+            // regardless of how the model listed them, and numbers that have to
+            // be ranked and scaled correctly rather than approximated. Two new
+            // ones here; `summary-stats` and `percent-change` above are widened
+            // to reach `other` too, for the same reason — a body count and a
+            // survey response are both just a list of numbers.
+            'chronology': {
+                domains: ['other'],
+                use: 'events placed in their true chronological order regardless of the order given, with the span and the gaps between them computed — for a sequence of dated events in any subject',
+                params: 'events (list of {label, year}), unit (e.g. "CE", "BCE", or blank)',
+                build: p => {
+                    // Generic placeholders, not a claimed fact — the same role
+                    // `set-operations`' default lists or `compound-interest`'s
+                    // default principal play: something to draw when nothing
+                    // was supplied, not a real event dressed up as one.
+                    const fallback = [{ label: 'Event A', year: 1900 }, { label: 'Event B', year: 1950 },
+                                       { label: 'Event C', year: 2000 }];
+                    const raw = (Array.isArray(p?.events) && p.events.length) ? p.events : fallback;
+                    const events = raw.map(e => {
+                        if (!e) return null;
+                        // Model output is not to be trusted with shape either: a
+                        // plain "label:year" string is accepted alongside the
+                        // documented {label, year} object.
+                        if (typeof e === 'string') {
+                            const m = /^(.*?)[:|]\s*(-?\d+)\s*$/.exec(e);
+                            return m ? { label: m[1].trim().slice(0, 60), year: Number(m[2]) } : null;
+                        }
+                        const year = Number(e.year);
+                        return (e.label && isFinite(year)) ? { label: String(e.label).slice(0, 60), year } : null;
+                    }).filter(Boolean).slice(0, 12);
+                    if (events.length < 2) return null;
+                    const sorted = [...events].sort((a, b) => a.year - b.year);
+                    const unit = tStr(p, 'unit', '');
+                    const gaps = sorted.slice(1).map((e, i) => e.year - sorted[i].year);
+                    const span = sorted.at(-1).year - sorted[0].year;
+                    const biggest = Math.max(...gaps), smallest = Math.min(...gaps);
+                    const yr = n => `${n}${unit ? ' ' + unit : ''}`;
+                    return {
+                        type: 'timeline',
+                        events: sorted.map(e => ({ label: yr(e.year), text: e.label })),
+                        caption: `${sorted.length} events span ${fmtNum(span)} year${span === 1 ? '' : 's'} — `
+                            + `closest two are ${fmtNum(smallest)} year${smallest === 1 ? '' : 's'} apart, `
+                            + `furthest ${fmtNum(biggest)} year${biggest === 1 ? '' : 's'}.`,
+                    };
+                },
+            },
+            'ranked-comparison': {
+                domains: ['other'],
+                use: 'several things ranked by one number — sorted correctly and drawn to scale, for a set of figures in any subject (deaths in a battle, copies sold, a body of work by length)',
+                params: 'items (list of {label, value}), unit',
+                build: p => {
+                    const fallback = [{ label: 'A', value: 40 }, { label: 'B', value: 75 }, { label: 'C', value: 25 }];
+                    const raw = (Array.isArray(p?.items) && p.items.length) ? p.items : fallback;
+                    const items = raw.map(it => {
+                        if (!it) return null;
+                        if (typeof it === 'string') {
+                            const m = /^(.*?)[:|]\s*(-?[\d.]+)\s*$/.exec(it);
+                            return m ? { label: m[1].trim().slice(0, 60), value: Number(m[2]) } : null;
+                        }
+                        const value = Number(it.value);
+                        return (it.label && isFinite(value)) ? { label: String(it.label).slice(0, 60), value } : null;
+                    }).filter(Boolean).slice(0, 10);
+                    if (items.length < 2) return null;
+                    const sorted = [...items].sort((a, b) => b.value - a.value);
+                    const unit = tStr(p, 'unit', '');
+                    const withUnitStr = n => `${fmtNum(n)}${unit ? ' ' + unit : ''}`;
+                    return {
+                        type: 'bar', unit: unit ? ` ${unit}` : '',
+                        bars: sorted.map(it => ({ label: it.label, value: it.value })),
+                        caption: `Ranked largest to smallest: ${sorted[0].label} (${withUnitStr(sorted[0].value)}) `
+                            + `down to ${sorted.at(-1).label} (${withUnitStr(sorted.at(-1).value)}).`,
+                    };
                 },
             },
         };

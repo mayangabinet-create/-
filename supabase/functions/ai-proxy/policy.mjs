@@ -89,8 +89,13 @@ export const FREE_CALLS_PER_DAY = 200;
  * cheap, sub-threshold call `classify()` already prices as free work.
  * Leaving it off this set does not make that call cheaper; it makes it a 400
  * before `classify()` is ever reached, which is why it belongs here.
+ *
+ * `worksheet` is a course-planning call like `path`, priced and modelled the
+ * same way (`classify()` reads `max_tokens`, not `task`) — the only thing it
+ * changes is `shouldFixCourseSize` below, which is why it needs its own
+ * label rather than reusing `path`.
  */
-export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer"]);
+export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer", "worksheet"]);
 
 // A client that sends fifty blocks is not a client we wrote.
 export const MAX_CONTENT_BLOCKS = 8;
@@ -159,6 +164,24 @@ export function fixCourseSize(text, n) {
     return text.replace(CONCEPT_RE, `Identify exactly ${n} core concepts`);
   }
   return `${text}\n\nIMPORTANT: return exactly ${n} concepts, no more and no fewer.`;
+}
+
+/**
+ * Whether a course-planning call gets its concept count rewritten to the
+ * tier's fixed number.
+ *
+ * A `path` call asked the model to synthesize a topic list — "10-20 core
+ * concepts" — so pinning it to the tier's exact number is the whole point of
+ * `fixCourseSize`. A `worksheet` call (see `generateLessonPath` in app.js)
+ * asked the model to enumerate the material's own exercises exhaustively, in
+ * their own order — forcing that down to a fixed count would recreate
+ * exactly the skipping and merging the mode exists to avoid. The monthly
+ * lesson quota still caps what a worksheet with many exercises can actually
+ * cost: this only decides whether the *count* is rewritten, not whether the
+ * work is metered.
+ */
+export function shouldFixCourseSize(kind, task) {
+  return kind === "course" && task !== "worksheet";
 }
 
 export function clampText(text, budget) {

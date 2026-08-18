@@ -28,6 +28,7 @@ import {
   normaliseContent,
   planFor,
   prepareBlocks,
+  shouldFixCourseSize,
   sseScanner,
   streamUsage,
   usageFrom,
@@ -221,6 +222,18 @@ console.log("\n== course size rewrite ==");
        .includes("Identify exactly 10 core concepts"));
   ok("an unrecognised prompt gets the constraint appended",
      fixCourseSize("Do whatever you like", 15).includes("exactly 15 concepts"));
+
+  ok("the worksheet label is accepted", KNOWN_TASKS.has("worksheet"));
+  ok("a worksheet call is still classified and priced as course work",
+     classify(4000).kind === "course");
+  ok("a plain course call gets its concept count rewritten",
+     shouldFixCourseSize("course", "path"));
+  ok("a worksheet call does not — it is enumerating exercises, not a fixed-size topic list",
+     !shouldFixCourseSize("course", "worksheet"));
+  ok("a worksheet task on a non-course call changes nothing (there is nothing to rewrite)",
+     !shouldFixCourseSize("lesson", "worksheet"));
+  ok("a course call with no task at all still gets rewritten (an older client)",
+     shouldFixCourseSize("course", undefined));
 }
 
 console.log("\n== usage accounting ==");

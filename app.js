@@ -644,17 +644,46 @@
             return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
         }
 
-        async function generateLessonPath(text, structure = null) {
+        // Shared by both plan prompts below — the JSON shape and the language
+        // rule are identical either way, only the TASK section above them
+        // differs. Kept as one string so the two prompts cannot drift apart on
+        // the part that the rest of the app actually parses.
+        const PLAN_DOMAIN_KIND_RULE = `   - domain: the subject it belongs to, which decides which ready-made
+     figures its lesson may use. Exactly one of:
+       math | physics | cs | logic | data | science | finance | other
+     Use "other" honestly — for history, law, literature, medicine, business
+     and anything else. It is not a lesser option.
+   - kind: what sort of thing it is, which decides how its lesson will be
+     taught. Exactly one of:
+       geometry       — figures, shapes, sides, angles, areas
+       quantity       — formulas, rates, money, measurements, anything calculated
+       process        — steps or stages in an order, including repeating cycles
+       timeline       — events fixed in time
+       comparison     — two or more things set against each other
+       classification — a set of things divided into groups
+       definition     — a term and what it means
+       text           — wording, sources, terminology, interpretation`;
 
-            // Not the first N characters of the document. The opening pages of a
-            // textbook are a title page, a copyright notice and a table of contents
-            // — the least conceptual text in the whole file — and a course built
-            // from them lists the chapters instead of teaching them. The digest
-            // reads the whole document and spends the budget on the parts that
-            // actually carry concepts, spread from first page to last.
-            const digest = buildSourceDigest(text, planReadChars(), structure);
+        function planSchemaAndLanguage(exampleConcept) {
+            return `Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
+{
+  "courseName": "Course title",
+  "language": "The language of the MATERIAL above, as an English name (e.g. English, Hebrew, Spanish)",
+  "concepts": [
+    ${exampleConcept}
+  ]
+}
 
-            const extractPrompt = `Analyse the study material below and extract its key concepts.
+LANGUAGE: write every string above in the same language as the MATERIAL.
+If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
+The exceptions are "language", "domain" and "kind", which are labels the app
+reads: keep those in English, spelled exactly as listed above. "section" is not
+written at all — it is copied from the outline, character for character, in
+whatever language the outline is in, because the app looks it up there.`;
+        }
+
+        function buildTopicPlanPrompt(digest) {
+            return `Analyse the study material below and extract its key concepts.
 
 The material is a digest of a longer document. Lines in [SQUARE BRACKETS] are
 labels added by the app, not part of the document — do not treat them as content,
@@ -686,50 +715,86 @@ TASK:
    - description (one sentence)
    - difficulty (1-5)
    - why it matters
-   - domain: the subject it belongs to, which decides which ready-made
-     figures its lesson may use. Exactly one of:
-       math | physics | cs | logic | data | science | finance | other
-     Use "other" honestly — for history, law, literature, medicine, business
-     and anything else. It is not a lesser option.
-   - kind: what sort of thing it is, which decides how its lesson will be
-     taught. Exactly one of:
-       geometry       — figures, shapes, sides, angles, areas
-       quantity       — formulas, rates, money, measurements, anything calculated
-       process        — steps or stages in an order, including repeating cycles
-       timeline       — events fixed in time
-       comparison     — two or more things set against each other
-       classification — a set of things divided into groups
-       definition     — a term and what it means
-       text           — wording, sources, terminology, interpretation
+${PLAN_DOMAIN_KIND_RULE}
 
-Return valid JSON only (no markdown, no surrounding prose), in exactly this shape:
-{
-  "courseName": "Course title",
-  "language": "The language of the MATERIAL above, as an English name (e.g. English, Hebrew, Spanish)",
-  "concepts": [
-    {
+${planSchemaAndLanguage(`{
       "id": 1,
       "name": "Concept name",
       "description": "One-sentence description",
       "difficulty": 2,
       "domain": "other",
       "kind": "definition",
-      "section": "The [OUTLINE] heading this concept comes from, copied exactly, or \"\" if it spans the whole document",
+      "section": "The [OUTLINE] heading this concept comes from, copied exactly, or \\"\\" if it spans the whole document",
       "importance": "Why this matters",
       "examples": ["Example 1", "Example 2"]
-    }
-  ]
-}
+    }`)}`;
+        }
 
-LANGUAGE: write every string above in the same language as the MATERIAL.
-If the material is in Hebrew, write in Hebrew. If Spanish, Spanish. Do not translate.
-The exceptions are "language", "domain" and "kind", which are labels the app
-reads: keep those in English, spelled exactly as listed above. "section" is not
-written at all — it is copied from the outline, character for character, in
-whatever language the outline is in, because the app looks it up there.`;
+        // Worksheet mode: the model is not asked to synthesize themes, it is
+        // asked to enumerate the material's own exercises — every one of them,
+        // in the order they appear, none merged, none invented. There is no
+        // "10-20" here on purpose: the count is whatever the worksheet actually
+        // contains, and the server does not rewrite it to the tier's number
+        // for a `worksheet` call the way it does for `path` (see
+        // `shouldFixCourseSize` in policy.mjs). What still caps the cost is the
+        // same monthly lesson quota every course draws from — a worksheet with
+        // more exercises just spends more of that same budget, the way three
+        // short courses would.
+        function buildWorksheetPlanPrompt(digest) {
+            return `Analyse the worksheet below and list every exercise in it — not the topics
+behind them, the exercises themselves.
+
+The material is a digest of the document. Lines in [SQUARE BRACKETS] are labels
+added by the app, not part of the document — do not treat them as content, and
+do not let them influence which language you report. [...] marks text that was
+left out. If [OUTLINE] appears, it is the document's own structure (its parts,
+in order) — use it only to say which part an exercise belongs to, if the
+worksheet is organised into parts; most are not, and that is fine.
+
+MATERIAL:
+${digest}
+
+TASK:
+1. List every distinct exercise, problem or question in this material, in the
+   exact order they appear. Do not skip any. Do not merge two exercises into
+   one entry. Do not invent one the material does not contain.
+2. If the material numbers or labels them (Exercise 3, תרגיל ב, Question 12,
+   שאלה 4), start "name" with that exact label. If it does not label them,
+   number them yourself in the order they appear ("Exercise 1", "Exercise 2", …).
+3. For each exercise give:
+   - name: its label (see above), plus a 2-4 word hint at what it asks
+   - description: the exercise itself, in full — the actual question or
+     problem as written in the material, not a summary of its topic
+   - difficulty (1-5)
+   - why it matters: what solving it practises, in one short phrase
+${PLAN_DOMAIN_KIND_RULE}
+
+${planSchemaAndLanguage(`{
+      "id": 1,
+      "name": "Exercise 3 — solving for x",
+      "description": "The exercise itself, copied in full from the material",
+      "difficulty": 2,
+      "domain": "math",
+      "kind": "quantity",
+      "section": "The [OUTLINE] heading this exercise comes from, copied exactly, or \\"\\" if there is none",
+      "importance": "What solving it practises",
+      "examples": []
+    }`)}`;
+        }
+
+        async function generateLessonPath(text, structure = null, worksheet = false) {
+
+            // Not the first N characters of the document. The opening pages of a
+            // textbook are a title page, a copyright notice and a table of contents
+            // — the least conceptual text in the whole file — and a course built
+            // from them lists the chapters instead of teaching them. The digest
+            // reads the whole document and spends the budget on the parts that
+            // actually carry concepts, spread from first page to last.
+            const digest = buildSourceDigest(text, planReadChars(), structure);
+            const extractPrompt = worksheet ? buildWorksheetPlanPrompt(digest) : buildTopicPlanPrompt(digest);
 
             const result = await callAI(extractPrompt, '', {
-                maxTokens: MAX_TOKENS.path, task: 'path',
+                maxTokens: MAX_TOKENS.path, task: worksheet ? 'worksheet' : 'path',
                 stream: true, onProgress: pathProgress,
             });
             if (!result) return null;
@@ -1712,6 +1777,18 @@ ${languageRule()}`;
             return { text: text.slice(0, MAX_SOURCE_CHARS), structure: null };
         }
 
+        // Worksheet mode: the upload screen's one toggle, read by both submit
+        // paths below and by the resume-after-signup replay (see pendingAction).
+        // Reset on every fresh visit to the upload screen (see showNewCourse) so
+        // it never carries over from a previous course by accident.
+        let worksheetMode = false;
+
+        function setWorksheetMode(on) {
+            worksheetMode = on;
+            const btn = document.getElementById('worksheetModeToggle');
+            if (btn) btn.setAttribute('aria-checked', String(on));
+        }
+
         async function handleFileUpload(file) {
             // Name the file being read. "Reading PDF..." after picking the wrong one
             // from a list of near-identical names gives you nothing to check against.
@@ -1741,7 +1818,7 @@ ${languageRule()}`;
                 showError("No text found in that file. It may be a scanned PDF with no text layer — tools/pdf_prep can read one with OCR.");
                 return;
             }
-            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure);
+            await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure, worksheetMode);
         }
 
 
@@ -1842,6 +1919,45 @@ ${languageRule()}`;
                     title: 'This repeats itself',
                     detail: `Only about ${Math.round(st.vocabulary * 100)}% of the words are different ones. `
                         + 'A document that says the same thing on every line has one idea in it, not ten.',
+                    fix: 'Try a document with more to say.',
+                    stats: st,
+                };
+            }
+
+            return null;
+        }
+
+        // The gate for worksheet mode (see generateLessonPath) is deliberately
+        // lighter than assessMaterial. Every "mostly-numbers" and "not-prose"
+        // check above assumes the document is narrative prose with a shape to
+        // judge — which is exactly what a worksheet is not, by design: "1. Solve
+        // 2x+5=13" is almost all digits and symbols, three real words, no
+        // sentence at all, and would fail every one of those checks despite
+        // being precisely what this mode exists to teach from. What still needs
+        // guarding against is the same as ever — nothing pasted, or the same
+        // line repeated down the page — so those two checks are kept and the
+        // shape-of-prose ones are dropped.
+        const WORKSHEET_MIN_CHARS = 150;
+
+        function assessWorksheetMaterial(text) {
+            const st = materialStats(text);
+
+            if (st.chars < WORKSHEET_MIN_CHARS) {
+                return {
+                    code: 'too-short',
+                    title: "There isn't enough here to teach",
+                    detail: `This has about ${st.chars} characters. Paste the whole worksheet, or a fuller page of it.`,
+                    fix: 'Paste more of the worksheet.',
+                    stats: st,
+                };
+            }
+
+            if (st.realWords > 400 && st.vocabulary < 0.12) {
+                return {
+                    code: 'repetitive',
+                    title: 'This repeats itself',
+                    detail: `Only about ${Math.round(st.vocabulary * 100)}% of the words are different ones. `
+                        + 'A worksheet whose lines just repeat has nothing new in it to build exercises from.',
                     fix: 'Try a document with more to say.',
                     stats: st,
                 };
@@ -2011,13 +2127,15 @@ ${languageRule()}`;
 
         // `title` is the fallback (filename, or nothing for pasted text); a name the
         // learner typed themselves always beats both that and the model's suggestion.
-        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null) {
+        async function processLearningMaterial(text, title = '', chosenName = requestedCourseName(), structure = null, worksheet = false) {
             // The gate first, before the sign-up wall. Judging the material
             // costs nothing, and being asked to create an account and only then
             // told the document was never going to work is the worst order
-            // these two could happen in.
+            // these two could happen in. Worksheet mode uses a lighter gate —
+            // see assessWorksheetMaterial — since a page of terse exercises
+            // fails every shape-of-prose check assessMaterial runs.
             buildStage('check', 'Checking your material');
-            const verdict = assessMaterial(text);
+            const verdict = worksheet ? assessWorksheetMaterial(text) : assessMaterial(text);
             if (verdict && !(await confirmUnsuitable(verdict, text))) {
                 resetToUpload();
                 return;
@@ -2028,14 +2146,14 @@ ${languageRule()}`;
             // The gate runs again on the way back through and passes in
             // silence — the override was recorded against this document.
             if (!currentUser) {
-                pendingAction = { type: 'buildCourse', text, title, chosenName, structure };
+                pendingAction = { type: 'buildCourse', text, title, chosenName, structure, worksheet };
                 showAuthModal('signup');
                 return;
             }
 
-            buildStage('plan', 'Finding the concepts in your material');
+            buildStage('plan', worksheet ? 'Finding the exercises in your worksheet' : 'Finding the concepts in your material');
             try {
-                const course = await generateLessonPath(text, structure);
+                const course = await generateLessonPath(text, structure, worksheet);
                 if (!course) {
                     resetToUpload();   // error already surfaced; give them a way back
                     return;
@@ -6246,6 +6364,7 @@ ${languageRule()}`;
             }
             setScreen('home');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
+            setWorksheetMode(false);
         }
 
         // ============= Lesson preview =============
@@ -7898,11 +8017,13 @@ ${languageRule()}`;
             const btn = document.getElementById('submitTextBtn');
             setButtonBusy(btn, true);
             try {
-                await processLearningMaterial(text);
+                await processLearningMaterial(text, '', requestedCourseName(), null, worksheetMode);
             } finally {
                 setButtonBusy(btn, false);
             }
         });
+
+        document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
 
         // The title itself and the pencil beside it do the same thing — the pencil
         // exists so the affordance is visible without a caption explaining it.
@@ -8742,7 +8863,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         let pendingAction = null;
 
         async function runPendingAction(action) {
-            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName, action.structure);
+            if (action.type === 'buildCourse') return processLearningMaterial(action.text, action.title, action.chosenName, action.structure, action.worksheet);
             if (action.type === 'showLibrary') return showLibrary();
         }
 

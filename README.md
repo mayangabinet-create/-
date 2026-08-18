@@ -298,6 +298,44 @@ Courses are multi-language: the app writes in whatever language the source mater
 in, and the UI adapts direction (RTL) for Hebrew/Arabic content while the chrome itself
 stays English.
 
+## Worksheet mode
+
+The default course-planning prompt asks the model to synthesize 10-20 *topics* from the
+material, in a logical teaching order — the right question for a chapter, the wrong one
+for a worksheet. A page of homework has no topics to extract, it has exercises, and
+asking a topic-synthesizer to plan it produces exactly what a topic-synthesizer should
+produce: some exercises merged into one "concept", others dropped, the rest reordered by
+what reads as pedagogically sensible rather than kept in the order they were assigned.
+
+The upload screen's **"This is a worksheet"** toggle switches to a different prompt
+instead of asking the same one to behave differently. `buildWorksheetPlanPrompt()`
+tells the model to list every exercise, in the order it appears, none merged, none
+skipped, none invented — and if the material numbers them, to keep that numbering in the
+name. There is no "10-20" in it, on purpose: the count is whatever the worksheet actually
+contains. The server does not overwrite that count to the tier's fixed number the way it
+does for a normal course (`shouldFixCourseSize` in `policy.mjs` — the one place `task`
+changes what a call is allowed to do rather than just what it is billed as). What still
+bounds the cost is the same monthly lesson quota every course draws from: a 20-exercise
+worksheet just spends more of that one shared budget, the way two smaller courses would.
+
+Past that one prompt, nothing else changes. An exercise becomes a `concept` exactly like
+a topic does — `description` holds the exercise itself rather than a summary of it, so
+the lesson written from it teaches that literal problem — and flows through the same
+lesson generation, grounding, spaced repetition and path rendering as any other course.
+
+The suitability gate is the other thing that has to change, not just the prompt. A terse
+worksheet ("1. Solve for x: 2x + 5 = 13") is nearly all digits and symbols with no real
+sentence in it, and `assessMaterial()`'s prose-shape checks — mostly-numbers, not-prose —
+exist precisely to catch text shaped like that. Refusing a worksheet for not reading like
+a chapter would defeat the mode before it starts, so this toggle runs
+`assessWorksheetMaterial()` instead: the same floor against an empty paste and the same
+guard against a repeated line, without the checks that assume narrative prose.
+
+`tests/onboarding.js` covers both — the prompt (no count, the no-skip/no-merge/no-invent
+rules, the same JSON shape and language rule the topic prompt ends in) and the gate (a
+worksheet that `assessMaterial` would refuse, refused by neither `assessWorksheetMaterial`
+nor whatever floor keeps out an empty or repeated paste).
+
 ## The four tabs
 
 Every tab is a full screen, routed through one `setScreen()` call so nothing is

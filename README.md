@@ -280,7 +280,9 @@ ever left showing underneath something else.
   leaves the schedule alone.
 - **Account** — email, plan and trial status, this month's course/lesson quota as
   meters, learning stats, AI spend, the subjects picked during the first run,
-  password reset, sign out, delete everything.
+  the theme, password reset, sign out, delete everything. Every settings row that
+  acts on tap carries a trailing chevron; the one destructive row doesn't, so
+  danger reads differently from routine at a glance.
 
 Each screen's empty state carries the button that resolves it: no courses yet ends
 in "Create a course", signed out ends in "Sign in".
@@ -504,6 +506,12 @@ tokens, and below that the API accepts the request, caches nothing, and charges 
 premium anyway. Turning it on there means first raising the budget past ~16,000
 characters, which costs real money per course — a decision worth making against the
 hit rate the paid tiers are about to start reporting rather than against a guess.
+
+The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
+badge for "Your plan", one for "Most popular" (Pro — real model quality without
+Max's price), a checkmark per feature. There's no price on them because checkout
+isn't wired up yet; the redesign is about reading the difference between tiers at a
+glance, not about selling one.
 
 ## Cost model
 

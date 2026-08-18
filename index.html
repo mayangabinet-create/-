@@ -1432,17 +1432,44 @@
         .account-row-text span { font-size: var(--fs-sm); color: var(--text-muted); font-weight: 600; }
         .account-row.is-danger .account-row-icon,
         .account-row.is-danger strong { color: var(--danger); }
+        /* A trailing chevron on every row except the destructive one — the same
+           cue a settings list uses to say "this does something", without
+           implying a sub-page a plain action row doesn't actually have. */
+        .account-row:not(.is-danger)::after {
+            content: '\203A';
+            margin-left: auto; flex: none;
+            font-size: 1.5em; font-weight: 700; line-height: 1;
+            color: var(--text-subtle);
+        }
 
         .plan-list {
             list-style: none; margin: 0 0 var(--sp-4);
-            display: flex; flex-direction: column; gap: var(--sp-2);
+            display: flex; flex-direction: column; gap: var(--sp-3);
         }
-        .plan-list li {
+        .plan-card {
             background: var(--bg); border: 1px solid var(--border);
-            border-radius: var(--r-sm); padding: var(--sp-3);
-            font-size: var(--fs-sm); line-height: var(--lh-body); text-align: start;
+            border-radius: var(--r-lg); padding: var(--sp-4);
+            text-align: start;
         }
-        .plan-list li.is-current { background: var(--brand-tint); border-color: var(--brand-border); }
+        .plan-card.is-current { background: var(--brand-tint); border-color: var(--brand-border); }
+        .plan-card-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: var(--sp-2); margin-bottom: var(--sp-3);
+        }
+        .plan-card-head strong { font-size: var(--fs-h3); font-weight: 800; }
+        .plan-card-badge {
+            flex: none; font-size: var(--fs-xs); font-weight: 800;
+            padding: 3px var(--sp-2); border-radius: var(--r-full);
+            background: var(--gold); color: var(--gold-ink);
+        }
+        .plan-card-badge.is-current { background: var(--brand); color: var(--text-inverse); }
+        .plan-card-features {
+            list-style: none; display: flex; flex-direction: column; gap: var(--sp-2);
+            font-size: var(--fs-sm); line-height: var(--lh-snug);
+        }
+        .plan-card-features li { display: flex; align-items: flex-start; gap: var(--sp-2); }
+        .plan-card-features svg { flex: none; width: 16px; height: 16px; margin-top: 2px; color: var(--brand-strong); }
+        .plan-card > .plan-debug-btn { margin-top: var(--sp-3); }
         .plan-debug-btn { margin-top: var(--sp-2); width: 100%; font-size: var(--fs-xs); padding: var(--sp-2); }
         .plan-debug-note {
             font-size: var(--fs-xs); color: var(--text-muted); background: var(--warn-tint);
@@ -2964,7 +2991,7 @@
         <button type="button" onclick="location.reload()">Reload</button>
     </div>
 
-    <script src="app.js?v=9"></script>
+    <script src="app.js?v=12"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

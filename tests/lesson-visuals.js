@@ -129,6 +129,7 @@ const document = {
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, fitPoints,
+  esc, escAttr,
   vertexAngles, regularPolygon, gematriaValue, gematriaBreakdown, sliderSpec, validVisual,
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
@@ -146,6 +147,9 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
 const m = new module.constructor();
 m._compile(code, '/lesson-visuals.js');
 const P = m.exports;
+// The compiled sandbox is its own module scope, so the raw text has to be
+// attached from out here rather than closed over from inside `code`.
+P.appSource = src;
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => {
@@ -153,6 +157,50 @@ const ok = (name, cond, extra) => {
   else { fail++; console.log('  FAIL ' + name + (extra ? '\n       ' + extra : '')); }
 };
 const close = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
+
+// ---------------------------------------------------------------- escaping
+console.log('\n== escaping ==');
+{
+  // esc() escapes by round-tripping through a text node, which is why it is
+  // only safe in *text* position: the HTML serializer never escapes a bare
+  // quote inside a text node, because a quote means nothing there. Anyone
+  // who reaches for esc() to build an attribute value gets a string an
+  // attacker can break out of.
+  ok('esc() neutralises markup', P.esc('<img src=x onerror=alert(1)>')
+     === '&lt;img src=x onerror=alert(1)&gt;');
+  ok('but esc() does not touch a bare quote', P.esc('a"b') === 'a"b',
+     'esc(\'a"b\') = ' + JSON.stringify(P.esc('a"b')));
+
+  // escAttr() is esc() plus both quote characters, which is what makes it
+  // safe to drop inside `attr="${...}"` — the one place esc() alone is not
+  // enough, because closing the attribute early hands an attacker a new one.
+  ok('escAttr() neutralises a double quote', P.escAttr('a"b') === 'a&quot;b');
+  ok('and a single quote', P.escAttr("a'b") === 'a&#39;b');
+  ok('and markup, same as esc()', P.escAttr('<b>x</b>') === '&lt;b&gt;x&lt;/b&gt;');
+  const breakout = '" onmouseover="alert(document.cookie)';
+  ok('a course title built to break out of an attribute cannot',
+     !P.escAttr(breakout).includes('"'), P.escAttr(breakout));
+
+  // The bug this guards: `attr="${esc(x)}"` compiles, looks identical to
+  // `attr="${escAttr(x)}"` for any title without a quote in it, and stayed
+  // that way for four call sites (three course-card fields, one breadcrumb)
+  // until a course titled with a stray `"` could inject an attribute of its
+  // own. Rather than re-list those four sites and hope nobody adds a fifth
+  // the same way, this scans app.js itself: no double-quoted HTML attribute
+  // may interpolate a bare esc(...) call, ever, in the shipped source.
+  const attrPattern = /(\w[\w-]*)\s*=\s*"([^"]*)"/g;
+  const offenders = [];
+  for (const line of P.appSource.split('\n')) {
+    let m;
+    attrPattern.lastIndex = 0;
+    while ((m = attrPattern.exec(line))) {
+      const [, attr, value] = m;
+      if (/\besc\(/.test(value) && !/\bescAttr\(/.test(value)) offenders.push(`${attr}="${value.trim()}"`);
+    }
+  }
+  ok('no HTML attribute in app.js interpolates esc() instead of escAttr()',
+     offenders.length === 0, offenders.join('\n       '));
+}
 
 // ---------------------------------------------------------------- evaluator
 console.log('\n== the expression evaluator ==');

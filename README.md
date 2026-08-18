@@ -693,3 +693,25 @@ default grant on newly created functions, which the original migration's
 `revoke ... from public` didn't reach. All three in
 `supabase/migrations/20260818090000_rls_perf_and_debug_grant_fix.sql`, applied to the
 live project and confirmed clean against Supabase's own advisors.
+
+A second pass, on the client this time, found something that actually mattered: four
+places built an HTML attribute as `attr="${esc(value)}"` — the library grid's course
+cards (aria-label, twice more on the rename/delete buttons) and the lesson breadcrumb.
+`esc()` escapes by round-tripping a string through a text node, which is exactly right
+inside an element's *text* — but a browser's HTML serializer never escapes a bare `"`
+in text position, because a quote means nothing there. Used inside an attribute's own
+quotes instead, that gap is the whole bug: a course titled `Biology" onmouseover="…`
+closes the attribute early and opens a new one of its own. `escAttr()` — `esc()` plus
+both quote characters — already existed for exactly this and was already used correctly
+everywhere else; these four just used the wrong one. Fixed by swapping the call, proven
+against a live page with Playwright (a course card carrying that exact payload renders
+with five ordinary attributes and no `onmouseover`, confirmed via `getAttribute` rather
+than trusted from a debug print), and guarded going forward: `tests/lesson-visuals.js`
+now scans `app.js`'s own source for any double-quoted attribute interpolating a bare
+`esc(...)` and fails if one exists, so the same mistake on a fifth call site fails a
+test rather than shipping. Course titles turned out to be the one piece of this app
+both stored and attacker-shaped — typed by the account that owns them, or landing
+there from whatever a model made of an uploaded document — everything else
+interpolated into an attribute anywhere in `app.js` turned out to be a number, a
+boolean, an index, or one of the app's own fixed constant ids, none of which can
+carry a quote character at all.

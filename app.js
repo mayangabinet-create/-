@@ -2481,9 +2481,9 @@ ${languageRule()}`;
                                 <div class="review-course-meta">${c.completedCount} of ${c.conceptCount} lessons finished ${status}</div>
                             </div>
                             <div class="review-course-actions">
-                                ${c.due ? `<button class="button" data-review="${esc(c.id)}">Review now</button>` : ''}
-                                ${!c.due && canPractise ? `<button class="button button-secondary" data-practise="${esc(c.id)}">Practise early</button>` : ''}
-                                ${!canPractise ? `<button class="button button-secondary" data-open="${esc(c.id)}">Open course</button>` : ''}
+                                ${c.due ? `<button class="button" data-review="${escAttr(c.id)}">Review now</button>` : ''}
+                                ${!c.due && canPractise ? `<button class="button button-secondary" data-practise="${escAttr(c.id)}">Practise early</button>` : ''}
+                                ${!canPractise ? `<button class="button button-secondary" data-open="${escAttr(c.id)}">Open course</button>` : ''}
                             </div>
                         </div>`;
                     }).join('')}
@@ -3083,7 +3083,7 @@ ${languageRule()}`;
             if (!def) return '';
             try {
                 const inner = drawSpec(v, opts);
-                return inner ? `<figure class="visual visual-${esc(v.type)}">${inner}</figure>` : '';
+                return inner ? `<figure class="visual visual-${escAttr(v.type)}">${inner}</figure>` : '';
             } catch (err) {
                 console.warn('Visual render failed:', v.type, err);
                 return '';   // a broken diagram must never break the lesson
@@ -5977,15 +5977,15 @@ ${languageRule()}`;
                 const rtl = RTL_LANGUAGES.includes(c.language);
                 const done = c.completedCount || 0;
                 return `
-                <div class="course-card" data-id="${esc(c.id)}" role="button" tabindex="0"
-                     aria-label="Open ${esc(c.title)} — ${pct}% complete">
+                <div class="course-card" data-id="${escAttr(c.id)}" role="button" tabindex="0"
+                     aria-label="Open ${escAttr(c.title)} — ${pct}% complete">
                     <div class="course-card-head">
                         <div class="course-title" ${rtl ? 'dir="rtl"' : ''}>${esc(c.title)}</div>
                         <div class="course-card-actions">
-                            <button type="button" class="course-rename" data-rename="${esc(c.id)}"
-                                    aria-label="Rename ${esc(c.title)}" title="Rename">${ICONS.pencil}</button>
-                            <button type="button" class="course-delete" data-del="${esc(c.id)}"
-                                    aria-label="Delete ${esc(c.title)}" title="Delete">${ICONS.trash}</button>
+                            <button type="button" class="course-rename" data-rename="${escAttr(c.id)}"
+                                    aria-label="Rename ${escAttr(c.title)}" title="Rename">${ICONS.pencil}</button>
+                            <button type="button" class="course-delete" data-del="${escAttr(c.id)}"
+                                    aria-label="Delete ${escAttr(c.title)}" title="Delete">${ICONS.trash}</button>
                         </div>
                     </div>
                     <div class="course-meta">${done} of ${c.conceptCount} lessons · ${esc(c.language)}</div>
@@ -6166,7 +6166,7 @@ ${languageRule()}`;
             bar.hidden = false;
             bar.innerHTML = `
                 <button type="button" class="breadcrumb-home" id="breadcrumbHome"
-                        aria-label="Back to ${esc(courseName)}">
+                        aria-label="Back to ${escAttr(courseName)}">
                     ${ICONS.home}<span>${esc(courseName)}</span>
                 </button>
                 <span class="breadcrumb-sep" aria-hidden="true">›</span>

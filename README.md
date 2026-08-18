@@ -686,10 +686,11 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
   button fails with a clear error rather than doing nothing.
 - **`privacy.html` and `terms.html` are drafts, not legal documents.** Written from what
   the app's code actually does (the two external services it talks to, what each
-  stores, that there's no tracking or ads) but every `[bracketed]` placeholder —
-  contact address, hosting region, age cutoff, governing law — needs a real value, and
-  the whole thing needs review by someone qualified in your jurisdiction before it's
-  relied on for anything.
+  stores, that there's no tracking or ads), plus the account holder's own answers on
+  contact address, age cutoff, and jurisdiction (Israel). The one thing still marked
+  `[open]` is the payments section in `terms.html`, which has nothing real to say
+  until Stripe exists. Neither document has been reviewed by a lawyer — that still
+  needs to happen before either is relied on for anything.
 
 Fixed while checking for exactly this kind of gap: every owner-scoped RLS policy
 (`courses`, `progress`, `subscriptions`, `ai_usage`, `user_stats`, `material_reports`)

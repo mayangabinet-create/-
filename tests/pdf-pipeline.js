@@ -771,13 +771,18 @@ process.exit(fail ? 1 : 0);
  * The .txt case is a regression guard: .txt was in the picker's accept list but
  * went through the PDF reader, and came back as "make sure it's a valid PDF".
  *
- * Doing it needs a local copy of the two CDN scripts, because index.html loads
- * pdf.js and supabase-js from CDNs that a sandbox usually blocks — and because
- * file:// refuses cross-directory scripts, it has to be served over http:
+ * Doing it needs a local copy of the two CDN scripts, because index.html and
+ * app.js load supabase-js and pdf.js from CDNs that a sandbox usually blocks —
+ * and because file:// refuses cross-directory scripts, it has to be served
+ * over http:
  *
  *   npm i @supabase/supabase-js@2 pdfjs-dist@3.11.174
- *   cp index.html app.js -t site/ && cp -r fonts site/     # then point the two
- *   #   <script src> tags in site/index.html at the local copies
+ *   cp index.html app.js -t site/ && cp -r fonts site/
+ *   #   supabase-js loads eagerly — point its <script src> tag in
+ *   #   site/index.html at the local copy.
+ *   #   pdf.js loads lazily, on first upload — point PDFJS_BASE in
+ *   #   site/app.js (loadPdfJs()) at the local copy instead, and drop
+ *   #   the integrity attribute it sets, which won't match a local file.
  *   (cd site && python3 -m http.server 8731)
  *   # Playwright: goto localhost:8731, setInputFiles('#fileInput', file),
  *   # then assert on #authModal.classList.contains('active') — not on

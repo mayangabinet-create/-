@@ -2,11 +2,29 @@
 <html lang="en" id="htmlRoot">
 <head>
     <meta charset="UTF-8">
+    <!-- Everything this app loads from the network, in one place: supabase-js
+         and (lazily) pdf.js from jsdelivr, XHR/fetch to this Supabase project
+         only, fonts and app.js from this origin. No inline event handlers
+         remain (see the two addEventListener calls that replaced onclick=
+         attributes) and the two inline script elements further down this
+         file are allow-listed by hash rather than by 'unsafe-inline' — an
+         attacker-injected handler or script element, the shape of the
+         stored-XSS bug this app already had once, gets a hash CSP was never
+         told about and doesn't run.
+         style-src keeps 'unsafe-inline': the whole stylesheet and a handful of
+         per-element style="" attributes are inline, and CSS injection is a much
+         narrower attack surface than script injection. frame-ancestors and
+         X-Frame-Options aren't here on purpose — both are HTTP-header-only
+         per spec, silently ignored in a meta tag, and GitHub Pages doesn't
+         let this app set custom response headers. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-Vp3obw53+nP1R4z6yk8MT/szzrbQpMEtirtN/U1AT2c=' 'sha256-pCIcK7tGiEuFLlwGrhhG8kDwX6WLhIWGlEIsvAsSSaA='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://kgkdkkqoebnpahvetwzk.supabase.co; worker-src 'self' https://cdn.jsdelivr.net; child-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <meta name="description" content="Turn a PDF or your own notes into an interactive, spaced-repetition learning path.">
     <meta name="theme-color" content="#F4F5F7" id="metaThemeColor">
     <meta name="color-scheme" content="light dark" id="metaColorScheme">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+
     <!-- Runs before the stylesheet paints anything, so a learner who chose
          Dark in Account settings never sees a flash of the light theme on
          load. app.js re-derives the same value later and keeps it in sync
@@ -23,8 +41,14 @@
          version-floating CDN URL can start serving different bytes on its own,
          and integrity is the browser's guarantee that it hasn't. Hashes are
          sha384 of the file as published to npm, not as fetched from the CDN —
-         verifying against the CDN's own copy of itself proves nothing. -->
-    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+         verifying against the CDN's own copy of itself proves nothing.
+
+         pdf.js is not loaded here — auth (supabase-js) is needed before first
+         paint, but PDF upload is one optional path into the app (pasting text
+         is the other), so app.js loads pdf.js on first use instead of costing
+         every visitor ~320KB and a render-blocking script up front. Same
+         version pin and integrity hash, just fetched lazily — see loadPdfJs()
+         in app.js. -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg" crossorigin="anonymous"></script>
     <!-- One family, four weights. A second display face only put two rounded fonts
          in competition; weight and size carry the hierarchy instead.
@@ -3007,13 +3031,16 @@
          and icons simply do nothing, with no way to tell why. -->
     <div id="bootFailure" class="boot-failure" hidden>
         <span>The app didn't finish loading — some buttons won't work.</span>
-        <button type="button" onclick="location.reload()">Reload</button>
+        <button type="button" id="bootFailureReload">Reload</button>
     </div>
 
-    <script src="app.js?v=15"></script>
+    <script src="app.js?v=16"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.
+        document.getElementById('bootFailureReload').addEventListener('click', function () {
+            location.reload();
+        });
         window.addEventListener('load', function () {
             setTimeout(function () {
                 // The CDN-failure path in app.js replaces <body> wholesale and puts

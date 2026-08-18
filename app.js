@@ -1103,6 +1103,29 @@ another context, another representation — so memorising one answer is not enou
 ${languageRule()}`;
         }
 
+        /**
+         * Whether a lesson call may use the four-block cache split.
+         *
+         * This is the one change in this app that is NOT safe to deploy in
+         * either order, and the flag exists to make it so. An `ai-proxy` from
+         * before `prepareLessonBlocks` treats any lesson call with two or more
+         * blocks as `[context, ...prompt]`: it clamps block 0 to
+         * `contextChars` and gives every remaining block one shared
+         * `excerptChars + TEMPLATE_ALLOWANCE` budget. Send it four blocks and
+         * the course digest alone exhausts that budget — the domain shelf and
+         * then the lesson prompt itself are both clamped to zero characters,
+         * so the model is handed a toolkit and a truncated digest with no
+         * instructions and no JSON schema, and the lesson silently fails to
+         * build. It is not a degraded lesson; it is no lesson.
+         *
+         * So the split stays off until the function that understands it is
+         * live. Flip this to `true` in the same change that deploys, or in the
+         * one after it — never before. Off, `generateLesson` sends exactly the
+         * two blocks it always sent, which every deployed version of the
+         * function has always handled.
+         */
+        const LESSON_CACHE_SPLIT = false;
+
         // `quiet` is set when nobody is waiting on this lesson — a prefetch —
         // so a failure goes to the console instead of onto a screen showing
         // something else entirely.
@@ -1117,7 +1140,7 @@ ${languageRule()}`;
             // whole app, the course digest for this course, the domain's
             // template shelf for this course's concepts of this domain — only
             // the last block, the concept itself, is never cached.
-            const cached = contextBudget() > 0;
+            const cached = LESSON_CACHE_SPLIT && contextBudget() > 0;
             const prompt = buildLessonPrompt(concept, excerpt, !cached);
             const report = msg => { if (!quiet) showError(msg); };
 

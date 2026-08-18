@@ -623,6 +623,18 @@ nothing duplicated) and against each block's own ceiling in `policy.mjs`
 (`GLOBAL_TOOLKIT_ALLOWANCE`, `DOMAIN_TOOLKIT_ALLOWANCE`); `tests/ai-proxy-policy.mjs`
 covers the server side of the same split.
 
+**This is the one change here that is not safe to deploy in either order**, which is
+why `LESSON_CACHE_SPLIT` in `app.js` exists and currently reads `false`. An `ai-proxy`
+from before `prepareLessonBlocks` treats any lesson call with two or more blocks as
+`[context, ...prompt]` — block 0 clamped to `contextChars`, everything after it sharing
+one `excerptChars + TEMPLATE_ALLOWANCE` budget. Send that server four blocks and the
+course digest alone exhausts the shared budget: the domain shelf and the lesson prompt
+are both clamped to zero characters, and the model gets a toolkit and a truncated digest
+with no instructions and no schema. The lesson does not degrade, it fails to build. With
+the flag off the client sends the same two blocks every deployed version has always
+handled, so the client can be merged whenever. Turn it on in the change that deploys the
+function, or any change after it — never before.
+
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without
 Max's price), a checkmark per feature. There's no price on them because checkout

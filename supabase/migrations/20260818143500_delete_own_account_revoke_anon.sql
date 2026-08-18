@@ -1,0 +1,15 @@
+-- Supabase's project-level default privileges auto-grant EXECUTE on every
+-- new public-schema function to anon, authenticated, and service_role when
+-- the function is created by the postgres role (visible in pg_default_acl).
+-- delete_own_account was created that way (via the SQL editor, which runs as
+-- postgres), so the anon grant landed automatically before its own migration's
+-- "revoke all ... from public" ran — REVOKE FROM PUBLIC only removes the
+-- PUBLIC-pseudo-role grant, not a role-specific default-privilege one.
+--
+-- auth.uid() returns null for an unauthenticated (anon-key) caller, and
+-- "delete ... where id = null" matches no rows, so this was never actually
+-- exploitable — but the intent was authenticated-only (same as
+-- debug_set_plan, which this migration brings delete_own_account in line
+-- with), so revoke explicitly rather than rely on that null being safe by
+-- accident.
+revoke execute on function public.delete_own_account() from anon;

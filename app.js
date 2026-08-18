@@ -61,7 +61,6 @@
             eyeOff: svgIcon('<path d="M3 3l18 18"/><path d="M10.6 10.6a3 3 0 004.2 4.2"/><path d="M6.5 6.6C4 8.4 2 12 2 12s4 7.5 10 7.5a9.7 9.7 0 004.1-.9M9.9 5.1A10.6 10.6 0 0112 4.5c6 0 10 7.5 10 7.5a17 17 0 01-3.2 4.1"/>'),
             lock: svgIcon('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 018 0v4"/>'),
             check: svgIcon('<path d="M4 12.5l5.5 5.5L20 7"/>'),
-            heart: svgIcon('<path d="M12 21s-7.4-4.6-9.9-9.2C.7 8.2 2 4 6 4c2.2 0 4 1.6 6 4 2-2.4 3.8-4 6-4 4 0 5.3 4.2 3.9 7.8C19.4 16.4 12 21 12 21z"/>', { fill: true }),
             file: svgIcon('<path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>'),
             info: svgIcon('<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8v.01"/>'),
             x: svgIcon('<path d="M6 6l12 12M18 6L6 18"/>'),
@@ -884,6 +883,7 @@ Return valid JSON only (no markdown, no surrounding prose):
   },
   "quiz": [ { "type":"choice", "text":"…", "options":["A","B","C","D"], "correct":0,
               "hint":"One short nudge for a second try. Must NOT give the answer away.",
+              "whyWrong":["the mistake behind this option","","",""],
               "explanation":"…" } ],
   "challenge": { "type":"choice", "text":"One larger problem combining several ideas",
     "options":["A","B","C","D"], "correct":0, "explanation":"The full solution" },
@@ -906,6 +906,11 @@ Omit it rather than invent an interaction the material does not support.
 
 "hint" is shown only after a wrong answer, for a second try: point at the
 mistake, never give the answer.
+
+"whyWrong" (choice, blank and mistake questions): one short line per option
+naming the specific misunderstanding that leads to it, "" for the right one.
+The learner is shown the line for the option they picked, so write it to them:
+what they must have thought, not that they were wrong.
 
 Two quiz questions must test the SAME idea in different clothes — other numbers,
 another context, another representation — so memorising one answer is not enough.
@@ -990,7 +995,14 @@ ${languageRule()}`;
                 case 'mistake': {
                     const options = arr(q.options).filter(o => o != null).map(String);
                     if (options.length < 2) return null;
-                    return { ...base, type, options, correct: clamp(q.correct, options.length) };
+                    // One line per option, saying what picking it means. Padded
+                    // and trimmed to the options it belongs to: a whyWrong that
+                    // is one short would otherwise answer for the wrong option
+                    // once the list is reshuffled for a second look.
+                    const why = arr(q.whyWrong);
+                    return { ...base, type, options,
+                             correct: clamp(q.correct, options.length),
+                             whyWrong: options.map((_, i) => why[i] ? String(why[i]) : '') };
                 }
                 case 'boolean': {
                     if (typeof q.answer !== 'boolean') return null;
@@ -2218,7 +2230,6 @@ ${languageRule()}`;
                 lesson: { title: 'Review session' },
                 steps, step: 0,
                 correct: 0, total: 0,
-                heartsLeft: 5,
                 startedAt: Date.now(),
                 attempts: {},
                 review: { items, byLesson: {}, practice },
@@ -2231,7 +2242,6 @@ ${languageRule()}`;
                 : `<span class="meta-chip">${ICONS.refresh} Spaced repetition</span>`;
             applyContentDirection();
             buildStepSegments(steps.length);
-            renderHearts();
             openLessonScreen();
             renderStep();
         }
@@ -2449,7 +2459,7 @@ ${languageRule()}`;
             });
         }
 
-        // ============= Duolingo-style HUD: streak, gems, hearts =============
+        // ============= The HUD: streak and XP =============
         // The streak lives in `user_stats` now, like everything else about an
         // account. localStorage stays as a cache: it's what the HUD reads on the
         // first paint before the row arrives, and what keeps a streak intact for
@@ -2605,20 +2615,6 @@ ${languageRule()}`;
                 seg.classList.toggle('filled', i < step);
                 seg.classList.toggle('current', i === step);
             });
-        }
-
-        // Hearts are cosmetic feedback, not a hard gate — missing them never
-        // blocks progress, it just reflects how clean the run has been so far.
-        function renderHearts() {
-            const el = document.getElementById('topbarHearts');
-            if (!el || !lessonState) return;
-            const left = lessonState.heartsLeft ?? 5;
-            // Five full hearts say nothing has happened yet — five saturated red
-            // shapes to carry no information. The row appears the moment one is lost.
-            el.hidden = left >= 5;
-            el.setAttribute('aria-label', `${left} of 5 hearts left`);
-            el.innerHTML = Array.from({ length: 5 }, (_, i) =>
-                `<span class="heart${i < left ? '' : ' lost'}" aria-hidden="true">${ICONS.heart}</span>`).join('');
         }
 
         // ============= Usage & cost tracking =============
@@ -6061,36 +6057,44 @@ ${languageRule()}`;
         // `scored: false` is for the questions that are not this lesson's exam:
         // the warm-up from an earlier lesson, and the second look at something
         // already marked wrong. Both are worth answering and neither should
-        // move a score that has already been earned — or take a heart twice
-        // for one mistake.
+        // move a score that has already been earned.
+        //
+        // Nothing here punishes a wrong answer. There were five hearts in the
+        // topbar and they were the wrong idea in this app: a course built from
+        // the learner's own document is not a game they can lose, and a row of
+        // hearts draining on a first encounter with an idea teaches nothing
+        // except that guessing is expensive. What a mistake costs is a second
+        // attempt at the question, an explanation of what went wrong, and one
+        // more look at it before the lesson ends.
+        // `why` is the line written for the option they actually picked (see
+        // "whyWrong" in the lesson prompt). It is the difference between "not
+        // quite" and "you added the squares where this one asks you to subtract
+        // them" — and it is the whole of what the retry banner says, because at
+        // that point naming the mistake is the only help that does not also
+        // hand over the answer.
         function wireQuestion(q, onGraded, { scored = true } = {}) {
             // A first wrong answer is not the end of the question. Say what the
             // mistake was and hand it back — a learner who is told the answer
             // straight away has been shown it, not taught it, and the second
             // attempt is where the understanding actually happens.
             //
-            // The retry is free: no heart, nothing counted. The second attempt
+            // The retry costs nothing and counts nothing. The second attempt
             // is the one that scores, so the lesson still means something.
             const attemptKey = lessonState.step;
             if (!lessonState.attempts) lessonState.attempts = {};
             const attempt = () => lessonState.attempts[attemptKey] || 0;
 
-            const done = (correct, explanationOverride) => {
+            const done = (correct, explanationOverride, why = '') => {
                 if (!correct && attempt() === 0) {
                     lessonState.attempts[attemptKey] = 1;
-                    showRetry(q, explanationOverride);
+                    showRetry(q, why);
                     return;
                 }
                 if (scored) {
                     lessonState.total++;
-                    if (correct) {
-                        lessonState.correct++;
-                    } else if ((lessonState.heartsLeft ?? 5) > 0) {
-                        lessonState.heartsLeft = (lessonState.heartsLeft ?? 5) - 1;
-                        renderHearts();
-                    }
+                    if (correct) lessonState.correct++;
                 }
-                showQuestionFeedback(correct, explanationOverride || q.explanation);
+                showQuestionFeedback(correct, explanationOverride || q.explanation, why);
                 onGraded && onGraded(correct);
             };
 
@@ -6172,7 +6176,10 @@ ${languageRule()}`;
 
         // Duolingo's signature moment: a colored banner docks in from the bottom
         // of the screen with the verdict and a big Continue.
-        function showQuestionFeedback(correct, explanation) {
+        // `why` is about the answer they gave; `explanation` is about the
+        // question. Both are shown, in that order, because the first one is the
+        // only part addressed to them.
+        function showQuestionFeedback(correct, explanation, why = '') {
             const bar = document.getElementById('feedbackBar');
             if (!bar) return;
             bar.className = 'feedback-bar show ' + (correct ? 'feedback-ok' : 'feedback-bad');
@@ -6183,6 +6190,7 @@ ${languageRule()}`;
                 <div>
                     <div class="feedback-inner">
                         <div class="feedback-head">${correct ? ICONS.check + ' Nice!' : ICONS.x + ' Not quite'}</div>
+                        ${!correct && why ? `<div class="feedback-why">${esc(why)}</div>` : ''}
                         <div class="feedback-body">${explanation ? esc(explanation) : ''}</div>
                         <button class="button step-next" id="stepNext">Continue</button>
                     </div>
@@ -6198,10 +6206,14 @@ ${languageRule()}`;
         // Between the two attempts: what went wrong, and a way back in. No
         // Continue here on purpose — the only way past this question is to
         // answer it again.
-        function showRetry(q, explanationOverride) {
+        function showRetry(q, why) {
             const bar = document.getElementById('feedbackBar');
             if (!bar) return;
-            const nudge = q.hint || explanationOverride
+            // The line for the option they picked first, then the question's own
+            // hint. Never the grader's message: for a numeric or an ordering
+            // question that message contains the answer, and this banner is
+            // shown *before* the second attempt.
+            const nudge = why || q.hint
                 || 'Look again at what the question is actually asking.';
             bar.className = 'feedback-bar show feedback-retry';
             bar.innerHTML = `
@@ -6238,7 +6250,7 @@ ${languageRule()}`;
                         else if (i === picked) o.classList.add('incorrect');
                     });
                     el.classList.add(isRight ? 'pop' : 'shake');
-                    done(isRight);
+                    done(isRight, null, isRight ? '' : (q.whyWrong?.[picked] || ''));
                 };
             });
         }
@@ -6445,6 +6457,52 @@ ${languageRule()}`;
             return limits.courses * limits.lessonsPerCourse - (usage.lessonsMonth || 0);
         }
 
+        // How many of the quiz's questions are moved up among the cards.
+        //
+        // Three or four explanation cards in a row is the one place this lesson
+        // still reads like a page rather than something you do: the learner taps
+        // Continue, Continue, Continue, and only then is asked whether any of it
+        // landed. Every question moved up is a card that gets answered while the
+        // idea in it is still the thing on screen.
+        //
+        // Half the quiz, rounded down, and never one after the last card. The
+        // closing run has to stay long enough to be a quiz — the point is to
+        // break up the cards, not to abolish the part where the whole lesson is
+        // tested at once. Fewer than two cards, or fewer than two questions, and
+        // nothing moves at all.
+        function interleavedCount(cardCount, quizCount) {
+            return Math.min(Math.max(cardCount - 1, 0), Math.floor(quizCount / 2));
+        }
+
+        // The whole step sequence for a lesson, skipping anything the model
+        // omitted. Pure — it reads a lesson and returns a list — so the order
+        // is testable without a browser, which is the only reason the run of
+        // pushes that used to live inside loadLesson() is a function now.
+        function buildLessonSteps(lesson, { warmUp = false } = {}) {
+            const steps = [];
+            const cards = Array.isArray(lesson.cards) ? lesson.cards : [];
+            const quiz = Array.isArray(lesson.quiz) ? lesson.quiz : [];
+
+            if (warmUp) steps.push({ type: 'warmup' });
+            if (lesson.hook) steps.push({ type: 'hook' });
+            if (lesson.prediction) steps.push({ type: 'prediction' });
+            if (lesson.explore) steps.push({ type: 'explore' });
+
+            const early = interleavedCount(cards.length, quiz.length);
+            cards.forEach((_, i) => {
+                steps.push({ type: 'card', i });
+                if (i < early) steps.push({ type: 'quiz', i });
+            });
+
+            if (lesson.workedExample) steps.push({ type: 'worked' });
+            if (lesson.practice) steps.push({ type: 'practice' });
+            quiz.forEach((_, i) => { if (i >= early) steps.push({ type: 'quiz', i }); });
+            if (lesson.challenge) steps.push({ type: 'challenge' });
+            if (lesson.summary) steps.push({ type: 'summary' });
+            if (lesson.memoryCheck) steps.push({ type: 'memory' });
+            return steps;
+        }
+
         function prefetchLesson(index) {
             if (!courseData || !currentUser) return;
             const concept = courseData.concepts?.[index];
@@ -6547,22 +6605,10 @@ ${languageRule()}`;
                     saveProgress();
                 }
 
-                // Build the step sequence, skipping anything the model omitted
-                const steps = [];
                 // Retrieval practice comes first, from an earlier lesson —
                 // before the new material has a chance to crowd it out.
                 const warmUp = pickWarmUp(index);
-                if (warmUp) steps.push({ type: 'warmup' });
-                if (lesson.hook) steps.push({ type: 'hook' });
-                if (lesson.prediction) steps.push({ type: 'prediction' });
-                if (lesson.explore) steps.push({ type: 'explore' });
-                lesson.cards.forEach((_, i) => steps.push({ type: 'card', i }));
-                if (lesson.workedExample) steps.push({ type: 'worked' });
-                if (lesson.practice) steps.push({ type: 'practice' });
-                lesson.quiz.forEach((_, i) => steps.push({ type: 'quiz', i }));
-                if (lesson.challenge) steps.push({ type: 'challenge' });
-                if (lesson.summary) steps.push({ type: 'summary' });
-                if (lesson.memoryCheck) steps.push({ type: 'memory' });
+                const steps = buildLessonSteps(lesson, { warmUp: !!warmUp });
 
                 // Never open a lesson that would show nothing but a finish screen.
                 if (!steps.length) {
@@ -6578,7 +6624,6 @@ ${languageRule()}`;
                 lessonState = {
                     lesson, steps, step: 0,
                     correct: 0, total: 0,
-                    heartsLeft: 5,
                     startedAt: Date.now(),
                     answered: {},
                     attempts: {},
@@ -6605,7 +6650,6 @@ ${languageRule()}`;
 
                 applyContentDirection();
                 buildStepSegments(steps.length);
-                renderHearts();
                 displayLearningPath();
                 openLessonScreen();
                 renderStep();
@@ -6621,7 +6665,12 @@ ${languageRule()}`;
             if (!Array.isArray(q.options) || q.options.length < 2) return q;
             if (!Number.isInteger(q.correct)) return q;
             const order = shuffle(q.options.map((_, i) => i));
-            return { ...q, options: order.map(i => q.options[i]), correct: order.indexOf(q.correct) };
+            // Whatever is indexed by option has to travel with it. A whyWrong
+            // left in place would explain the mistake behind whichever option
+            // happened to land in that slot.
+            const why = Array.isArray(q.whyWrong) ? order.map(i => q.whyWrong[i] || '') : q.whyWrong;
+            return { ...q, options: order.map(i => q.options[i]),
+                     correct: order.indexOf(q.correct), whyWrong: why };
         }
 
         // Three is the most anyone will work through at the end of a lesson.

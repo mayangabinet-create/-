@@ -19,10 +19,11 @@ subscribing after that isn't wired up yet (see below).
 
 ## What a lesson contains
 
-A warm-up from an earlier lesson → hook → prediction → concept cards → worked example
-→ guided practice → a mixed-format quiz → a capstone challenge → summary → a memory
-check, where the learner writes the idea in their own words and the model responds →
-and, if anything went wrong along the way, a second look at it.
+A warm-up from an earlier lesson → hook → prediction → concept cards, with the first
+questions of the quiz set among them → worked example → guided practice → the rest of
+the quiz → a capstone challenge → summary → a memory check, where the learner writes
+the idea in their own words and the model responds → and, if anything went wrong along
+the way, a second look at it.
 
 Every lesson is grounded in the source document: the relevant passage is retrieved via
 TF-IDF and sent to the model with strict rules that facts and quiz questions must come
@@ -32,13 +33,42 @@ from that passage, not general knowledge.
 quiz of an earlier lesson in the same course — the one furthest past its review date,
 because the material closest to being forgotten is the material worth a question. It
 costs nothing: that question was written, paid for and cached when that lesson was
-built. It is not marked, it takes no heart, and it cannot lower a score. Getting it
-wrong pulls that lesson's review forward to tomorrow but leaves its SM-2 ease alone —
+built. It is not marked and it cannot lower a score. Getting it wrong pulls that lesson's review forward to tomorrow but leaves its SM-2 ease alone —
 one question under no pressure is evidence that something is shaky, not a review
 session, and it should not be able to undo weeks of correctly earned interval. The
 course could always test what you learned last week; it kept it behind a banner and a
 tab of its own, which is a place you go when you have decided to revise. Almost nobody
 decides to revise.
+
+**The cards are broken up by the questions about them.** Three or four explanation
+cards in a row was the one place a lesson still read like a page rather than something
+you do: Continue, Continue, Continue, and only then any question about whether it
+landed. Half the quiz, rounded down, now comes up among the cards — one question after
+each of the first cards, never after the last one — and the rest stays where it was.
+The closing run has to remain long enough to be a quiz: the point is to break up the
+cards, not to abolish the part that tests the lesson as a whole. `buildLessonSteps()`
+is a pure function of the lesson for exactly this reason, and `tests/lesson-flow.js`
+pins the order it produces.
+
+**A wrong answer is answered, not scored.** Distractors are written as mistakes a real
+learner makes, so the model is now asked to say what each one means: `whyWrong` carries
+one line per option, and the learner is shown the line for the option they actually
+picked. "You added the two legs — the theorem adds their squares" is a different thing
+from "Not quite". That line is also the whole of the retry banner, because at that
+moment naming the mistake is the only help that does not hand over the answer — and it
+travels with its option when the list is reshuffled for a second look, since a reason
+left behind explains whichever option landed in that slot.
+
+The banner used to fall back to whatever the grader had written when a question had no
+hint, which for a numeric or an ordering question is the answer itself, printed above a
+*Try again* button. It doesn't any more.
+
+**There are no hearts.** There were five in the topbar, and they were the wrong idea in
+this app: a course built from your own document is not a game you can lose, and a row
+of hearts draining on a first encounter with an idea teaches nothing except that
+guessing is expensive. What a mistake costs is a second attempt at the question, an
+explanation of what went wrong, and one more look at it before the lesson ends. The
+score and the XP stay — they are earned at the end, not deducted along the way.
 
 **A wrong answer comes back before the lesson ends.** The old ending was: get it wrong,
 read why, walk on, finish, see 60%. The number was the only consequence, and a number is

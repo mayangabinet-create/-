@@ -67,6 +67,7 @@ const names = [
   'const PLAN_LIMITS', 'function planLessonCount',
   'const prefetching =', 'function monthlyLessonsLeft', 'function prefetchLesson',
   'function shuffle', 'function reshuffleOptions',
+  'function interleavedCount', 'function buildLessonSteps',
   'function pickWarmUp', 'function nudgeReviewSooner',
 ];
 
@@ -100,6 +101,7 @@ module.exports = {
   sseScanner, lessonProgress, pathProgress, LESSON_PARTS,
   monthlyLessonsLeft, prefetchLesson, prefetching,
   reshuffleOptions, pickWarmUp, nudgeReviewSooner,
+  interleavedCount, buildLessonSteps,
   read: () => lastProgress,
   generated: () => generated,
   saves: () => saved,
@@ -362,6 +364,68 @@ console.log('\n== a course switched away from mid-flight ==');
       ok('and so is a true/false', P.reshuffleOptions({ type: 'boolean', answer: true }).answer === true);
       ok('a single option is not shuffled',
          P.reshuffleOptions({ options: ['only'], correct: 0 }).options.length === 1);
+
+      // Anything indexed by option has to move with it. A whyWrong left behind
+      // explains the mistake behind whichever option landed in that slot.
+      const withWhy = { type: 'choice', text: 'q', options: ['a', 'b', 'c'], correct: 1,
+                        whyWrong: ['because a', '', 'because c'] };
+      for (let i = 0; i < 40; i++) {
+        const moved = P.reshuffleOptions(withWhy);
+        const pairedUp = moved.options.every((opt, at) =>
+          moved.whyWrong[at] === (opt === 'b' ? '' : 'because ' + opt));
+        if (!pairedUp) { ok('the reason for an option travels with it', false, JSON.stringify(moved)); break; }
+        if (i === 39) ok('the reason for an option travels with it', true);
+      }
+    }
+
+    // ------------------------------------------------------ the step sequence
+    console.log('\n== where the questions sit ==');
+    {
+      const lesson = (cards, quiz, extra = {}) => ({
+        cards: Array.from({ length: cards }, (_, i) => ({ idea: 'C' + i })),
+        quiz: Array.from({ length: quiz }, (_, i) => ({ text: 'Q' + i })),
+        hook: { text: 'h' }, workedExample: { problem: 'w' }, summary: { mainIdea: 's' },
+        ...extra,
+      });
+      const shape = steps => steps.map(s => s.type + (s.i ?? '')).join(' ');
+
+      // Four cards and five questions: two questions come up among the cards,
+      // three stay behind to be the quiz.
+      const typical = P.buildLessonSteps(lesson(4, 5));
+      ok('a question follows the first cards',
+         shape(typical) === 'hook card0 quiz0 card1 quiz1 card2 card3 worked quiz2 quiz3 quiz4 summary',
+         shape(typical));
+      ok('every card is still there',
+         typical.filter(s => s.type === 'card').length === 4);
+      ok('and every question, exactly once',
+         JSON.stringify(typical.filter(s => s.type === 'quiz').map(s => s.i)) === '[0,1,2,3,4]');
+
+      // The closing run must stay a quiz — moving all of them up would leave a
+      // lesson that is never tested as a whole.
+      ok('at most half the quiz is moved up', P.interleavedCount(9, 5) === 2);
+      ok('and never one after the last card', P.interleavedCount(2, 8) === 1);
+      ok('one card means nothing moves', P.interleavedCount(1, 6) === 0);
+      ok('nor does a single question', P.interleavedCount(5, 1) === 0);
+      ok('nor no questions at all', P.interleavedCount(5, 0) === 0);
+
+      const lean = P.buildLessonSteps(lesson(1, 1));
+      ok('a one-card lesson is left in the order it was written',
+         shape(lean) === 'hook card0 worked quiz0 summary', shape(lean));
+
+      // Everything else the order guarantees, in one place: the warm-up is
+      // first because it is about an earlier lesson, and the parts the model
+      // omitted are simply absent.
+      const full = P.buildLessonSteps(
+        lesson(2, 2, { prediction: { question: 'p' }, explore: { insight: 'e' },
+                       practice: { problem: 'pr' }, challenge: { text: 'c' },
+                       memoryCheck: { prompt: 'm' } }),
+        { warmUp: true });
+      ok('the warm-up opens the lesson', full[0].type === 'warmup');
+      ok('the full order holds',
+         shape(full) === 'warmup hook prediction explore card0 quiz0 card1 worked practice quiz1 challenge summary memory',
+         shape(full));
+      ok('a lesson with nothing in it produces no steps',
+         P.buildLessonSteps({}).length === 0);
     }
 
     console.log(`\n${pass} passed, ${fail} failed\n`);

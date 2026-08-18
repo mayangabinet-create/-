@@ -1505,7 +1505,9 @@
         .lesson-topbar {
             flex: none;
             display: grid;
-            grid-template-columns: var(--tap) 1fr auto;
+            /* Two columns since the hearts left: a third track with nothing in
+               it still pays for its gap, and the step bar should have it. */
+            grid-template-columns: var(--tap) 1fr;
             align-items: center;
             gap: var(--sp-3);
             padding: var(--sp-3) var(--sp-4) var(--sp-2);
@@ -1562,9 +1564,6 @@
             padding: var(--sp-1) var(--sp-3); border-radius: var(--r-full);
             white-space: nowrap;
         }
-        .topbar-hearts { display: flex; gap: 3px; }
-        .heart { color: var(--danger); font-size: var(--fs-body); line-height: 1; display: inline-flex; }
-        .heart.lost { color: var(--border); }
 
         /* Segmented step progress: one bar per step. A 6px radius on an 8px-tall
            segment turned a 16-step lesson into a row of dots, so the radius is
@@ -1620,6 +1619,12 @@
         }
         .feedback-bar.feedback-ok .feedback-head { color: var(--brand-strong); }
         .feedback-bar.feedback-bad .feedback-head { color: var(--danger-strong); }
+        /* What was wrong with the answer they gave, above what the question
+           itself was about. Set apart because it is the half addressed to them. */
+        .feedback-bar .feedback-why {
+            color: var(--text); font-weight: 700; margin-bottom: var(--sp-2);
+            line-height: var(--lh-body); font-size: var(--fs-sm);
+        }
         .feedback-bar .feedback-body {
             color: var(--text); margin-bottom: var(--sp-3);
             line-height: var(--lh-body); font-size: var(--fs-sm);
@@ -2699,7 +2704,6 @@
                 </svg>
             </button>
             <div class="lesson-step-bar" id="lessonStepBar"></div>
-            <div class="topbar-hearts" id="topbarHearts"></div>
         </header>
         <!-- Where this lesson lives, since the lesson screen replaces every other
              piece of chrome — bottom nav included — and without this the only way

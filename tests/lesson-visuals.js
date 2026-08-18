@@ -10,9 +10,10 @@
  *
  *   - the explore step opens with Continue disabled and the insight hidden,
  *     and touching the figure unlocks both;
- *   - a wrong answer shows the amber "one more go" bar with the question's own
- *     hint, costs no heart and counts nothing, and the retry re-renders the
- *     question; the second attempt is the one that scores.
+ *   - a wrong answer shows the amber "one more go" bar with the line written
+ *     for the option they picked (or the question's own hint), counts nothing,
+ *     and the retry re-renders the question; the second attempt is the one
+ *     that scores.
  *
  *     node tests/lesson-visuals.js
  *
@@ -393,6 +394,27 @@ console.log('\n== boolean logic ==');
 // ---------------------------------------------------------------- questions
 console.log('\n== questions ==');
 {
+  // One line per option, saying what picking it means — shown to whoever picks
+  // it, and used as the whole of the retry banner. It is indexed by option, so
+  // a short list has to be padded rather than left to line up by accident.
+  const why = P.normaliseQuestion({
+    type: 'choice', text: 'Which?', options: ['a', 'b', 'c'], correct: 1,
+    whyWrong: ['added instead of subtracting'],
+  });
+  ok('a reason is kept against the option it belongs to',
+     why.whyWrong[0] === 'added instead of subtracting');
+  ok('and the options with none get an empty one, not a gap',
+     why.whyWrong.length === 3 && why.whyWrong[1] === '' && why.whyWrong[2] === '');
+  ok('more reasons than options are dropped',
+     P.normaliseQuestion({ type: 'choice', text: 'q', options: ['a', 'b'], correct: 0,
+                           whyWrong: ['x', 'y', 'z'] }).whyWrong.length === 2);
+  ok('a question written without any still grades',
+     JSON.stringify(P.normaliseQuestion({ type: 'choice', text: 'q', options: ['a', 'b'],
+                                          correct: 0 }).whyWrong) === '["",""]');
+  ok('and junk in place of the list is not passed to the renderer',
+     JSON.stringify(P.normaliseQuestion({ type: 'choice', text: 'q', options: ['a', 'b'],
+                                          correct: 0, whyWrong: 'nope' }).whyWrong) === '["",""]');
+
   const numeric = P.normaliseQuestion({ type: 'numeric', text: 'Area?', answer: 6, tolerance: 0.5, unit: ' cm²' });
   ok('a numeric question keeps its answer and tolerance',
      numeric && numeric.answer === 6 && numeric.tolerance === 0.5);

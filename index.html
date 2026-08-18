@@ -740,6 +740,12 @@
         .auth-field { margin-bottom: var(--sp-4); }
         .auth-forgot-row { display: flex; justify-content: flex-end; margin-bottom: var(--sp-2); }
         .auth-note { text-align: center; margin-top: var(--sp-4); }
+        .auth-note a, .account-legal-footer a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+        .account-legal-footer {
+            text-align: center; font-size: var(--fs-sm); color: var(--text-subtle);
+            margin: var(--sp-6) 0 var(--sp-4); display: flex; justify-content: center;
+            gap: var(--sp-2);
+        }
         /* One rule instead of three inline margins on three submit buttons. */
         .form-submit { margin-top: var(--sp-4); }
         #backToLibraryBtn { margin-top: var(--sp-3); }
@@ -3003,6 +3009,10 @@
             <button class="button button-block form-submit" id="authSubmitBtn">Sign in</button>
             <p class="field-hint auth-note">
                 Every new account starts on a 14-day free trial. No card, nothing to cancel.
+            </p>
+            <p class="field-hint auth-note">
+                By continuing you agree to the <a href="terms.html" target="_blank" rel="noopener">Terms</a>
+                and <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.
             </p>
         </div>
     </div>

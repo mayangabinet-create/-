@@ -31,6 +31,9 @@
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
+        // The largest tier's figure — the fallback for a signed-out visitor or the
+        // moment before entitlement has loaded. Once signed in, maxCourses() below
+        // reads the account's own tier instead.
         const MAX_COURSES = 8;
 
         // ============= Theme =============
@@ -2985,7 +2988,20 @@ ${languageRule()}`;
                             <span>Removes every course and all progress. Can't be undone.</span>
                         </span>
                     </button>
-                </section>`;
+                    <button class="account-row is-danger" id="acctDeleteAccount">
+                        <span class="account-row-icon">${ICONS.trash}</span>
+                        <span class="account-row-text">
+                            <strong>Delete account</strong>
+                            <span>Removes the account itself, ${esc(email)} included. Can't be undone.</span>
+                        </span>
+                    </button>
+                </section>
+
+                <p class="account-legal-footer">
+                    <a href="terms.html" target="_blank" rel="noopener">Terms</a>
+                    <span aria-hidden="true">·</span>
+                    <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>
+                </p>`;
 
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
             document.getElementById('acctIntro').onclick = () => startOnboarding({ replay: true });
@@ -3028,6 +3044,27 @@ ${languageRule()}`;
                 renderReviewBanner();
                 renderAccount();
                 toast('All courses deleted');
+            };
+
+            // delete_own_account() (a SECURITY DEFINER function, like debug_set_plan)
+            // deletes the auth.users row for the caller only; every table's user_id
+            // foreign key cascades from there, so this one RPC is the whole account.
+            // The session it was called with stops being valid the instant it
+            // succeeds, which is why nothing here signs out explicitly.
+            document.getElementById('acctDeleteAccount').onclick = async () => {
+                const ok = await uiConfirm(
+                    'Delete your account?',
+                    `${email} and everything on it — every course, all your progress, your subscription — are permanently removed. You'd need to sign up again to come back.`,
+                    { confirmText: 'Delete my account', danger: true });
+                if (!ok) return;
+                const { error } = await supabaseClient.rpc('delete_own_account');
+                if (error) {
+                    console.error('delete_own_account failed:', error);
+                    showError('Could not delete your account: ' + error.message);
+                    return;
+                }
+                localStorage.clear();
+                location.reload();
             };
         }
 
@@ -4942,6 +4979,13 @@ ${languageRule()}`;
         function contextBudget() {
             return (entitlement && PLAN_LIMITS[entitlement.planKey]?.contextChars) || 0;
         }
+        // How many courses this tier may keep at once — the same figure PLAN_LIMITS
+        // already uses for the monthly build quota, since the two were chosen to
+        // match. Falls back to the largest tier's number rather than the smallest,
+        // same as the budgets above.
+        function maxCourses() {
+            return (entitlement && PLAN_LIMITS[entitlement.planKey]?.courses) || MAX_COURSES;
+        }
         // How many concepts this tier's course will hold. The server rewrites
         // the prompt to this number, so it is also what a half-built plan can
         // honestly be measured against while it streams in.
@@ -6028,7 +6072,7 @@ ${languageRule()}`;
             // meter of what you've spent. Whether this month's build allowance is
             // gone is a separate question, answered only where it's actually
             // decision-relevant: the moment you try to start a new one.
-            count.textContent = `${library.length} of ${MAX_COURSES} kept`;
+            count.textContent = `${library.length} of ${maxCourses()} kept`;
             empty.hidden = library.length > 0;
             // The empty state carries its own primary action; two "New course"
             // buttons on one screen is one too many.
@@ -6120,8 +6164,8 @@ ${languageRule()}`;
         }
 
         async function showNewCourse() {
-            if (library.length >= MAX_COURSES) {
-                showError(`You can keep ${MAX_COURSES} courses at a time. Delete one to add another.`);
+            if (library.length >= maxCourses()) {
+                showError(`You can keep ${maxCourses()} courses at a time. Delete one to add another.`);
                 return;
             }
             // The server is the authority on quota and this copy of the count can

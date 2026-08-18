@@ -667,24 +667,29 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
   can ask it for any plan; it cannot ask on someone else's behalf. `app.js`'s
   `canDebugPlan()` only decides whether the button is drawn, which is why the address
   is duplicated in both places — `tests/pdf-pipeline.js` pins that the two agree.
-- **`MAX_COURSES` is still a constant.** `PLAN_LIMITS` now carries `readChars` and
-  `excerptChars`, and the planning digest and per-lesson excerpt are sized from the
-  signed-in account's tier (`planReadChars()` / `excerptBudget()`), so Pro and Max
-  genuinely read more of the document rather than buying a bigger model to read a
-  Basic-sized slice. The library cap did not move: `MAX_COURSES = 8` is still hardcoded
-  and is the largest tier's figure, so every plan is allowed to *keep* eight courses.
-  The monthly build quota is enforced server-side and is unaffected, but this should
-  read `PLAN_LIMITS[planKey].courses` before anyone is charged.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
-  and that each tier really returns 10/12/15 concepts. Run it before enabling payments.
+  and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
+  it spends real API budget (~$0.75 for the Max run), so it isn't run automatically.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.
 - **Leaked password protection is off.** Supabase Auth can reject a password found in
   a known breach (checked against HaveIBeenPwned) and it is not turned on for this
   project. It is a toggle in the dashboard — Authentication → Providers → Email — not
-  something a migration can reach, which is the only reason it is still open rather
-  than fixed alongside the three below.
+  something a migration can reach.
+- **`delete_own_account()` is written but not applied.** Account deletion in Account
+  settings calls it, and the migration
+  (`supabase/migrations/20260818140000_delete_own_account.sql`) is checked in and
+  mirrors `debug_set_plan`'s SECURITY DEFINER + REVOKE/GRANT shape — but applying a
+  function with DELETE rights on `auth.users` to the live project needs a human to run
+  it (via the SQL editor or `supabase db push`), not an agent. Until it's applied, the
+  button fails with a clear error rather than doing nothing.
+- **`privacy.html` and `terms.html` are drafts, not legal documents.** Written from what
+  the app's code actually does (the two external services it talks to, what each
+  stores, that there's no tracking or ads) but every `[bracketed]` placeholder —
+  contact address, hosting region, age cutoff, governing law — needs a real value, and
+  the whole thing needs review by someone qualified in your jurisdiction before it's
+  relied on for anything.
 
 Fixed while checking for exactly this kind of gap: every owner-scoped RLS policy
 (`courses`, `progress`, `subscriptions`, `ai_usage`, `user_stats`, `material_reports`)

@@ -676,3 +676,20 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments.
 - **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
   whichever branch should be live.
+- **Leaked password protection is off.** Supabase Auth can reject a password found in
+  a known breach (checked against HaveIBeenPwned) and it is not turned on for this
+  project. It is a toggle in the dashboard — Authentication → Providers → Email — not
+  something a migration can reach, which is the only reason it is still open rather
+  than fixed alongside the three below.
+
+Fixed while checking for exactly this kind of gap: every owner-scoped RLS policy
+(`courses`, `progress`, `subscriptions`, `ai_usage`, `user_stats`, `material_reports`)
+called `auth.uid()` directly, which Postgres re-evaluates per row scanned rather than
+once per query — the standard fix, `(select auth.uid())`, changes nothing about who can
+read what. `material_reports` had a foreign key with no covering index. And
+`debug_set_plan` — already guarded by its own internal email check, so never actually
+exploitable — still had a stray `EXECUTE` grant to `anon`, left over from Supabase's
+default grant on newly created functions, which the original migration's
+`revoke ... from public` didn't reach. All three in
+`supabase/migrations/20260818090000_rls_perf_and_debug_grant_fix.sql`, applied to the
+live project and confirmed clean against Supabase's own advisors.

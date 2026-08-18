@@ -60,6 +60,11 @@ console.log("\n== classification ==");
   // yesterday — the allowlist has to lag the client, not lead it.
   ok("the tutor label is still accepted while old clients send it", KNOWN_TASKS.has("tutor"));
   ok("a tutor call is free work, so it is capped and metered", classify(400).kind === "free");
+  // A typed-subject onboarding call sends this label at 1000 max_tokens
+  // (see MAX_TOKENS.primer in app.js). Missing from this set, it never
+  // reaches classify() at all — it 400s as unknown_task instead.
+  ok("the primer label onboarding sends is accepted", KNOWN_TASKS.has("primer"));
+  ok("a primer call is free work, so it is capped and metered", classify(1000).kind === "free");
 }
 
 console.log("\n== tier resolution ==");

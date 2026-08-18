@@ -65,8 +65,14 @@ export const FREE_CALLS_PER_DAY = 200;
  * they are capped at 1,000 output tokens and metered against the daily
  * backstop like any other. Drop it once the client without the dock has been
  * deployed and has stopped sending it.
+ *
+ * `primer` is the client's label for the material it writes for a typed
+ * subject during onboarding (`generateInterestPrimer` in `app.js`) — one
+ * cheap, sub-threshold call `classify()` already prices as free work.
+ * Leaving it off this set does not make that call cheaper; it makes it a 400
+ * before `classify()` is ever reached, which is why it belongs here.
  */
-export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback"]);
+export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer"]);
 
 // A client that sends fifty blocks is not a client we wrote.
 export const MAX_CONTENT_BLOCKS = 8;

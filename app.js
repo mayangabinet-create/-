@@ -7844,7 +7844,16 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         let onboardingRun = null;
         let onboardingRelease = null;
 
-        const ONBOARDING_STEPS = ['welcome', 'goal', 'interests', 'starter'];
+        // What the app does used to be one screen with all three promises
+        // listed on it — read once, top to bottom, the way a feature list is
+        // read rather than the way this app teaches anything. One promise per
+        // step instead: each gets the same weight a lesson card gets, and the
+        // Continue button is the same motion the rest of the intro already
+        // asks for. `VALUE_STEPS` are the value indices in step order; the
+        // step id itself (`value0`, `value1`, …) is what onboardingBody()
+        // switches on.
+        const VALUE_STEPS = ONBOARDING_VALUES.map((_, i) => `value${i}`);
+        const ONBOARDING_STEPS = [...VALUE_STEPS, 'goal', 'interests', 'starter'];
 
         function readLocalOnboarding() {
             try {
@@ -7967,7 +7976,6 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
 
         function onboardingNextLabel() {
             const step = onboardingStepId();
-            if (step === 'welcome') return "Show me";
             if (step === 'starter') return 'Build this course';
             return 'Continue';
         }
@@ -7975,24 +7983,23 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         function onboardingBody() {
             const step = onboardingStepId();
 
-            if (step === 'welcome') {
+            const valueAt = VALUE_STEPS.indexOf(step);
+            if (valueAt >= 0) {
+                const v = ONBOARDING_VALUES[valueAt];
+                const isFirst = valueAt === 0;
+                const isLast = valueAt === ONBOARDING_VALUES.length - 1;
                 return `
-                    <h2 class="onb-title">Anything you're studying, as a course you can do</h2>
-                    <p class="onb-lede">Three things happen to whatever you give it.</p>
-                    <ul class="onb-values">
-                        ${ONBOARDING_VALUES.map(v => `
-                            <li class="onb-value">
-                                <span class="onb-value-icon">${ICONS[v.icon]}</span>
-                                <span class="onb-value-text">
-                                    <strong>${esc(v.title)}</strong>
-                                    <span>${esc(v.body)}</span>
-                                </span>
-                            </li>`).join('')}
-                    </ul>
-                    <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>
-                    <button type="button" class="button button-ghost button-block" id="onbTryDemo">
-                        Or see a two-minute example lesson first
-                    </button>`;
+                    ${isFirst ? '<p class="onb-kicker">Anything you\'re studying, as a course you can do</p>' : ''}
+                    <div class="onb-value-solo">
+                        <span class="onb-value-solo-icon">${ICONS[v.icon]}</span>
+                        <h2 class="onb-title">${esc(v.title)}</h2>
+                        <p class="onb-lede">${esc(v.body)}</p>
+                    </div>
+                    ${isLast ? `
+                        <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>
+                        <button type="button" class="button button-ghost button-block" id="onbTryDemo">
+                            Or see a two-minute example lesson first
+                        </button>` : ''}`;
             }
 
             if (step === 'goal') {
@@ -8193,9 +8200,9 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             if (!skipped) toast('Upload a PDF or paste a chapter to begin', 'info');
         }
 
-        // The welcome screen claims lessons are something you do rather than
-        // read. The demo is that claim, checked, and it costs nothing — so the
-        // first run steps aside for it and picks up exactly where it left off.
+        // The second value screen claims lessons are something you do rather
+        // than read. The demo is that claim, checked, and it costs nothing — so
+        // the first run steps aside for it and picks up exactly where it left off.
         let onboardingPaused = null;
 
         function pauseOnboardingForDemo() {

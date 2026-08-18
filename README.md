@@ -296,13 +296,17 @@ across it.
 What a new account used to get, one second after signing up, was the upload box: a
 file picker, a paste tab, and no answer to the only question anyone actually has at
 that moment — *what is this going to do with my document, and why should I hand one
-over*. The answer costs four screens and is said once.
+over*. The answer costs six screens and is said once.
 
-**What the app does**, as three things rather than a feature list: it teaches your
-material and not a syllabus, its lessons are done rather than read, and it brings
-things back before you forget them. Then **what are you learning for** — an exam, work,
-curiosity, teaching someone else — and **what are you interested in**, a grid of seven
-subjects, as many as you like.
+**What the app does**, one promise per screen rather than a feature list read top to
+bottom in one glance: it teaches your material and not a syllabus, then its lessons
+are done rather than read, then it brings things back before you forget them. Each
+gets the same weight a lesson card gets and the same Continue button the questions
+after it already use — `ONBOARDING_VALUES` is the list, `VALUE_STEPS` turns it into
+one step per entry, and only the first carries the overall pitch as a kicker line
+above it, since it is the promise that needs the least room. Then **what are you
+learning for** — an exam, work, curiosity, teaching someone else — and **what are
+you interested in**, a grid of seven subjects, as many as you like.
 
 The last screen is the point of the other three. Instead of an empty upload box it
 offers **a course to start on**: a short piece of real material in a subject just

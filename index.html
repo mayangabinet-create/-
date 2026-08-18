@@ -2473,22 +2473,26 @@
             text-align: center;
         }
 
-        /* ---- What the app does: three rows, not three cards. They are read
-           once, in order, and boxing each one only added edges. ---- */
-        .onb-values { list-style: none; display: flex; flex-direction: column; gap: var(--sp-5); }
-        .onb-value { display: flex; gap: var(--sp-4); align-items: flex-start; }
-        .onb-value-icon {
-            flex: none;
-            width: 44px; height: 44px;
+        /* ---- What the app does: one promise per step, not a list of three read
+           top to bottom in one glance. The kicker is the old combined heading,
+           kept only on the first of the three so the run of screens still opens
+           with the overall pitch before narrowing to specifics. ---- */
+        .onb-kicker {
+            font-size: var(--fs-sm); font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.03em;
+            color: var(--brand-strong);
+            margin-bottom: var(--sp-4);
+        }
+        .onb-value-solo { margin-bottom: var(--sp-2); }
+        .onb-value-solo-icon {
+            width: 56px; height: 56px;
             display: grid; place-items: center;
-            border-radius: var(--r-md);
+            border-radius: var(--r-lg);
             background: var(--brand-tint);
             color: var(--brand-strong);
-            font-size: var(--fs-h3);
+            font-size: 1.5rem;
+            margin-bottom: var(--sp-4);
         }
-        .onb-value-text { display: flex; flex-direction: column; gap: var(--sp-1); }
-        .onb-value-text strong { font-size: var(--fs-h3); font-weight: 800; line-height: var(--lh-snug); }
-        .onb-value-text span { color: var(--text-muted); font-size: var(--fs-sm); line-height: var(--lh-body); }
 
         /* ---- The answers. .option carries the frame, the press edge and the
            picked state; these only lay the contents out. ---- */
@@ -2545,7 +2549,7 @@
         @media (max-width: 768px) {
             .onb-scroll { padding: var(--sp-3) var(--sp-4) 0; }
             .onb-footer { padding-inline: var(--sp-4); }
-            .onb-value-icon { width: 40px; height: 40px; }
+            .onb-value-solo-icon { width: 48px; height: 48px; font-size: 1.25rem; }
         }
 
         /* ========================== Animations ========================== */

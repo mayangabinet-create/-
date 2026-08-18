@@ -73,7 +73,7 @@ const names = [
   'const ONBOARDING_VALUES', 'const ONBOARDING_GOALS', 'const INTERESTS',
   'const STARTER_COURSES', 'function starterPicks', 'function interestSummary',
   'function cleanTitle',
-  'let onboarding =', 'let onboardingRun =', 'const ONBOARDING_STEPS',
+  'let onboarding =', 'let onboardingRun =', 'const VALUE_STEPS', 'const ONBOARDING_STEPS',
   'function readLocalOnboarding', 'function writeLocalOnboarding',
   'function loadOnboarding', 'function saveOnboarding', 'function maybeShowOnboarding',
   'function onboardingStepId', 'function onboardingCanContinue', 'function onboardingNextLabel',
@@ -146,7 +146,7 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
   assessMaterial, materialStats,
-  INTERESTS, ONBOARDING_GOALS, ONBOARDING_VALUES, STARTER_COURSES, ONBOARDING_STEPS,
+  INTERESTS, ONBOARDING_GOALS, ONBOARDING_VALUES, STARTER_COURSES, ONBOARDING_STEPS, VALUE_STEPS,
   starterPicks, interestSummary,
   primerFor: () => primerFor,
   errors: () => errors,
@@ -258,11 +258,23 @@ console.log('\n== the steps ==');
   O.reset();
   O.setRun({ step: 0, goal: null, interests: [], starter: null, replay: false });
 
-  ok('it opens on what the app does', O.onboardingStepId() === 'welcome');
-  ok('which needs no answer to leave', O.onboardingCanContinue() === true);
+  // What the app does used to be one screen listing all three promises; it is
+  // now one promise per step, walked through with the same Continue button as
+  // everything after it — so there is one step per entry in ONBOARDING_VALUES,
+  // in order, before the first question.
+  ok('there is one step for every promise, not one screen for all of them',
+     O.VALUE_STEPS.length === O.ONBOARDING_VALUES.length && O.VALUE_STEPS.length > 1);
+  ok('it opens on the first of them', O.onboardingStepId() === O.VALUE_STEPS[0]);
+  ok('none of them need an answer to leave',
+     O.VALUE_STEPS.every(id => { O.run().step = O.ONBOARDING_STEPS.indexOf(id); return O.onboardingCanContinue(); }));
+  O.run().step = 0;
 
+  for (let i = 1; i < O.VALUE_STEPS.length; i++) {
+    O.onboardingNext();
+    ok(`Continue on promise ${i} moves to promise ${i + 1}`, O.onboardingStepId() === O.VALUE_STEPS[i]);
+  }
   O.onboardingNext();
-  ok('then asks what they are here for', O.onboardingStepId() === 'goal');
+  ok('after the last promise, the first question', O.onboardingStepId() === 'goal');
   ok('and waits for an answer', O.onboardingCanContinue() === false);
   O.onboardingNext();
   ok('Continue does nothing until there is one', O.onboardingStepId() === 'goal');
@@ -287,8 +299,8 @@ console.log('\n== the steps ==');
   O.onboardingBack();
   ok('back goes back', O.onboardingStepId() === 'interests');
   ok('and keeps the answer that was given', O.run().interests.includes('math'));
-  O.onboardingBack(); O.onboardingBack(); O.onboardingBack();
-  ok('back from the first step stays put', O.onboardingStepId() === 'welcome');
+  for (let i = 0; i < O.ONBOARDING_STEPS.length; i++) O.onboardingBack();
+  ok('back from the first step stays put', O.onboardingStepId() === O.VALUE_STEPS[0]);
   // Every step change, and no other render, moves focus to the top of the new
   // step — otherwise a screen reader is left on a button whose screen changed
   // underneath it, and a long step opens halfway down.
@@ -347,7 +359,7 @@ console.log('\n== the steps ==');
   console.log('\n== finishing, skipping, replaying ==');
   {
     O.reset();
-    O.setRun({ step: 3, goal: 'exam', interests: ['math'], starter: 'pythagoras', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'exam', interests: ['math'], starter: 'pythagoras', replay: false });
     await O.finishOnboarding({ starterId: 'pythagoras' });
     ok('picking a course builds it', O.built().length === 1);
     ok('through the same path an upload takes',
@@ -359,7 +371,7 @@ console.log('\n== the steps ==');
     ok('written to the account, not just this browser', O.upserts().length === 1);
 
     O.reset();
-    O.setRun({ step: 2, goal: 'work', interests: ['money'], starter: null, replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'work', interests: ['money'], starter: null, replay: false });
     await O.finishOnboarding({ skipped: true });
     ok('skipping halfway still records what was answered',
        O.state().interests[0] === 'money' && O.state().goal === 'work');
@@ -368,7 +380,7 @@ console.log('\n== the steps ==');
     ok('and they land on the upload screen', O.screen() === 'home');
 
     O.reset();
-    O.setRun({ step: 3, goal: 'curious', interests: ['tech'], starter: null, replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['tech'], starter: null, replay: false });
     await O.finishOnboarding({ starterId: null });
     ok('"I\'ll upload my own" builds nothing', O.built().length === 0);
     ok('and says what to do next', O.toasts().length === 1);
@@ -378,7 +390,7 @@ console.log('\n== the steps ==');
     const settle = () => new Promise(r => setTimeout(r, 5));
 
     O.reset();
-    O.setRun({ step: 3, goal: 'curious', interests: ['other'], starter: null, topic: '  Roman roads ', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['other'], starter: null, topic: '  Roman roads ', replay: false });
     O.onboardingNext();          // the button, not the handler — it trims on the way
     await settle();
     ok('a typed subject is written up first', O.primerFor() === 'Roman roads');
@@ -390,14 +402,14 @@ console.log('\n== the steps ==');
     // A typed subject wins over a card left selected from before, and a card is
     // only used when nothing was typed.
     O.reset();
-    O.setRun({ step: 3, goal: null, interests: [], starter: 'pythagoras', topic: 'Roman roads', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: 'pythagoras', topic: 'Roman roads', replay: false });
     O.onboardingNext();
     await settle();
     ok('what they typed last is what gets built', O.primerFor() === 'Roman roads' && O.built().length === 1);
 
     O.reset();
     O.setPrimer('');
-    O.setRun({ step: 3, goal: null, interests: [], starter: null, topic: 'a subject', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: null, topic: 'a subject', replay: false });
     O.onboardingNext();
     await settle();
     ok('material that never arrives builds nothing', O.built().length === 0);
@@ -407,7 +419,7 @@ console.log('\n== the steps ==');
     // Replaying it from the Account screen changes the answers and nothing else.
     O.reset();
     O.setState({ done: true, goal: 'exam', interests: ['math'], completedAt: 1000 });
-    O.setRun({ step: 2, goal: 'curious', interests: ['mind'], starter: null, replay: true });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'curious', interests: ['mind'], starter: null, replay: true });
     await O.finishOnboarding({ starterId: null });
     ok('a replay updates the answers', O.state().interests[0] === 'mind' && O.state().goal === 'curious');
     ok('and leaves the date the account actually finished', O.state().completedAt === 1000);

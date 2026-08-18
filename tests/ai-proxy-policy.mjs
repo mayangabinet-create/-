@@ -12,7 +12,9 @@
 
 import {
   CHARS_PER_TOKEN,
+  DOMAIN_TOOLKIT_ALLOWANCE,
   FREE_CALL_CHARS,
+  GLOBAL_TOOLKIT_ALLOWANCE,
   HAIKU,
   KNOWN_TASKS,
   MAX_CONTENT_BLOCKS,
@@ -163,6 +165,50 @@ console.log("\n== caching ==");
     { kind: "course", plan: PLANS.pro, model: SONNET });
   ok("course calls are never cached (one call per course, nothing to reuse)",
      courseCall.every(b => b.cache_control === undefined));
+}
+
+console.log("\n== four-block lesson caching (global toolkit / course / domain / concept) ==");
+{
+  const four = lessonOf("pro", [chars(10_000, "g"), chars(PLANS.pro.contextChars, "c"), chars(5_000, "d"), "the concept"]);
+  ok("all four blocks come back", four.length === 4);
+  ok("the global toolkit block is cached", four[0].cache_control?.type === "ephemeral");
+  ok("the course digest block is cached", four[1].cache_control?.type === "ephemeral");
+  ok("the domain toolkit block is cached", four[2].cache_control?.type === "ephemeral");
+  ok("the concept block is never cached", four[3].cache_control === undefined);
+
+  ok("the global toolkit is clamped to its own ceiling",
+     four[0].text.length === GLOBAL_TOOLKIT_ALLOWANCE);
+  ok("the course digest is still clamped to contextChars",
+     four[1].text.length === PLANS.pro.contextChars);
+  ok("the domain toolkit is clamped to its own ceiling",
+     four[2].text.length === DOMAIN_TOOLKIT_ALLOWANCE);
+  ok("the concept block keeps the excerpt+schema budget, unchanged",
+     four[3].text === "the concept");
+
+  // A domain with no template shelf (or none set) sends an empty third
+  // block. Empty is still cacheable in principle — the cumulative prefix by
+  // that point is enormous — but there is nothing to clamp or lose either way.
+  const noDomain = lessonOf("pro", [chars(10_000, "g"), chars(PLANS.pro.contextChars, "c"), "", "the concept"]);
+  ok("an empty domain toolkit block does not break the split",
+     noDomain.length === 4 && noDomain[2].text === "");
+
+  // Trial/Basic never fund any of this (contextChars is 0), so a four-block
+  // call there — a stray one, since the client only ever builds one when
+  // contextBudget() > 0 — must fail safe to the flat, uncached path rather
+  // than throw or silently cache nothing at 0 chars.
+  const basicFour = lessonOf("basic", [chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
+  ok("a four-block call on a tier with no context budget is never cached",
+     basicFour.every(b => b.cache_control === undefined));
+  ok("and still shares one flat budget across all four blocks",
+     basicFour.reduce((n, b) => n + b.text.length, 0) === PLANS.basic.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // The cumulative-prefix check: even a domain with a thin shelf (a few
+  // hundred characters) clears the model's minimum, because it is checked
+  // against everything before it — the toolkit and the course digest — not
+  // against its own length alone.
+  const thinDomain = lessonOf("pro", [chars(10_000, "g"), chars(PLANS.pro.contextChars, "c"), chars(50, "d"), "q"]);
+  ok("a short domain block still caches, since the prefix before it already clears the minimum",
+     thinDomain[2].cache_control?.type === "ephemeral");
 }
 
 console.log("\n== course size rewrite ==");

@@ -870,23 +870,89 @@ whatever language the outline is in, because the app looks it up there.`;
             return '';
         }
 
+        // The three pieces below are the parts of the lesson prompt that do not
+        // depend on the concept: `lessonPrinciplesAndVisuals` and
+        // `lessonQuestionTypes` are identical for every lesson, of any domain,
+        // in any course, for any user; `lessonDomainToolkit` depends only on
+        // the concept's domain. `buildLessonPrompt` still assembles all three
+        // inline, byte-for-byte as before, for Trial and Basic — Haiku's cache
+        // minimum is 4,096 tokens and none of this clears it on its own, so
+        // there is nothing to gain there and the single-block prompt stays
+        // exactly what it always was. Pro and Max send these three as their
+        // own cache blocks instead (see `generateLesson`), which is the only
+        // reason `buildLessonPrompt` now takes a `standalone` flag: false
+        // leaves this content out because it is arriving separately, already
+        // cached, in front of it.
+        function lessonPrinciplesAndVisuals() {
+            return `Principles:
+- Never a wall of text. Each card = ONE idea, 2-3 sentences.
+- Assume no prior knowledge. Open with curiosity, not a definition.
+- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
+  comparison in it, draw it. Prose describing a figure the app could have drawn
+  is the worst thing this lesson can contain.
+- Distractors must be mistakes a real learner would make.
+- Vary the position of the correct answer. Never always first.
+
+VISUALS — attach one to a card, worked example, summary or question in its
+"visual" field; omit it where a diagram adds nothing. Never invent a type not on
+this list — it is discarded.
+
+${visualCatalogue()}
+
+Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
+"gematria" are drawn exactly as given — a wrong number is a wrong picture.`;
+        }
+
+        function lessonQuestionTypes() {
+            return `QUESTION TYPES — each needs "type", "text" and "explanation", and may carry a
+"visual" it asks about.
+
+${questionCatalogue()}`;
+        }
+
+        // Only this subject's shelf of templates is offered, and only if the
+        // subject has one. A concept with no domain gets the primitives and
+        // nothing else — which is the format exactly as it was.
+        function lessonDomainToolkit(domain) {
+            const templates = templateCatalogue(domain);
+            if (!templates) return '';
+            return `TEMPLATES — prefer these over writing a spec yourself. In "visual" write
+{ "template": "<id>", "params": { … } } and the app builds the figure and every
+calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
+— working those out is the app's job. One template may produce several figures.
+
+${templates}`;
+        }
+
+        // The domain-independent half of the toolkit, as one block: sent ahead
+        // of everything else on Pro/Max (see `generateLesson`) so it can cache
+        // at the widest possible scope — this text never changes, not between
+        // concepts, not between courses, not between accounts.
+        function lessonToolkitGlobal() {
+            return `${lessonPrinciplesAndVisuals()}
+
+${lessonQuestionTypes()}`;
+        }
+
         // Built as its own function so its size can be measured. The server
         // clamps this block to `excerptChars + TEMPLATE_ALLOWANCE`, and a prompt
         // that overruns is truncated silently — from the tail, which is where
         // the JSON schema and the quantity rules are. `tests/lesson-visuals.js`
         // asserts the template still fits on every tier — with the calibration
         // line above included, since that is the prompt a real learner gets.
-        function buildLessonPrompt(concept, excerpt) {
+        //
+        // `standalone` (default true) inlines the toolkit pieces above, giving
+        // the exact single string every tier sent before caching split it up.
+        // `generateLesson` passes false on Pro/Max, where those pieces are sent
+        // as their own cached blocks ahead of this one instead of inside it.
+        function buildLessonPrompt(concept, excerpt, standalone = true) {
             // A course planned by an older build has no kind, and a model can
             // still hand back a stray capital or a plural. Neither is worth
             // failing over — the playbook line is simply left out.
             const kindKey = String(concept.kind || '').trim().toLowerCase();
             const kind = KIND_PLAYBOOK[kindKey] ? kindKey : null;
-            // Only this subject's shelf of templates is offered, and only if the
-            // subject has one. A concept with no domain gets the primitives and
-            // nothing else — which is the format exactly as it was.
             const domain = String(concept.domain || '').trim().toLowerCase();
-            const templates = templateCatalogue(domain);
+            const toolkit = standalone ? lessonDomainToolkit(domain) : '';
 
             return `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
 
@@ -907,38 +973,14 @@ GROUNDING RULES (these override everything else):
 - Any [COURSE MATERIAL] above is background: use it to place this concept in the document, never as a source of facts or quiz answers.
 ` : ''}
 ${languageRule()}
-
-Principles:
-- Never a wall of text. Each card = ONE idea, 2-3 sentences.
-- Assume no prior knowledge. Open with curiosity, not a definition.
-- SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
-  comparison in it, draw it. Prose describing a figure the app could have drawn
-  is the worst thing this lesson can contain.
-- Distractors must be mistakes a real learner would make.
-- Vary the position of the correct answer. Never always first.
-
-VISUALS — attach one to a card, worked example, summary or question in its
-"visual" field; omit it where a diagram adds nothing. Never invent a type not on
-this list — it is discarded.
-
-${visualCatalogue()}
-
-Rules: labels under 6 words, 2-5 items each. Numbers in a "shape", "slider" or
-"gematria" are drawn exactly as given — a wrong number is a wrong picture.
-${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${templates ? `
-TEMPLATES — prefer these over writing a spec yourself. In "visual" write
-{ "template": "<id>", "params": { … } } and the app builds the figure and every
-calculation in it. Give the numbers the SOURCE MATERIAL uses, never the results
-— working those out is the app's job. One template may produce several figures.
-
-${templates}
+${standalone ? `
+${lessonPrinciplesAndVisuals()}
+` : ''}${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${toolkit ? `
+${toolkit}
 ` : ''}
-QUESTION TYPES — each needs "type", "text" and "explanation", and may carry a
-"visual" it asks about.
+${standalone ? `${lessonQuestionTypes()}
 
-${questionCatalogue()}
-
-Return valid JSON only (no markdown, no surrounding prose):
+` : ''}Return valid JSON only (no markdown, no surrounding prose):
 
 {
   "title": "${concept.name}",
@@ -1002,12 +1044,27 @@ ${languageRule()}`;
         async function generateLesson(concept, { quiet = false } = {}) {
             // Ground the lesson in the actual document, not the model's priors.
             const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
-            const prompt = buildLessonPrompt(concept, excerpt);
+            const domain = String(concept.domain || '').trim().toLowerCase();
+            // Trial and Basic never cache (contextBudget() is 0 there — Haiku's
+            // cache minimum is higher than any of these pieces clears alone), so
+            // they still send the one flat, single-block prompt they always did.
+            // Pro and Max split it into four: the toolkit is cached for the
+            // whole app, the course digest for this course, the domain's
+            // template shelf for this course's concepts of this domain — only
+            // the last block, the concept itself, is never cached.
+            const cached = contextBudget() > 0;
+            const prompt = buildLessonPrompt(concept, excerpt, !cached);
             const report = msg => { if (!quiet) showError(msg); };
 
-            // The course context goes first and is the same on every lesson, so
-            // the API caches it; the prompt goes second because it changes.
-            const result = await callAI([courseContext(), prompt], '', {
+            // Content blocks in one message are concatenated with no separator
+            // of their own, so each cached piece below carries its own trailing
+            // blank line — courseContext() is left untouched since it is memoized
+            // and reused as-is.
+            const message = cached
+                ? [lessonToolkitGlobal() + '\n\n', courseContext() + '\n\n', lessonDomainToolkit(domain) + '\n\n', prompt]
+                : [courseContext(), prompt];
+
+            const result = await callAI(message, '', {
                 maxTokens: MAX_TOKENS.lesson, task: 'lesson', quiet,
                 stream: true, onProgress: quiet ? null : lessonProgress,
             });

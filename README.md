@@ -566,6 +566,25 @@ premium anyway. Turning it on there means first raising the budget past ~16,000
 characters, which costs real money per course — a decision worth making against the
 hit rate the paid tiers are about to start reporting rather than against a guess.
 
+On Pro and Max, the shared context is one of three cached blocks sent ahead of the
+concept itself, least specific first. `lessonToolkitGlobal()` — Principles, every
+VISUALS spec, every QUESTION_TYPES spec — is identical for every lesson this server
+ever writes, for any concept, any course, any account, so it caches at the widest
+scope the API allows: the first lesson generated after a deploy pays to write it,
+every lesson after that reads it back. The shared context above is next. The
+concept's own domain gets a third block — `lessonDomainToolkit()`, the template
+shelf for that subject — which repeats across a course's concepts that share a
+domain but not across courses, so it earns a breakpoint of its own rather than
+forcing a rewrite of the shared-context cache every time a course's concepts change
+subject. Only the concept-specific prompt (`buildLessonPrompt(concept, excerpt,
+false)`) is never cached. Trial and Basic skip all of this and send the one flat
+prompt they always did — none of these three pieces clears Haiku's cache minimum on
+its own, so there is nothing to gain by splitting them there. `tests/lesson-visuals.js`
+checks the split against the standalone prompt content-for-content (nothing dropped,
+nothing duplicated) and against each block's own ceiling in `policy.mjs`
+(`GLOBAL_TOOLKIT_ALLOWANCE`, `DOMAIN_TOOLKIT_ALLOWANCE`); `tests/ai-proxy-policy.mjs`
+covers the server side of the same split.
+
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without
 Max's price), a checkmark per feature. There's no price on them because checkout

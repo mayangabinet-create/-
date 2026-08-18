@@ -105,7 +105,10 @@ const names = [
   'function normaliseQuestion',
   // the prompt
   'const RTL_LANGUAGES', 'function courseLanguage', 'function languageRule',
-  'function calibrationNote', 'function buildLessonPrompt',
+  'function calibrationNote',
+  'function lessonPrinciplesAndVisuals', 'function lessonQuestionTypes',
+  'function lessonDomainToolkit', 'function lessonToolkitGlobal',
+  'function buildLessonPrompt',
   'function normaliseLesson',
 ];
 
@@ -135,6 +138,7 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
   buildLessonPrompt, normaliseLesson, calibrationNote,
+  lessonPrinciplesAndVisuals, lessonQuestionTypes, lessonDomainToolkit, lessonToolkitGlobal,
   setLanguage: l => { courseData = { language: l }; },
   // A course history to calibrate against: n lessons all finished at the same
   // accuracy, which is enough for a note that only reads the mean.
@@ -728,6 +732,46 @@ console.log('\n== the lesson prompt ==');
   // learner opening a lesson whose prompt lost its own schema.
   ok('with room left for the templates after these',
      TEMPLATE_ALLOWANCE - widest.n >= 500, `only ${TEMPLATE_ALLOWANCE - widest.n} chars spare`);
+
+  // ---- the split Pro/Max sends instead (see generateLesson in app.js) ----
+  const { GLOBAL_TOOLKIT_ALLOWANCE, DOMAIN_TOOLKIT_ALLOWANCE } =
+    await import('../supabase/functions/ai-proxy/policy.mjs');
+
+  const tail = P.buildLessonPrompt({ ...concept, domain: 'math' }, 'SOURCE', false);
+  ok('the split tail drops the toolkit the global block now carries',
+     !tail.includes('Principles:') && !tail.includes('VISUALS —') && !tail.includes('QUESTION TYPES —'));
+  ok('and drops the domain shelf the third block now carries',
+     !tail.includes('TEMPLATES —') && !tail.includes('"right-triangle"'));
+  ok('but keeps everything specific to this concept',
+     tail.includes(P.KIND_PLAYBOOK.geometry) && tail.includes('"title":') && tail.includes('SOURCE'));
+
+  // What Pro/Max actually sends is these three pieces concatenated, in this
+  // order (see generateLesson in app.js), in place of the one standalone
+  // string. A type name can legitimately appear more than once even in the
+  // standalone prompt — "choice" is both a QUESTION_TYPES spec and a
+  // "type" in two places in the JSON schema — so the real regression check
+  // is not "exactly once" but "exactly as many times as the standalone
+  // prompt already had it": splitting must not drop or duplicate anything.
+  const standaloneMath = P.buildLessonPrompt({ ...concept, domain: 'math' }, 'SOURCE');
+  const sent = [P.lessonToolkitGlobal(), P.lessonDomainToolkit('math'), tail].join('\n\n');
+  const count = (text, marker) => text.split(marker).length - 1;
+  const sameCount = marker => count(sent, marker) === count(standaloneMath, marker);
+  ok('every VISUALS spec appears in the split exactly as often as in the standalone prompt',
+     Object.keys(P.VISUALS).filter(t => !P.VISUALS[t].internal).every(t => sameCount(`"${t}"`)));
+  ok('every QUESTION_TYPES spec too',
+     Object.keys(P.QUESTION_TYPES).every(t => sameCount(`"${t}"`)));
+  ok('the domain template too', sameCount('"right-triangle"'));
+  ok('and the JSON schema itself', sameCount('"memoryCheck"'));
+
+  ok('the global toolkit fits the ceiling the server clamps it to, with headroom',
+     P.lessonToolkitGlobal().length <= GLOBAL_TOOLKIT_ALLOWANCE - 500,
+     `${P.lessonToolkitGlobal().length} chars of ${GLOBAL_TOOLKIT_ALLOWANCE} allowed`);
+  const widestDomainToolkit = Math.max(...domains.map(d => P.lessonDomainToolkit(d).length));
+  ok('the widest domain shelf fits its ceiling, with headroom',
+     widestDomainToolkit <= DOMAIN_TOOLKIT_ALLOWANCE - 500,
+     `${widestDomainToolkit} chars of ${DOMAIN_TOOLKIT_ALLOWANCE} allowed`);
+  ok('the split tail alone fits well inside the excerpt+schema budget',
+     tail.length <= TEMPLATE_ALLOWANCE - 500);
   console.log(`       (widest prompt is ${widest.d}, ${widest.n} chars of the ${TEMPLATE_ALLOWANCE} allowed)`);
 
   console.log(`\n${pass} passed, ${fail} failed`);

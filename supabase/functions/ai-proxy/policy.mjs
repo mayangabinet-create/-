@@ -54,6 +54,24 @@ export const PLANS = {
  * templates in the test rather than in a lesson that will not open.
  */
 export const TEMPLATE_ALLOWANCE = 13_000;
+
+/**
+ * Ceilings for the two cache-only lesson blocks `prepareLessonBlocks` below
+ * clamps independently of the excerpt/schema budget above.
+ *
+ * `GLOBAL_TOOLKIT_ALLOWANCE` covers `lessonToolkitGlobal()` in app.js —
+ * Principles plus every VISUALS and QUESTION_TYPES spec, identical for every
+ * lesson call the app makes, measured at 6,365 characters today.
+ * `DOMAIN_TOOLKIT_ALLOWANCE` covers `lessonDomainToolkit()` — one domain's
+ * template shelf, the widest (math) measured at 1,668. Both ceilings carry
+ * real headroom because, unlike the excerpt, this text is not adversarial —
+ * a modified client gains nothing by padding it, since padding it past what
+ * the real catalogue contains only makes the request bigger, not the answer
+ * more permissive.
+ */
+export const GLOBAL_TOOLKIT_ALLOWANCE = 8_000;
+export const DOMAIN_TOOLKIT_ALLOWANCE = 3_000;
+
 export const FREE_CALL_CHARS = 20_000;
 export const FREE_CALLS_PER_DAY = 200;
 /**
@@ -174,13 +192,17 @@ export function normaliseContent(content) {
 }
 
 /**
- * Clamp one message's blocks to the tier and mark the cacheable one.
+ * Clamp one message's blocks to the tier and mark the cacheable ones.
  *
- * On a lesson call with two or more blocks, the first is the shared document
- * context and the rest are this lesson's prompt. The first is clamped to
- * `contextChars`, the rest share `excerptChars` plus the template allowance,
- * and `cache_control` goes on the first only if the tier funds it and the
- * block is long enough for the model to actually cache.
+ * A lesson call arrives in one of two shapes. Two blocks is the older,
+ * still-live shape a stale client or a Trial/Basic call sends: the first is
+ * the shared document context, the second is the whole lesson prompt
+ * (toolkit inlined), and only the first ever caches. Four blocks is what a
+ * current Pro/Max client sends — see `prepareLessonBlocks` below. Anything
+ * else on a lesson call, and every course/free/tutor/feedback call regardless
+ * of shape, falls through to the flat path: no cache_control anywhere, every
+ * block clamped from one shared budget so a client cannot buy extra document
+ * by chopping the same text into more pieces.
  *
  * A one-hour TTL costs twice a normal write against a five-minute TTL's 1.25x,
  * and breaks even on the third read rather than the second. Lessons are opened
@@ -190,7 +212,11 @@ export function normaliseContent(content) {
  * half of a single call rather than 100%.
  */
 export function prepareBlocks(blocks, { kind, plan, model }) {
-  const cacheable = kind === "lesson" && blocks.length >= 2 && plan.contextChars > 0;
+  if (kind === "lesson" && blocks.length === 4 && plan.contextChars > 0) {
+    return prepareLessonBlocks(blocks, plan, model);
+  }
+
+  const cacheable = kind === "lesson" && blocks.length === 2 && plan.contextChars > 0;
 
   if (!cacheable) {
     const budget = kind === "free" ? FREE_CALL_CHARS
@@ -219,6 +245,43 @@ export function prepareBlocks(blocks, { kind, plan, model }) {
     first.cache_control = { type: "ephemeral" };   // 5-minute TTL, the default
   }
   return [first, ...rest];
+}
+
+/**
+ * Four blocks, three cache breakpoints, least specific first.
+ *
+ * `lessonToolkitGlobal()` — Principles plus every VISUALS and QUESTION_TYPES
+ * spec — is identical for every lesson call this server ever makes, so it is
+ * first: the first lesson generated after a deploy pays to write it, every
+ * lesson after that, anyone's course, anyone's account, reads it back. The
+ * course digest is second, exactly as it was when it was the only cached
+ * block. The domain's own template shelf is third — it repeats across a
+ * course's concepts that share a domain, but not across courses, so it earns
+ * a breakpoint of its own rather than riding on the second one and forcing a
+ * rewrite every time a course's concepts change subject. The concept-specific
+ * prompt is last and never cached — a fresh concept, a fresh excerpt, on
+ * every call.
+ *
+ * Each breakpoint is checked against the *cumulative* text up to it, not the
+ * block alone: the model's cache minimum describes the prefix being cached,
+ * and the course digest that follows the toolkit is already far past it on
+ * its own, so in practice all three clear it together or not at all.
+ */
+function prepareLessonBlocks(blocks, plan, model) {
+  const budgets = [GLOBAL_TOOLKIT_ALLOWANCE, plan.contextChars, DOMAIN_TOOLKIT_ALLOWANCE];
+  const out = [];
+  let cumulative = 0;
+  for (let i = 0; i < 3; i++) {
+    const text = clampText(blocks[i].text, budgets[i]);
+    cumulative += text.length;
+    const block = { type: "text", text };
+    if (cumulative >= minCacheChars(model)) {
+      block.cache_control = { type: "ephemeral" };
+    }
+    out.push(block);
+  }
+  out.push({ type: "text", text: clampText(blocks[3].text, plan.excerptChars + TEMPLATE_ALLOWANCE) });
+  return out;
 }
 
 /**

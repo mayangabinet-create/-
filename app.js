@@ -7721,6 +7721,11 @@ Cover its core ideas, key terms, how it connects to everyday life, and a few con
             if (document.getElementById('accountBody')) renderAccount();
         }
 
+        // The tier most accounts should actually want: real model quality
+        // without Max's price. Marked, not sold — there's no checkout yet to
+        // steer toward, just a clearer read of which card is "the" one.
+        const RECOMMENDED_PLAN = 'pro';
+
         function showUpgradePrompt() {
             const rows = Object.entries(PLAN_LIMITS)
                 .filter(([key]) => key !== 'trial')
@@ -7733,10 +7738,23 @@ Cover its core ideas, key terms, how it connects to everyday life, and a few con
                     const debugBtn = canDebugPlan() && !here
                         ? `<button type="button" class="button button-secondary plan-debug-btn" data-debug-plan="${key}">Switch to ${p.label} (debug)</button>`
                         : '';
-                    return `<li${here ? ' class="is-current"' : ''}><strong>${p.label}</strong>${here ? ' — your plan' : ''}<br>
-                        ${p.courses} courses a month · up to ${p.lessonsPerCourse} lessons each · written by ${p.quality}<br>
-                        reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course
-                        ${debugBtn}</li>`;
+                    const badge = here
+                        ? '<span class="plan-card-badge is-current">Your plan</span>'
+                        : key === RECOMMENDED_PLAN
+                            ? '<span class="plan-card-badge">Most popular</span>'
+                            : '';
+                    const features = [
+                        `${p.courses} course${p.courses === 1 ? '' : 's'} a month`,
+                        `up to ${p.lessonsPerCourse} lessons each`,
+                        `written by ${p.quality}`,
+                        `reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course`,
+                    ].map(f => `<li>${ICONS.check}<span>${f}</span></li>`).join('');
+                    return `
+                        <li class="plan-card${here ? ' is-current' : ''}">
+                            <div class="plan-card-head"><strong>${p.label}</strong>${badge}</div>
+                            <ul class="plan-card-features">${features}</ul>
+                            ${debugBtn}
+                        </li>`;
                 }).join('');
 
             const debugNote = canDebugPlan()

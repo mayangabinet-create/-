@@ -1118,13 +1118,17 @@ ${languageRule()}`;
          * instructions and no JSON schema, and the lesson silently fails to
          * build. It is not a degraded lesson; it is no lesson.
          *
-         * So the split stays off until the function that understands it is
-         * live. Flip this to `true` in the same change that deploys, or in the
-         * one after it — never before. Off, `generateLesson` sends exactly the
-         * two blocks it always sent, which every deployed version of the
-         * function has always handled.
+         * So the split stayed off until the function that understands it was
+         * live. `ai-proxy` v9 carries `prepareLessonBlocks`, verified against
+         * the deployed source rather than assumed, so it is on.
+         *
+         * Turning it back off is always safe and is the first thing to try if
+         * lessons start failing to build: off, `generateLesson` sends exactly
+         * the two blocks it always sent, which every deployed version of the
+         * function has ever handled. Rolling `ai-proxy` back below v9 without
+         * also setting this to `false` is the one combination that breaks.
          */
-        const LESSON_CACHE_SPLIT = false;
+        const LESSON_CACHE_SPLIT = true;
 
         // `quiet` is set when nobody is waiting on this lesson — a prefetch —
         // so a failure goes to the console instead of onto a screen showing

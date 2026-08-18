@@ -133,7 +133,7 @@
         // works without it); a blocked/slow CDN load should only disable that one
         // feature, not throw here and take the rest of this script down with it.
         if (window.pdfjsLib) {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
         }
 
         // ============= API & AI Functions =============

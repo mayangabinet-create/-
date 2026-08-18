@@ -19,8 +19,13 @@
             } catch (_) {}
         })();
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" crossorigin="anonymous"></script>
+    <!-- Pinned to an exact version (not @2/latest) and integrity-checked: a
+         version-floating CDN URL can start serving different bytes on its own,
+         and integrity is the browser's guarantee that it hasn't. Hashes are
+         sha384 of the file as published to npm, not as fetched from the CDN —
+         verifying against the CDN's own copy of itself proves nothing. -->
+    <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" integrity="sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.112.3/dist/umd/supabase.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg" crossorigin="anonymous"></script>
     <!-- One family, four weights. A second display face only put two rounded fonts
          in competition; weight and size carry the hierarchy instead.
          Self-hosted from ./fonts, not fetched from Google: the typography is part
@@ -3005,7 +3010,7 @@
         <button type="button" onclick="location.reload()">Reload</button>
     </div>
 
-    <script src="app.js?v=14"></script>
+    <script src="app.js?v=15"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

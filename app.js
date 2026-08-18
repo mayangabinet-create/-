@@ -5853,25 +5853,40 @@ ${languageRule()}`;
         }
 
         // Renaming touches three places that each hold their own copy of the title:
-        // the row in Supabase, the library list, and the open course in memory.
+        // the row in Supabase, the library list, and the open course in memory. The
+        // local two change before the network call, not after — a rename is one row
+        // write that almost never fails, and a title that only updates once the
+        // request returns reads as the edit not having taken.
         async function renameCourse(id, rawTitle) {
             const title = cleanTitle(rawTitle);
             if (!title) {
                 showError('A course name needs at least one letter or number.');
                 return false;
             }
+            const meta = library.find(c => c.id === id);
+            const previousTitle = meta?.title;
+            const isActive = activeCourseId === id && courseData;
+            const previousActiveTitle = isActive ? courseData.courseName : null;
+            const titleEl = document.getElementById('courseTitle');
+
+            if (meta) meta.title = title;
+            if (isActive) {
+                courseData.courseName = title;
+                if (titleEl) titleEl.textContent = title;
+            }
+            renderLibrary();
+
             const { error } = await supabaseClient.from('courses').update({ title }).eq('id', id);
             if (error) {
                 console.error('renameCourse failed:', error);
+                if (meta) meta.title = previousTitle;
+                if (isActive) {
+                    courseData.courseName = previousActiveTitle;
+                    if (titleEl) titleEl.textContent = previousActiveTitle;
+                }
+                renderLibrary();
                 showError('Could not rename that course: ' + error.message);
                 return false;
-            }
-            const meta = library.find(c => c.id === id);
-            if (meta) meta.title = title;
-            if (activeCourseId === id && courseData) {
-                courseData.courseName = title;
-                const titleEl = document.getElementById('courseTitle');
-                if (titleEl) titleEl.textContent = title;
             }
             return true;
         }
@@ -5888,15 +5903,19 @@ ${languageRule()}`;
             if (await renameCourse(id, next)) toast('Course renamed');
         }
 
+        // Gone from the library the instant the confirm dialog closes, not after
+        // a network round trip: a card that lingers past its own confirmation
+        // reads as the tap having missed. The row comes back — and the active
+        // course, if it was the one removed — if the delete didn't actually take.
         async function deleteCourse(id) {
-            const { error } = await supabaseClient.from('courses').delete().eq('id', id);
-            if (error) {
-                console.error('deleteCourse failed:', error);
-                showError('Could not delete that course.');
-                return;
-            }
+            const removed = library.find(c => c.id === id);
+            const removedAt = library.indexOf(removed);
+            const wasActive = activeCourseId === id;
+            const savedActive = wasActive
+                ? { courseData, progress, activeSourceText, activeStructure } : null;
+
             library = library.filter(c => c.id !== id);
-            if (activeCourseId === id) {
+            if (wasActive) {
                 activeCourseId = null;
                 courseData = null;
                 progress = {};
@@ -5904,6 +5923,22 @@ ${languageRule()}`;
                 activeStructure = null;
                 localStorage.removeItem(ACTIVE_STORAGE);
             }
+            renderLibrary();
+
+            const { error } = await supabaseClient.from('courses').delete().eq('id', id);
+            if (error) {
+                console.error('deleteCourse failed:', error);
+                if (removed) library.splice(removedAt, 0, removed);
+                if (wasActive) {
+                    activeCourseId = id;
+                    ({ courseData, progress, activeSourceText, activeStructure } = savedActive);
+                    localStorage.setItem(ACTIVE_STORAGE, id);
+                }
+                renderLibrary();
+                showError('Could not delete that course.');
+                return false;
+            }
+            return true;
         }
 
         async function openCourse(id) {
@@ -6058,11 +6093,10 @@ ${languageRule()}`;
                         `Delete "${name}"?`,
                         'The course and all your progress in it are removed. This cannot be undone.',
                         { confirmText: 'Delete', danger: true });
-                    if (ok) {
-                        await deleteCourse(btn.dataset.del);
-                        renderLibrary();
-                        toast(`Deleted "${name}"`);
-                    }
+                    // deleteCourse removes the card and re-renders before its network
+                    // call even starts, and puts it back with an error dialog if the
+                    // delete didn't take — nothing left to do here but the toast.
+                    if (ok && await deleteCourse(btn.dataset.del)) toast(`Deleted "${name}"`);
                 };
             });
         }

@@ -435,6 +435,10 @@ one input, one chip, one card, one callout, one stat tile, one empty state, one
 overlay. Where the same thing used to be styled three times — three stat tiles, five
 chips, six callouts, three overlays — it is now one rule plus a modifier.
 
+The reasoning behind these choices, compared against sites held up as UI/UX best and
+worst practice, is in [`docs/ui-ux-research.md`](docs/ui-ux-research.md) — including a
+checklist to run before merging a new UI feature.
+
 ## Spaced repetition
 
 Completed lessons are scheduled for review using a simplified SM-2 algorithm based on

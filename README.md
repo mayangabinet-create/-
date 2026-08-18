@@ -314,6 +314,22 @@ upload passes: a starter the app refuses would greet a new account with "this do
 read like study material" about a document the app wrote itself. "I'd rather upload my
 own material" is on the same screen, and Skip is in the top bar throughout.
 
+**Or any subject at all.** Six starters cannot cover what someone actually wants, so
+the same screen takes a typed subject — *Roman roads*, *options trading*, *sourdough* —
+and writes the material for it: 450-600 words of plain prose from one cheap call, which
+then goes through the identical pipeline, suitability gate included. Six hundred words
+rather than the nine hundred that would read better, because the Edge Function caps
+anything below the course threshold at 1000 output tokens, and what does arrive is
+trimmed back to its last full stop — material that stops mid-sentence is material the
+lessons would then be built from. A typed subject and a chosen card are alternatives:
+typing clears the card, and the card clears the box.
+
+**The example lesson is offered from inside it.** The first screen claims lessons are
+something you do rather than read; the demo lesson (see *The four tabs*) is that claim,
+checkable in two minutes at no cost. Taking it up closes the intro without finishing it,
+runs the demo through the real step engine, and reopens the intro on the step it left —
+so the proof does not cost the setup.
+
 Both answers are stored, shown back on the Account screen under *What you're interested
 in*, and editable there — the same four screens reopen, and a replay changes the answers
 without rewriting the date the account finished its first run. An answer nobody can see

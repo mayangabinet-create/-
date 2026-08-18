@@ -72,6 +72,7 @@ const names = [
   'const ONBOARDING_STORAGE', 'const onboardingKey =',
   'const ONBOARDING_VALUES', 'const ONBOARDING_GOALS', 'const INTERESTS',
   'const STARTER_COURSES', 'function starterPicks', 'function interestSummary',
+  'function cleanTitle',
   'let onboarding =', 'let onboardingRun =', 'const ONBOARDING_STEPS',
   'function readLocalOnboarding', 'function writeLocalOnboarding',
   'function loadOnboarding', 'function saveOnboarding', 'function maybeShowOnboarding',
@@ -92,6 +93,7 @@ let built = [];
 let toasts = [];
 let accountRenders = 0;
 let upserts = [];
+let errors = [];
 let remoteRow = null;      // what user_stats holds for this account
 let selectError = null;    // e.g. the column not deployed yet
 let upsertError = null;
@@ -121,6 +123,16 @@ const supabaseClient = {
 let focused = 0;
 const document = { getElementById: () => ({ focus: () => { focused++; } }) };
 
+// The topic path writes its own material before it builds anything.
+let primerFor = null;
+let primerText = 'A long enough piece of prose about the subject. It has sentences.';
+function generateInterestPrimer(topic) { primerFor = topic; return Promise.resolve(primerText); }
+function showStages() {}
+function showMessage() {}
+function hideMessage() {}
+function showError(msg) { errors.push(msg); }
+const BUILD_STAGES = [];
+
 function setScreen(name) { screenShown = name; }
 function startOnboarding(opts) { starts.push(opts || {}); }
 function renderOnboarding() { renders++; }
@@ -136,6 +148,9 @@ module.exports = {
   assessMaterial, materialStats,
   INTERESTS, ONBOARDING_GOALS, ONBOARDING_VALUES, STARTER_COURSES, ONBOARDING_STEPS,
   starterPicks, interestSummary,
+  primerFor: () => primerFor,
+  errors: () => errors,
+  setPrimer: t => { primerText = t; },
   readLocalOnboarding, writeLocalOnboarding, loadOnboarding, saveOnboarding, maybeShowOnboarding,
   onboardingStepId, onboardingCanContinue, onboardingNextLabel, onboardingNext, onboardingBack,
   finishOnboarding,
@@ -160,7 +175,8 @@ module.exports = {
     remoteRow = o.remoteRow ?? null;
     selectError = o.selectError ?? null;
     upsertError = o.upsertError ?? null;
-    starts = []; built = []; toasts = []; upserts = [];
+    starts = []; built = []; toasts = []; upserts = []; errors = [];
+    primerFor = null; primerText = 'A long enough piece of prose about the subject. It has sentences.';
     renders = 0; closes = 0; accountRenders = 0; screenShown = null; focused = 0;
   },
 };
@@ -263,6 +279,10 @@ console.log('\n== the steps ==');
   ok('and then the course to start on', O.onboardingStepId() === 'starter');
   ok('waiting on which one', O.onboardingCanContinue() === false);
   ok('the button says what pressing it does', O.onboardingNextLabel() === 'Build this course');
+  O.run().topic = 'Roman roads';
+  ok('a typed subject answers the step as well as a card does', O.onboardingCanContinue() === true);
+  O.run().topic = '   ';
+  ok('but whitespace is not a subject', O.onboardingCanContinue() === false);
 
   O.onboardingBack();
   ok('back goes back', O.onboardingStepId() === 'interests');
@@ -352,6 +372,37 @@ console.log('\n== the steps ==');
     await O.finishOnboarding({ starterId: null });
     ok('"I\'ll upload my own" builds nothing', O.built().length === 0);
     ok('and says what to do next', O.toasts().length === 1);
+
+    // A subject nobody has a document for: the app writes the material and
+    // then builds from it exactly as it would from an upload.
+    const settle = () => new Promise(r => setTimeout(r, 5));
+
+    O.reset();
+    O.setRun({ step: 3, goal: 'curious', interests: ['other'], starter: null, topic: '  Roman roads ', replay: false });
+    O.onboardingNext();          // the button, not the handler — it trims on the way
+    await settle();
+    ok('a typed subject is written up first', O.primerFor() === 'Roman roads');
+    ok('and the writing is what the course is built from',
+       O.built().length === 1 && O.built()[0].text.startsWith('A long enough piece'));
+    ok('named after the subject they typed', O.built()[0].chosen === 'Roman roads');
+    ok('the intro is done either way', O.state().done === true);
+
+    // A typed subject wins over a card left selected from before, and a card is
+    // only used when nothing was typed.
+    O.reset();
+    O.setRun({ step: 3, goal: null, interests: [], starter: 'pythagoras', topic: 'Roman roads', replay: false });
+    O.onboardingNext();
+    await settle();
+    ok('what they typed last is what gets built', O.primerFor() === 'Roman roads' && O.built().length === 1);
+
+    O.reset();
+    O.setPrimer('');
+    O.setRun({ step: 3, goal: null, interests: [], starter: null, topic: 'a subject', replay: false });
+    O.onboardingNext();
+    await settle();
+    ok('material that never arrives builds nothing', O.built().length === 0);
+    ok('and says so instead of failing silently', O.errors().length === 1);
+    ok('leaving them somewhere they can act', O.screen() === 'home');
 
     // Replaying it from the Account screen changes the answers and nothing else.
     O.reset();

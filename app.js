@@ -146,7 +146,11 @@
         // to whatever `classify()` allows: asking for more than the deployed
         // Edge Function grants is harmless — it comes back clamped, exactly as
         // before — so the client and the function can be deployed in either order.
-        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250 };
+        // `primer` is the material written for a topic nobody uploaded a
+        // document for (see the first run). 1000 because that is exactly what
+        // the Edge Function allows anything under the course threshold —
+        // asking for more only buys a sentence cut in half.
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000 };
 
         let lastCallTruncated = false;
 
@@ -6612,6 +6616,10 @@ ${languageRule()}`;
             ({ courseData, progress, activeCourseId, currentLessonIndex, lessonState } = demoSnapshot);
             demoSnapshot = null;
             demoMode = false;
+            // Opened from the first run rather than from the home screen: go
+            // back to the step it was on, not to an upload box they have not
+            // been introduced to yet.
+            if (onboardingPaused) { resumeOnboardingFromDemo(); return; }
             setScreen('home');
         }
 
@@ -7191,7 +7199,7 @@ ${languageRule()}`;
                     </div>
                     <div class="step-note">Every real lesson works exactly like this one — written from your own material, with a warm-up, a quiz, and a repair round if something doesn't stick.</div>
                     <div class="complete-actions">
-                        <button class="button" id="demoExitBtn">Build my own course</button>
+                        <button class="button" id="demoExitBtn">${onboardingPaused ? 'Back to setting up' : 'Build my own course'}</button>
                     </div>
                 </div>`;
         }
@@ -7783,6 +7791,27 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
             },
         ];
 
+        // A topic with no document behind it. The app writes a few hundred
+        // words about it and then treats those words exactly as it treats an
+        // upload: same suitability gate, same concept extraction, same
+        // excerpt-grounded lessons. A bare topic string cannot go through that
+        // pipeline; a piece of real prose about it can.
+        //
+        // Six hundred words, not the nine hundred that would be nicer: the
+        // server caps anything under the course threshold at 1000 output
+        // tokens, and material that stops mid-sentence is what the learner
+        // would then be taught from. What does arrive is trimmed back to its
+        // last full stop for the same reason.
+        async function generateInterestPrimer(topic) {
+            const prompt = `Write an introduction to "${topic}" for someone meeting it for the first time.
+
+Cover its core ideas, the terms someone needs, how it shows up in everyday life, and two or three concrete examples. Plain prose in paragraphs — no headings, no bullet points, no markdown. 450-600 words. Write only the material itself, nothing about a course or about writing it.`;
+            const text = await callAI(prompt, '', { maxTokens: MAX_TOKENS.primer, task: 'primer', quiet: true });
+            if (!text) return '';
+            const end = Math.max(text.lastIndexOf('.'), text.lastIndexOf('!'), text.lastIndexOf('?'));
+            return end > 200 ? text.slice(0, end + 1) : text;
+        }
+
         // Which starters to offer, given what they picked. Their own interests
         // first, in the order the tiles are laid out, then whatever else is
         // needed to make up three — a screen offering one card looks like the
@@ -7888,12 +7917,13 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
             return true;
         }
 
-        function startOnboarding({ replay = false } = {}) {
-            onboardingRun = {
+        function startOnboarding({ replay = false, resume = null } = {}) {
+            onboardingRun = resume || {
                 step: 0,
                 goal: onboarding.goal || null,
                 interests: Array.isArray(onboarding.interests) ? [...onboarding.interests] : [],
                 starter: null,
+                topic: '',
                 replay,
             };
             const screen = document.getElementById('onboardingScreen');
@@ -7931,7 +7961,7 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
             const step = onboardingStepId();
             if (step === 'goal') return !!onboardingRun.goal;
             if (step === 'interests') return onboardingRun.interests.length > 0;
-            if (step === 'starter') return !!onboardingRun.starter;
+            if (step === 'starter') return !!(onboardingRun.starter || (onboardingRun.topic || '').trim());
             return true;
         }
 
@@ -7959,7 +7989,10 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
                                 </span>
                             </li>`).join('')}
                     </ul>
-                    <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>`;
+                    <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>
+                    <button type="button" class="button button-ghost button-block" id="onbTryDemo">
+                        Or see a two-minute example lesson first
+                    </button>`;
             }
 
             if (step === 'goal') {
@@ -8015,6 +8048,14 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
                             </span>
                         </button>`).join('')}
                 </div>
+                <div class="onb-topic">
+                    <label class="field-label" for="onbTopicInput">Or name any subject at all</label>
+                    <input type="text" id="onbTopicInput" class="auth-input" maxlength="60" autocomplete="off"
+                           placeholder="e.g. Roman roads, options trading, sourdough"
+                           value="${escAttr(onboardingRun.topic || '')}" />
+                    <p class="field-hint">No document needed — the app writes the material, then builds the
+                       course from it the same way.</p>
+                </div>
                 <p class="onb-foot-note">Building it takes about a minute and uses one course from your plan,
                    exactly like uploading your own material would.</p>
                 <button type="button" class="button button-ghost button-block" id="onbOwnMaterial">
@@ -8057,16 +8098,39 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
                 };
             });
             body.querySelectorAll('[data-starter]').forEach(btn => {
-                btn.onclick = () => { onboardingRun.starter = btn.dataset.starter; renderOnboarding(); };
+                btn.onclick = () => {
+                    onboardingRun.starter = btn.dataset.starter;
+                    onboardingRun.topic = '';
+                    renderOnboarding();
+                };
             });
+            // Typing is the other way to answer this step, so it clears the
+            // chosen card — but it must not re-render, or the field would be
+            // replaced (and the cursor lost) on every keystroke. It updates the
+            // two things a re-render would have: the selection and the button.
+            const topicInput = document.getElementById('onbTopicInput');
+            if (topicInput) topicInput.oninput = () => {
+                onboardingRun.topic = topicInput.value;
+                if (topicInput.value.trim() && onboardingRun.starter) {
+                    onboardingRun.starter = null;
+                    body.querySelectorAll('[data-starter]').forEach(b => {
+                        b.classList.remove('picked');
+                        b.setAttribute('aria-pressed', 'false');
+                    });
+                }
+                next.disabled = !onboardingCanContinue();
+            };
             const own = document.getElementById('onbOwnMaterial');
             if (own) own.onclick = () => finishOnboarding({ starterId: null });
+            const demo = document.getElementById('onbTryDemo');
+            if (demo) demo.onclick = pauseOnboardingForDemo;
         }
 
         function onboardingNext() {
             if (!onboardingRun || !onboardingCanContinue()) return;
             if (onboardingStepId() === 'starter') {
-                finishOnboarding({ starterId: onboardingRun.starter });
+                const topic = cleanTitle(onboardingRun.topic);
+                finishOnboarding(topic ? { topic } : { starterId: onboardingRun.starter });
                 return;
             }
             onboardingRun.step++;
@@ -8085,7 +8149,7 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
         // someone who skips on the last screen still told us two things — and
         // the flag is written either way, because an intro that reappears after
         // being dismissed is worse than one that was never shown.
-        async function finishOnboarding({ starterId = null, skipped = false } = {}) {
+        async function finishOnboarding({ starterId = null, topic = '', skipped = false } = {}) {
             const run = onboardingRun;
             if (!run) return;
             closeOnboarding();
@@ -8109,9 +8173,41 @@ Two other factors do real work. Sleep consolidates memories — the hours after 
                 await processLearningMaterial(starter.text, starter.title, starter.title);
                 return;
             }
+            if (topic) {
+                // The one build that has to write its own material first. It is
+                // the same overlay the upload path uses, one stage earlier.
+                showStages(BUILD_STAGES, 'read');
+                showMessage(`Writing material on ${topic}…`);
+                const primer = await generateInterestPrimer(topic);
+                if (!primer) {
+                    hideMessage();
+                    showError(`Couldn't put together material on "${topic}". Try another subject, or upload your own document.`);
+                    setScreen('home');
+                    return;
+                }
+                await processLearningMaterial(primer, topic, topic);
+                return;
+            }
             if (run.replay) { renderAccount(); return; }
             setScreen('home');
             if (!skipped) toast('Upload a PDF or paste a chapter to begin', 'info');
+        }
+
+        // The welcome screen claims lessons are something you do rather than
+        // read. The demo is that claim, checked, and it costs nothing — so the
+        // first run steps aside for it and picks up exactly where it left off.
+        let onboardingPaused = null;
+
+        function pauseOnboardingForDemo() {
+            onboardingPaused = onboardingRun;
+            closeOnboarding();
+            startDemoLesson();
+        }
+
+        function resumeOnboardingFromDemo() {
+            const run = onboardingPaused;
+            onboardingPaused = null;
+            startOnboarding({ resume: run });
         }
 
         document.getElementById('onbNext').addEventListener('click', onboardingNext);

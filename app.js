@@ -7608,7 +7608,7 @@ ${languageRule()}`;
                         showMessage("Preparing lesson...");
                         lesson = await generateLesson(concept);
                     }
-                    if (!lesson) { closeLessonScreen(); return; }
+                    if (!lesson) { abandonPartial(index); closeLessonScreen(); return; }
                     if (!progress[index]) progress[index] = {};
                     progress[index].lesson = lesson;
                     saveProgress();
@@ -7625,6 +7625,7 @@ ${languageRule()}`;
                         // If the opening had already gone up, this closes it —
                         // leaving a hook on screen with nothing behind it would
                         // be a lesson that can never continue.
+                        abandonPartial(index);
                         closeLessonScreen();
                         return;
                     }
@@ -7772,6 +7773,21 @@ ${languageRule()}`;
             buildStepSegments(steps.length);
             updateStepSegments(lessonState.step, steps.length);
             if (wasWaiting) renderStep();
+        }
+
+        // Called wherever a lesson attempt fails after `openPartialLesson` may
+        // already have run for it. `closeLessonScreen` only ever touches the
+        // DOM — it has no idea `lessonState.partialFor` exists — so without
+        // this, a hook that opened and then failed leaves that marker
+        // pointing at an index nobody is looking at. The next successful load
+        // of that same index — a cache hit, or a quiet prefetch resolving,
+        // neither of which calls `openPartialLesson` — would find it still
+        // set, take `applyFinishedLesson`'s "just update, it's already open"
+        // branch on a screen that is in fact closed, and never open anything:
+        // the loading overlay clears, nothing appears, no error, because as
+        // far as that branch knows nothing went wrong.
+        function abandonPartial(index) {
+            if (lessonState?.partialFor === index) lessonState = null;
         }
 
         // The same question with the options moved, so a second look tests the

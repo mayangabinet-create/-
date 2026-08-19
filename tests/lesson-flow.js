@@ -79,6 +79,7 @@ let code = `
 let courseData = null;
 let progress = {};
 let activeCourseId = 'course-1';
+let activeSourceText = 'the document this course was built from';
 let currentUser = { id: 'u1' };
 let entitlement = { planKey: 'max' };
 let usage = { loaded: true, lessonsMonth: 0 };
@@ -102,6 +103,7 @@ module.exports = {
   sseScanner, lessonProgress, pathProgress, LESSON_PARTS,
   monthlyLessonsLeft, prefetchLesson, prefetching,
   reshuffleOptions, pickWarmUp, nudgeReviewSooner,
+  setSource: t => { activeSourceText = t; },
   interleavedCount, buildLessonSteps, openingLesson, openingIsWorthShowing,
   read: () => lastProgress,
   generated: () => generated,
@@ -113,6 +115,7 @@ module.exports = {
     usage = state.usage ?? { loaded: true, lessonsMonth: 0 };
     currentUser = 'currentUser' in state ? state.currentUser : { id: 'u1' };
     activeCourseId = state.activeCourseId ?? 'course-1';
+    activeSourceText = state.activeSourceText ?? 'the document this course was built from';
     navigator.onLine = state.online ?? true;
     generated = []; saved = 0; lastProgress = null;
     prefetching.clear();
@@ -262,12 +265,37 @@ console.log('\n== a course switched away from mid-flight ==');
     P.reset({ courseData: { concepts: concepts(5) } });
     P.prefetchLesson(1);
     // The learner opens a different course before the lesson lands. Storing it
-    // now would file this course's lesson 1 as that one's lesson 1.
+    // now would file this course's lesson 1 as that one's lesson 1. Opening a
+    // course swaps both its id and the document it was built from, so a test
+    // that moved only the id would no longer be testing a course switch.
     P.setCourseId('course-2');
+    P.setSource('a different course\'s document');
     await Promise.resolve(); await Promise.resolve();
     ok('a lesson that lands after the switch is discarded',
        P.progressRow(1) === undefined);
     ok('and nothing was saved for it', P.saves() === 0);
+
+    // Lesson 1 is started while its course is still being planned, so there is
+    // no course id yet to capture — the id arrives later, when the course is
+    // saved. Keying on the id would throw away a perfectly good lesson at
+    // exactly the moment the whole point is to have one ready.
+    P.reset({ courseData: { concepts: concepts(5) }, activeCourseId: null,
+              activeSourceText: 'the document being built right now' });
+    P.prefetchLesson(0);
+    P.setCourseId('course-just-saved');
+    await Promise.resolve(); await Promise.resolve();
+    ok('a lesson started before its course had an id is still kept',
+       P.progressRow(0) !== undefined);
+
+    // The build failed and put the previous document back. That lesson was
+    // grounded in material this account is no longer looking at.
+    P.reset({ courseData: { concepts: concepts(5) },
+              activeSourceText: 'the document being built right now' });
+    P.prefetchLesson(0);
+    P.setSource('the document that was open before the failed build');
+    await Promise.resolve(); await Promise.resolve();
+    ok('a lesson from a build that failed is discarded',
+       P.progressRow(0) === undefined);
 
     // ------------------------------------------------------- the warm-up
     console.log('\n== one question from an earlier lesson ==');

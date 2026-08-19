@@ -33,10 +33,31 @@ export const OPUS = "claude-opus-5";
  * which costs real money per course; that decision should be made against the
  * hit rate the paid tiers are about to start reporting, not against a guess.
  */
+/**
+ * `modelCourse` is not `modelLesson`, and on Pro it is deliberately the
+ * cheapest, fastest model of the three.
+ *
+ * Both calls are dominated by how long the model takes to write, not by how
+ * much it reads: a course plan is up to 4,000 output tokens and a lesson up to
+ * 6,000, generated one token at a time. Caching cut what these calls cost and
+ * did nothing at all for what they *feel* like, because caching only shortens
+ * the input side.
+ *
+ * A course plan is a list of concept names, one-line descriptions and two
+ * labels the app reads back (`domain`, `kind`). It is the shortest, most
+ * structured thing this app asks for, and it is the one the learner waits on
+ * with nothing else to look at. Haiku writes it several times faster, and the
+ * lessons themselves — the part that is actually taught — stay on Sonnet.
+ *
+ * Max is left on Opus on purpose. Its plan picker advertises "Opus plans,
+ * Sonnet writes"; quietly swapping that for a cheaper model would make the
+ * price list wrong. If Max should trade planning quality for speed too, that
+ * is a pricing decision, not a performance one.
+ */
 export const PLANS = {
   trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
   basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
-  pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: SONNET, modelLesson: SONNET },
+  pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: HAIKU, modelLesson: SONNET },
   max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: OPUS, modelLesson: SONNET },
 };
 

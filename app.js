@@ -782,7 +782,37 @@ ${planSchemaAndLanguage(`{
     }`)}`;
         }
 
-        async function generateLessonPath(text, structure = null, worksheet = false) {
+        /**
+         * The first concept, as soon as the plan has finished writing it.
+         *
+         * Course planning and lesson writing used to run strictly one after the
+         * other, and both are slow for the same reason: thousands of output
+         * tokens, generated one at a time. Nothing about caching touches that.
+         * But the two do not actually depend on each other end to end — writing
+         * lesson 1 needs *one* concept, not the whole list — so the moment the
+         * first one is complete the second call can start, and the learner
+         * waits for the longer of the two rather than the sum.
+         *
+         * `importance` is the gate rather than `name`, because the plan writes
+         * a concept's fields in a fixed order and `importance` is the last one
+         * the lesson prompt actually reads. Seeing it means `domain` and `kind`
+         * have landed too, so the lesson starts with its template shelf and its
+         * playbook rather than without them.
+         *
+         * `language` is reported before `concepts` in the same schema, which is
+         * what makes this safe at all: a lesson started without it would be
+         * written in whatever `courseLanguage()` guessed from an empty list —
+         * English — for a course whose material is Hebrew.
+         */
+        function firstPlannedConcept(text) {
+            if (!text.includes('"concepts"')) return null;
+            const draft = extractJSON(text);
+            const c = draft?.concepts?.[0];
+            if (!draft?.language || !c?.name || !c?.description || !c?.importance) return null;
+            return { language: draft.language, concept: c };
+        }
+
+        async function generateLessonPath(text, structure = null, worksheet = false, { onFirstConcept = null } = {}) {
 
             // Not the first N characters of the document. The opening pages of a
             // textbook are a title page, a copyright notice and a table of contents
@@ -793,9 +823,24 @@ ${planSchemaAndLanguage(`{
             const digest = buildSourceDigest(text, planReadChars(), structure);
             const extractPrompt = worksheet ? buildWorksheetPlanPrompt(digest) : buildTopicPlanPrompt(digest);
 
+            let firedFirst = false;
             const result = await callAI(extractPrompt, '', {
                 maxTokens: MAX_TOKENS.path, task: worksheet ? 'worksheet' : 'path',
-                stream: true, onProgress: pathProgress,
+                stream: true,
+                onProgress: (streamed) => {
+                    pathProgress(streamed);
+                    if (firedFirst || !onFirstConcept) return;
+                    const first = firstPlannedConcept(streamed);
+                    if (!first) return;
+                    firedFirst = true;
+                    try {
+                        onFirstConcept(first);
+                    } catch (err) {
+                        // Starting lesson 1 early is an optimisation. A course
+                        // that plans fine must not fail because of it.
+                        console.warn('Could not start the first lesson early:', err);
+                    }
+                },
             });
             if (!result) return null;
 
@@ -2210,9 +2255,37 @@ ${languageRule()}`;
             }
 
             buildStage('plan', worksheet ? 'Finding the exercises in your worksheet' : 'Finding the concepts in your material');
+
+            // Lesson 1 is written alongside the plan rather than after it (see
+            // `firstPlannedConcept`), and `generateLesson` reads the document
+            // it is grounding in off the same globals a open course uses. They
+            // are pointed at this document before planning starts and put back
+            // if the build never produces a course, so a failed build cannot
+            // leave the previously open course reading someone else's source.
+            const restore = {
+                courseData, activeSourceText, activeStructure, progress,
+            };
+
             try {
-                const course = await generateLessonPath(text, structure, worksheet);
+                const course = await generateLessonPath(text, structure, worksheet, {
+                    onFirstConcept: ({ language, concept }) => {
+                        activeSourceText = text;
+                        activeStructure = structure;
+                        // A provisional course, holding the one concept being
+                        // written and the language every string in the lesson
+                        // has to be in.
+                        courseData = { language, concepts: [concept] };
+                        // Nobody has answered anything in a course that does not
+                        // exist yet; the previous course's scores must not pitch
+                        // this one's first lesson.
+                        progress = {};
+                        prefetching.clear();
+                        prefetchLesson(0);
+                    },
+                });
                 if (!course) {
+                    ({ courseData, activeSourceText, activeStructure, progress } = restore);
+                    prefetching.clear();
                     resetToUpload();   // error already surfaced; give them a way back
                     return;
                 }
@@ -2223,7 +2296,11 @@ ${languageRule()}`;
                     || 'Untitled course';
                 buildStage('save', 'Building your learning path');
                 const id = await saveCourse(course, text, structure);
-                if (!id) return;
+                if (!id) {
+                    ({ courseData, activeSourceText, activeStructure, progress } = restore);
+                    prefetching.clear();
+                    return;
+                }
 
                 const nameInput = document.getElementById('courseNameInput');
                 if (nameInput) nameInput.value = '';   // don't reuse it for the next course
@@ -7299,14 +7376,22 @@ ${languageRule()}`;
             // ours to spend on a guess about what they will open next.
             if (monthlyLessonsLeft() <= 1) return;
 
-            const courseId = activeCourseId;
+            // The document, not the course id, is what says which course this
+            // lesson belongs to. They agree everywhere except the one place
+            // that matters here: lesson 1 is started while the course is still
+            // being planned (see `processLearningMaterial`), so there is no id
+            // to capture yet and comparing one would discard a lesson that had
+            // been written perfectly well. The source text is set the moment
+            // the build commits to a document and put back if it never
+            // produces a course, which is exactly the question being asked.
+            const source = activeSourceText;
             const promise = generateLesson(concept, { quiet: true })
                 .then(lesson => {
                     // A course switched away from mid-flight has a different
                     // `progress` object behind it now. Writing this lesson
                     // into it would file lesson 4 of one course as lesson 4 of
                     // another.
-                    if (lesson && activeCourseId === courseId) {
+                    if (lesson && activeSourceText === source) {
                         if (!progress[index]) progress[index] = {};
                         progress[index].lesson = lesson;
                         saveProgress();

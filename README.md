@@ -577,6 +577,30 @@ failures to the console rather than onto a screen showing something else, and a 
 switched away from mid-flight discards what lands, because writing it into the new
 course's `progress` would file one course's lesson 4 as another's.
 
+**Lesson 1 is written while the course is still being planned.** Planning and lesson
+writing used to run strictly one after the other, and both are slow for the same reason:
+thousands of output tokens, generated one at a time. Caching does nothing for that — it
+shortens the input side, which was never what anyone was waiting for. But the two calls
+do not depend on each other end to end: writing lesson 1 needs *one* concept, not the
+whole list. `firstPlannedConcept()` watches the plan stream and hands the first finished
+concept to `prefetchLesson(0)`, so the wait becomes the longer of the two rather than
+their sum.
+
+It gates on `importance` rather than `name` because the plan writes a concept's fields in
+a fixed order and `importance` is the last one the lesson prompt reads — seeing it means
+`domain` and `kind` arrived too, so the lesson starts with its template shelf rather than
+without it. It also needs the plan's `language`, reported before `concepts` in the same
+schema: a lesson started without it would be written in whatever `courseLanguage()`
+guessed from an empty concept list, which is English, for a course whose material is
+Hebrew.
+
+This is also why `prefetchLesson` identifies a course by its source text rather than its
+id. The two agree everywhere except here — lesson 1 starts before the course has been
+saved, so there is no id to capture, and comparing one would discard a lesson that had
+been written perfectly well. The source text is pointed at the new document when the
+build commits to it and put back if the build never produces a course, which is exactly
+the question the guard is asking.
+
 **The lesson opens before it is finished.** Prefetching only helps a lesson somebody
 could see coming — the next one in a course. The first lesson of a new course has nothing
 running ahead of it, so it was the one place a learner still watched a spinner for the
@@ -618,8 +642,8 @@ unrecognised value falls back to `basic` rather than the largest tier.
 |---|---|---|---|---|---|---|
 | trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
 | basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
-| pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Sonnet |
-| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Opus plans, Sonnet writes |
+| pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Haiku plans, Sonnet writes |
+| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Sonnet plans, Sonnet writes |
 
 **Shared context** is a digest of the whole document sent ahead of every lesson in a
 course, byte-identical each time so the API caches it: the first lesson pays a write
@@ -663,6 +687,14 @@ with no instructions and no schema. The lesson does not degrade, it fails to bui
 the flag off the client sends the same two blocks every deployed version has always
 handled, so the client can be merged whenever. Turn it on in the change that deploys the
 function, or any change after it — never before.
+
+The plan picker does not name the models, and the `PLANS` rows above are free to move
+because of it. Naming them made the price list a promise about implementation: it pinned
+a row that should be tunable for speed or cost, it meant nothing to anyone who does not
+follow model releases, and it went stale every time one was renamed. `PLAN_LIMITS` in
+`app.js` carries a `depth` string — "more detailed lessons" — describing what the tier
+gives the learner. Which models actually process the material is a fact about where the
+text goes, so it lives in `privacy.html` beside everything else of that kind.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without

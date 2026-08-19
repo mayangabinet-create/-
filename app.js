@@ -227,8 +227,13 @@
          * `onProgress` is handed the text so far after each chunk, never per
          * event: a token at a time would re-render the overlay a thousand
          * times for one lesson.
+         *
+         * `bump`, if given, is called after every `read()` — including the
+         * one that reports `done` — so whatever is timing this stream's
+         * silence (see `callAI`) knows the connection just proved it is
+         * still alive.
          */
-        async function readAIStream(res, onProgress) {
+        async function readAIStream(res, onProgress, bump) {
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             const scan = sseScanner();
@@ -237,6 +242,7 @@
 
             while (true) {
                 const { value, done } = await reader.read();
+                if (bump) bump();
                 if (done) break;
                 // `stream: true` on the decoder: a Hebrew character split
                 // across two network chunks is two bytes that only mean
@@ -255,6 +261,19 @@
             }
             return { text, stopReason };
         }
+
+        // A connection that stops delivering bytes without ever closing or
+        // erroring leaves `await`s all the way up — `readAIStream`, `callAI`,
+        // whatever awaited *that* — paused forever. That is worse than any
+        // error this function already knows how to show: a caller like
+        // `loadLesson` guards itself with a flag it only clears once its own
+        // await returns, so a hang here does not just fail one lesson, it
+        // leaves that flag set and silently refuses every lesson after it,
+        // for the rest of the session. Anything at all arriving — the
+        // response's headers, one more streamed chunk — resets this; only
+        // true silence for this long aborts the attempt, which the retry
+        // loop below already treats like any other network error.
+        const STREAM_IDLE_TIMEOUT_MS = 30000;
 
         // Every generation call goes through the ai-proxy Edge Function instead of
         // Anthropic directly: it holds the real API key server-side, checks the
@@ -295,6 +314,12 @@
             if (stream) body.stream = true;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
+                const controller = new AbortController();
+                let idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
+                const bump = () => {
+                    clearTimeout(idleTimer);
+                    idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
+                };
                 try {
                     // Read the session on every attempt rather than once: a long
                     // generation can outlive an access token, and the retry
@@ -313,7 +338,9 @@
                             'apikey': SUPABASE_ANON_KEY,
                         },
                         body: JSON.stringify(body),
+                        signal: controller.signal,
                     });
+                    bump();   // headers back — a stall from here on is still on the clock
 
                     if (res.ok) {
                         // A function deployed before streaming existed answers
@@ -326,7 +353,7 @@
 
                         let text, stopReason;
                         if (streamed) {
-                            ({ text, stopReason } = await readAIStream(res, onProgress));
+                            ({ text, stopReason } = await readAIStream(res, onProgress, bump));
                         } else {
                             const data = await res.json();
                             stopReason = data.stop_reason;
@@ -379,13 +406,17 @@
                     // half a lesson is not worth restarting from nothing on a
                     // tier where that half took a minute — but a stream that
                     // broke is also not a lesson, so the retry is the only way
-                    // to get one. Retry, and let the quota do the arguing.
+                    // to get one (an idle timeout lands here too — `fetch` and
+                    // `reader.read()` both reject the same way `controller`
+                    // aborts them). Retry, and let the quota do the arguing.
                     if (attempt < retries) {
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
                     fail("Connection problem. Check your internet and try again.");
                     return null;
+                } finally {
+                    clearTimeout(idleTimer);
                 }
             }
             return null;

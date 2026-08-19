@@ -7360,6 +7360,16 @@ ${languageRule()}`;
         // there is quota left to spend on it.
         const prefetching = new Map();   // concept index -> Promise<lesson|null>
 
+        // The index a learner is actually sitting on the "Almost ready…"
+        // overlay for, or null. A prefetch runs with nobody watching most of
+        // the time — lesson 2 written while lesson 1 is still on screen — and
+        // drawing its partial content then would mean opening a lesson screen
+        // nobody asked for. Set only while `loadLesson` is awaiting that exact
+        // index's prefetch, so `prefetchLesson`'s `onPartial` knows when it is
+        // safe to put a draft on screen instead of leaving the learner on a
+        // blank spinner for however long the rest takes.
+        let watchingIndex = null;
+
         function monthlyLessonsLeft() {
             const limits = PLAN_LIMITS[entitlement?.planKey];
             if (!limits || !usage.loaded) return Infinity;   // unknown is not "none"
@@ -7475,7 +7485,15 @@ ${languageRule()}`;
             // the build commits to a document and put back if it never
             // produces a course, which is exactly the question being asked.
             const source = activeSourceText;
-            const promise = generateLesson(concept, { quiet: true })
+            const promise = generateLesson(concept, {
+                quiet: true,
+                // A no-op unless someone is actually waiting on this exact
+                // lesson (see `watchingIndex`) — a prefetch running ahead of
+                // the learner must stay invisible until they ask for it.
+                onPartial: draft => {
+                    if (watchingIndex === index) openPartialLesson(draft, index, concept);
+                },
+            })
                 .then(lesson => {
                     // A course switched away from mid-flight has a different
                     // `progress` object behind it now. Writing this lesson
@@ -7545,6 +7563,11 @@ ${languageRule()}`;
                     // arrive later than the one already in flight.
                     showMessage("Almost ready…");
                     showProgress('This lesson was already being written');
+                    // Tells the prefetch's own `onPartial` (see
+                    // `prefetchLesson`) that its draft is now safe to draw —
+                    // reset in the `finally` below regardless of how this
+                    // turns out.
+                    watchingIndex = index;
                     lesson = await prefetching.get(index);
                     if (!lesson) {
                         // The background attempt failed quietly. Now that
@@ -7559,11 +7582,10 @@ ${languageRule()}`;
                     progress[index].lesson = lesson;
                     saveProgress();
                 } else {
-                    // The only branch that waits on the model with nobody
-                    // reading anything, so it is the only one that opens the
-                    // lesson early. A cached lesson is instant already, and one
-                    // being prefetched is most of the way written by the time
-                    // anyone asks for it.
+                    // Nobody reading anything yet, so this is the other branch
+                    // that opens the lesson early — a cached lesson is instant
+                    // already, and one being prefetched is covered by
+                    // `watchingIndex` above.
                     lesson = await generateLesson(concept, {
                         onPartial: draft => openPartialLesson(draft, index, concept),
                     });
@@ -7630,6 +7652,7 @@ ${languageRule()}`;
                 renderStep();
             } finally {
                 lessonLoading = false;
+                watchingIndex = null;
                 hideMessage();
             }
         }

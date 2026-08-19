@@ -68,6 +68,7 @@ const names = [
   'const prefetching =', 'function monthlyLessonsLeft', 'function prefetchLesson',
   'function shuffle', 'function reshuffleOptions',
   'function interleavedCount', 'function buildLessonSteps',
+  'function openingLesson', 'function openingIsWorthShowing',
   'function pickWarmUp', 'function nudgeReviewSooner',
 ];
 
@@ -101,7 +102,7 @@ module.exports = {
   sseScanner, lessonProgress, pathProgress, LESSON_PARTS,
   monthlyLessonsLeft, prefetchLesson, prefetching,
   reshuffleOptions, pickWarmUp, nudgeReviewSooner,
-  interleavedCount, buildLessonSteps,
+  interleavedCount, buildLessonSteps, openingLesson, openingIsWorthShowing,
   read: () => lastProgress,
   generated: () => generated,
   saves: () => saved,
@@ -426,6 +427,68 @@ console.log('\n== a course switched away from mid-flight ==');
          shape(full));
       ok('a lesson with nothing in it produces no steps',
          P.buildLessonSteps({}).length === 0);
+    }
+
+    // ---------------------------------------------- opening a half-written lesson
+    console.log('\n== the opening of a lesson still being written ==');
+    {
+      const lesson = (cards, quiz, extra = {}) => ({
+        cards: Array.from({ length: cards }, (_, i) => ({ idea: 'C' + i })),
+        quiz: Array.from({ length: quiz }, (_, i) => ({ text: 'Q' + i })),
+        hook: { text: 'h' }, workedExample: { problem: 'w' }, summary: { mainIdea: 's' },
+        ...extra,
+      });
+      const shape = steps => steps.map(s => s.type + (s.i ?? '')).join(' ');
+
+      // The property the whole feature rests on. A learner is moved onto the
+      // finished lesson at whatever step they had reached, so every step the
+      // opening gave them has to be the same step the finished lesson gives.
+      // The interleave is what would break it: cards arrive before the quiz, so
+      // a card shown early would have questions spliced in around it later.
+      const shapes = [[1, 0], [2, 2], [3, 4], [4, 5], [5, 5], [5, 9], [2, 0], [0, 3]];
+      const extras = [
+        {}, { prediction: { question: 'p' } }, { explore: { insight: 'e' } },
+        { prediction: { question: 'p' }, explore: { insight: 'e' } },
+        { prediction: { question: 'p' }, explore: { insight: 'e' },
+          practice: { problem: 'pr' }, challenge: { text: 'c' }, memoryCheck: { prompt: 'm' } },
+      ];
+      let prefixHolds = true, counterExample = '';
+      for (const [c, q] of shapes) {
+        for (const extra of extras) {
+          for (const warmUp of [false, true]) {
+            const l = lesson(c, q, extra);
+            const opening = P.buildLessonSteps(P.openingLesson(l), { warmUp });
+            const full = P.buildLessonSteps(l, { warmUp });
+            const isPrefix = shape(opening) === shape(full.slice(0, opening.length));
+            if (!isPrefix) {
+              prefixHolds = false;
+              counterExample = `cards=${c} quiz=${q} warmUp=${warmUp}\n       `
+                + `opening: ${shape(opening)}\n       full:    ${shape(full)}`;
+            }
+          }
+        }
+      }
+      ok('the opening is always an exact prefix of the finished lesson', prefixHolds, counterExample);
+
+      // The cards are the specific thing that must not appear early, however
+      // many of them have already streamed in.
+      const withCards = P.openingLesson(lesson(5, 5, { prediction: { question: 'p' } }));
+      ok('cards are held back even once they have arrived', withCards.cards.length === 0);
+      ok('and so is the quiz that would be spliced around them', withCards.quiz.length === 0);
+      ok('the opening carries only what comes before the cards',
+         shape(P.buildLessonSteps(withCards)) === 'hook prediction');
+
+      // Opening on a hook alone means one screen and a Continue, which lands
+      // the learner on the waiting step at once — worse than having waited.
+      ok('a hook on its own is not worth opening early',
+         !P.openingIsWorthShowing({ hook: { text: 'h' } }));
+      ok('nor is a lesson with no hook yet',
+         !P.openingIsWorthShowing({ prediction: { question: 'p' } }));
+      ok('a hook and a prediction is enough',
+         P.openingIsWorthShowing({ hook: { text: 'h' }, prediction: { question: 'p' } }));
+      ok('a hook and an explore step is enough',
+         P.openingIsWorthShowing({ hook: { text: 'h' }, explore: { insight: 'e' } }));
+      ok('nothing at all is not', !P.openingIsWorthShowing(null) && !P.openingIsWorthShowing({}));
     }
 
     console.log(`\n${pass} passed, ${fail} failed\n`);

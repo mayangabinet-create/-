@@ -32,8 +32,7 @@ export const OPUS = "claude-opus-5";
  * this on for Haiku means first raising the budget past ~16,000 characters,
  * which costs real money per course; that decision should be made against the
  * hit rate the paid tiers are about to start reporting, not against a guess.
- */
-/**
+ *
  * `modelCourse` is not `modelLesson`, and on Pro it is deliberately the
  * cheapest, fastest model of the three.
  *

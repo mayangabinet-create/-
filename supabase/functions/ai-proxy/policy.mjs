@@ -49,16 +49,18 @@ export const OPUS = "claude-opus-5";
  * with nothing else to look at. Haiku writes it several times faster, and the
  * lessons themselves — the part that is actually taught — stay on Sonnet.
  *
- * Max is left on Opus on purpose. Its plan picker advertises "Opus plans,
- * Sonnet writes"; quietly swapping that for a cheaper model would make the
- * price list wrong. If Max should trade planning quality for speed too, that
- * is a pricing decision, not a performance one.
+ * Max drops from Opus to Sonnet for the same reason, one step rather than
+ * two: it still plans with a stronger model than Pro, which keeps a real
+ * difference between the tiers, and it still plans several times faster than
+ * Opus did. What it no longer does is name the model to the learner — the plan
+ * picker describes what a tier gives them instead, so this row can be tuned for
+ * speed or cost without the price list becoming wrong.
  */
 export const PLANS = {
   trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
   basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
   pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: HAIKU, modelLesson: SONNET },
-  max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: OPUS, modelLesson: SONNET },
+  max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: SONNET, modelLesson: SONNET },
 };
 
 /**

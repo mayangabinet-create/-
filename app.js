@@ -3076,10 +3076,18 @@ ${languageRule()}`;
         // prefix is 4,096 tokens — below that the API accepts the request, caches
         // nothing, and charges the premium anyway.
         const PLAN_LIMITS = {
-            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
-            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, quality: 'Haiku',         readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
-            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, quality: 'Sonnet',        readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
-            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, quality: 'Opus + Sonnet', readChars: 120000, excerptChars: 16000, contextChars: 48000 },
+            // `depth` is what the tier gives the learner, not which model gives
+            // it to them. Naming the models here made the plan picker a promise
+            // about implementation: it pinned a row of `PLANS` in the Edge
+            // Function that should be free to move for speed or cost, it meant
+            // nothing to anyone who does not follow model releases, and it goes
+            // stale every time one is renamed or retired. Which models actually
+            // process the material is a fact about where the text goes, so it
+            // lives in privacy.html, next to everything else of that kind.
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, depth: 'more detailed lessons',          readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
+            max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, depth: 'the most detailed lessons',      readChars: 120000, excerptChars: 16000, contextChars: 48000 },
         };
 
         let entitlement = null;   // { status, plan, planKey, periodEnd, trialing, active }
@@ -3233,8 +3241,8 @@ ${languageRule()}`;
                         <span class="plan-status ${planTone}">${field(esc(planLine), '6em')}</span>
                     </div>
                     <p class="account-card-note">
-                        ${loading ? field('', '85%') : `${limits.courses} course${limits.courses === 1 ? '' : 's'} a month,
-                        up to ${limits.lessonsPerCourse} lessons each, written by ${esc(limits.quality)}.`}
+                        ${loading ? field('', '85%') : `${limits.courses} course${limits.courses === 1 ? '' : 's'} a month —
+                        ${esc(limits.depth)}, up to ${limits.lessonsPerCourse} each.`}
                     </p>
                     <p class="account-card-note">
                         ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free, any time — it's already yours.`}
@@ -9130,7 +9138,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                     const features = [
                         `${p.courses} course${p.courses === 1 ? '' : 's'} a month`,
                         `up to ${p.lessonsPerCourse} lessons each`,
-                        `written by ${p.quality}`,
+                        p.depth,
                         `reads about ${pages} page${pages === 1 ? '' : 's'} of your document when planning the course`,
                     ].map(f => `<li>${ICONS.check}<span>${f}</span></li>`).join('');
                     return `

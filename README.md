@@ -643,7 +643,7 @@ unrecognised value falls back to `basic` rather than the largest tier.
 | trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
 | basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
 | pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Haiku plans, Sonnet writes |
-| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Opus plans, Sonnet writes |
+| max | 8 | 15 | 120,000 | 16,000 | 48,000 | Sonnet plans, Sonnet writes |
 
 **Shared context** is a digest of the whole document sent ahead of every lesson in a
 course, byte-identical each time so the API caches it: the first lesson pays a write
@@ -687,6 +687,14 @@ with no instructions and no schema. The lesson does not degrade, it fails to bui
 the flag off the client sends the same two blocks every deployed version has always
 handled, so the client can be merged whenever. Turn it on in the change that deploys the
 function, or any change after it — never before.
+
+The plan picker does not name the models, and the `PLANS` rows above are free to move
+because of it. Naming them made the price list a promise about implementation: it pinned
+a row that should be tunable for speed or cost, it meant nothing to anyone who does not
+follow model releases, and it went stale every time one was renamed. `PLAN_LIMITS` in
+`app.js` carries a `depth` string — "more detailed lessons" — describing what the tier
+gives the learner. Which models actually process the material is a fact about where the
+text goes, so it lives in `privacy.html` beside everything else of that kind.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without

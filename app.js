@@ -273,7 +273,19 @@
         // response's headers, one more streamed chunk — resets this; only
         // true silence for this long aborts the attempt, which the retry
         // loop below already treats like any other network error.
-        const STREAM_IDLE_TIMEOUT_MS = 30000;
+        //
+        // 60s, not 30: a lesson is up to 6,000 output tokens on Sonnet or
+        // Haiku, and a live run showed genuine multi-second gaps between
+        // chunks under normal load. 30s aborted mid-generation more than
+        // once — and because aborting a fetch's body stream is not
+        // guaranteed to *error* the reader rather than just *close* it, that
+        // showed up not as a network error but as `readAIStream` returning
+        // early with whatever partial text had arrived, which `generateLesson`
+        // then reported as "the model returned an empty response" — a
+        // confusing failure for what was actually this timeout firing too
+        // eagerly. `timedOut` below closes that gap outright rather than
+        // just widening the window.
+        const STREAM_IDLE_TIMEOUT_MS = 60000;
 
         // Every generation call goes through the ai-proxy Edge Function instead of
         // Anthropic directly: it holds the real API key server-side, checks the
@@ -315,10 +327,17 @@
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 const controller = new AbortController();
-                let idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
+                // Set the instant the timer actually fires, not inferred from
+                // the error it causes: aborting a fetch's body stream is
+                // specified to error the reader, but is not universally
+                // guaranteed to — a reader that instead just sees `done` would
+                // hand `readAIStream` a clean-looking early return, and this
+                // is what tells the code below not to trust it.
+                let timedOut = false;
+                let idleTimer = setTimeout(() => { timedOut = true; controller.abort(); }, STREAM_IDLE_TIMEOUT_MS);
                 const bump = () => {
                     clearTimeout(idleTimer);
-                    idleTimer = setTimeout(() => controller.abort(), STREAM_IDLE_TIMEOUT_MS);
+                    idleTimer = setTimeout(() => { timedOut = true; controller.abort(); }, STREAM_IDLE_TIMEOUT_MS);
                 };
                 try {
                     // Read the session on every attempt rather than once: a long
@@ -361,6 +380,13 @@
                                 .filter(p => p.type === 'text').map(p => p.text).join('');
                             if (onProgress) onProgress(text);
                         }
+
+                        // The idle timer fired while this was still being read.
+                        // Whatever text arrived before then is a truncated
+                        // answer, not a finished one — treated as the network
+                        // failure it actually is rather than returned as if the
+                        // model itself had simply written less.
+                        if (timedOut) throw new Error('The connection went quiet for too long.');
 
                         refreshUsage();
                         if (stopReason === 'max_tokens') {
@@ -406,9 +432,10 @@
                     // half a lesson is not worth restarting from nothing on a
                     // tier where that half took a minute — but a stream that
                     // broke is also not a lesson, so the retry is the only way
-                    // to get one (an idle timeout lands here too — `fetch` and
-                    // `reader.read()` both reject the same way `controller`
-                    // aborts them). Retry, and let the quota do the arguing.
+                    // to get one (an idle timeout lands here too, whether
+                    // `fetch`/`reader.read()` themselves rejected on the abort
+                    // or the `timedOut` check above threw instead). Retry, and
+                    // let the quota do the arguing.
                     if (attempt < retries) {
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;

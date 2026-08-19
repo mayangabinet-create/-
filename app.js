@@ -228,7 +228,7 @@
          * event: a token at a time would re-render the overlay a thousand
          * times for one lesson.
          */
-        async function readAIStream(res, onProgress) {
+        async function readAIStream(res, onProgress, onChunk) {
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             const scan = sseScanner();
@@ -238,6 +238,11 @@
             while (true) {
                 const { value, done } = await reader.read();
                 if (done) break;
+                // A connection that died without a clean close never rejects
+                // on its own — the socket just goes quiet — so the caller's
+                // idle watchdog has to hear about every chunk that does
+                // arrive to know the stream is still alive.
+                if (onChunk) onChunk();
                 // `stream: true` on the decoder: a Hebrew character split
                 // across two network chunks is two bytes that only mean
                 // something together, and decoding each half alone yields two
@@ -263,6 +268,18 @@
         // It is a bare `fetch` rather than `supabaseClient.functions.invoke`
         // because invoke reads the whole body before it returns, which is the
         // one thing a stream must not do.
+        //
+        // A connection a phone's OS or carrier network drops silently — no
+        // TCP reset, just packets that stop arriving — never rejects `fetch`
+        // on its own; the promise sits pending until some much longer OS
+        // timeout, which from the learner's side is a lesson stuck on
+        // "loading" forever with no error and nothing to retry. Every attempt
+        // below gets a watchdog that aborts it once this long has passed with
+        // not one byte back — headers, or the next streamed chunk — so a dead
+        // connection fails fast into the retry this function already has,
+        // instead of hanging past the point anyone is still waiting.
+        const IDLE_TIMEOUT_MS = 30000;
+
         async function callAI(userMessage, systemPrompt = '', opts = {}) {
             lastCallTruncated = false;
             if (!currentUser) {
@@ -295,6 +312,12 @@
             if (stream) body.stream = true;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
+                const controller = new AbortController();
+                let idleTimer = null;
+                const resetIdle = () => {
+                    clearTimeout(idleTimer);
+                    idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+                };
                 try {
                     // Read the session on every attempt rather than once: a long
                     // generation can outlive an access token, and the retry
@@ -305,6 +328,7 @@
                         return null;
                     }
 
+                    resetIdle();
                     const res = await fetch(AI_ENDPOINT, {
                         method: 'POST',
                         headers: {
@@ -313,7 +337,9 @@
                             'apikey': SUPABASE_ANON_KEY,
                         },
                         body: JSON.stringify(body),
+                        signal: controller.signal,
                     });
+                    resetIdle();   // headers are back; still watching for a body that stalls
 
                     if (res.ok) {
                         // A function deployed before streaming existed answers
@@ -326,7 +352,11 @@
 
                         let text, stopReason;
                         if (streamed) {
-                            ({ text, stopReason } = await readAIStream(res, onProgress));
+                            // Every chunk that lands resets the watchdog, so a
+                            // lesson genuinely taking its full minute or two
+                            // is never mistaken for a dead connection — only
+                            // silence this long is.
+                            ({ text, stopReason } = await readAIStream(res, onProgress, resetIdle));
                         } else {
                             const data = await res.json();
                             stopReason = data.stop_reason;
@@ -335,6 +365,7 @@
                             if (onProgress) onProgress(text);
                         }
 
+                        clearTimeout(idleTimer);
                         refreshUsage();
                         if (stopReason === 'max_tokens') {
                             console.warn('Response truncated at max_tokens');
@@ -343,6 +374,7 @@
                         return text || '';
                     }
 
+                    clearTimeout(idleTimer);
                     const status = res.status;
                     let payload = {};
                     try { payload = await res.json(); } catch (_) {}
@@ -374,6 +406,7 @@
                     return null;
 
                 } catch (error) {
+                    clearTimeout(idleTimer);
                     console.error('Network error:', error);
                     // A stream that broke after the model had already written
                     // half a lesson is not worth restarting from nothing on a

@@ -633,6 +633,19 @@ no number.
 progress readers, and the prefix property above; `tests/ai-proxy-policy.mjs` covers the
 server half of the stream.
 
+**A connection a phone drops silently is not a connection that errors.** Production logs
+showed `ai-proxy` repeatedly hitting "connection closed before message completed" —
+Deno's name for a socket the client vanished from — while a real learner's course sat on
+"Preparing lesson…" and never moved. A mobile network that stops delivering packets
+without sending a reset doesn't reject `fetch`; the promise just sits pending, which from
+the learner's side is a lesson stuck on loading forever with nothing to retry and no error
+to explain why. `callAI` now gives every attempt a watchdog: an `AbortController` armed for
+30 seconds, rearmed on the response headers and again on every chunk `readAIStream` reads,
+so a lesson genuinely spending its full minute or two being written is never mistaken for a
+dead connection — only silence that long is. An abort surfaces in the same `catch` a broken
+stream already lands in, so it gets the same 1.5s-backoff retry a mid-lesson disconnect
+always did, instead of hanging past the point anyone is still waiting.
+
 ## Tiers
 
 Held in `PLANS` in the Edge Function; `subscriptions.plan` picks the row, and an

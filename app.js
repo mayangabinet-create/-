@@ -8915,7 +8915,11 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             onboardingRun = resume || {
                 step: 0,
                 goal: onboarding.goal || null,
-                interests: Array.isArray(onboarding.interests) ? [...onboarding.interests] : [],
+                // Only the first survives: an account that picked several
+                // before this became single-select would otherwise reopen
+                // with every one of its old picks still highlighted.
+                interests: Array.isArray(onboarding.interests) && onboarding.interests.length
+                    ? [onboarding.interests[0]] : [],
                 starter: null,
                 topic: '',
                 replay,
@@ -9022,7 +9026,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                 const preview = n ? starterPicks(onboardingRun.interests, 1)[0] : null;
                 return `
                     <h2 class="onb-title">What are you interested in?</h2>
-                    <p class="onb-lede">Pick as many as you like — it decides which course we offer you to start on.</p>
+                    <p class="onb-lede">Pick one — it decides which course we offer you to start on.</p>
                     <div class="onb-grid">
                         ${INTERESTS.map(i => {
                             const on = onboardingRun.interests.includes(i.id);
@@ -9034,12 +9038,11 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                             </button>`;
                         }).join('')}
                     </div>
-                    <p class="onb-count" role="status">${n ? `${n} picked` : 'Nothing picked yet'}</p>
                     ${preview ? `
                     <div class="onb-preview" role="status">
                         <span class="onb-preview-label">You'll be offered</span>
                         <strong class="onb-preview-title">${esc(preview.title)}</strong>
-                    </div>` : ''}`;
+                    </div>` : `<p class="onb-count" role="status">Tap one to see what it unlocks</p>`}`;
             }
 
             // starter
@@ -9103,11 +9106,14 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                 btn.onclick = () => { onboardingRun.goal = btn.dataset.goal; renderOnboarding(); };
             });
             body.querySelectorAll('[data-interest]').forEach(btn => {
+                // One at a time: picking a tile replaces whatever was picked
+                // before rather than adding to it, so exactly one tile — the
+                // one just tapped — ever carries the highlight. Tapping the
+                // same tile again clears it, the same way a single-answer
+                // question elsewhere in this wizard would.
                 btn.onclick = () => {
                     const id = btn.dataset.interest;
-                    const at = onboardingRun.interests.indexOf(id);
-                    if (at >= 0) onboardingRun.interests.splice(at, 1);
-                    else onboardingRun.interests.push(id);
+                    onboardingRun.interests = onboardingRun.interests[0] === id ? [] : [id];
                     renderOnboarding();
                 };
             });

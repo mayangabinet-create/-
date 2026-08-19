@@ -446,6 +446,17 @@ appears immediately, in the same green the rest of the app reserves for its own 
 action. It is not a separate guess at what the last screen will show; it is one call to
 the real function, early.
 
+It is also single-select now, not multi — a screenshot from testing showed five tiles
+highlighted blue at once after five taps, each earlier pick still lit because the handler
+had always pushed onto an array rather than replacing it. `starterPicks()` was written to
+offer one starter per interest anyway, so a multi-pick never bought a better offer, only a
+screen that looked like several things were chosen when only the preview above ever acted
+on one. Picking a tile now replaces `interests` outright — `[id]`, not `push(id)` — and
+tapping the same tile again clears it, the same shape a single-answer question elsewhere
+in the wizard already has. `startOnboarding` keeps only the first interest an account had
+stored under the old multi-select behaviour, so reopening this screen from Account never
+reproduces the five-tiles screenshot from whatever was saved before this changed.
+
 **The three "what the app does" screens used to be a small flat icon over a lot of empty
 space.** Each now carries a `visual` — the same spec shape a lesson's own cards use,
 drawn by the same `renderVisual()` that already renders them there: a `flow` for document

@@ -812,7 +812,7 @@ ${planSchemaAndLanguage(`{
             return { language: draft.language, concept: c };
         }
 
-        async function generateLessonPath(text, structure = null, worksheet = false, { onFirstConcept = null } = {}) {
+        async function generateLessonPath(text, structure = null, worksheet = false, { onFirstConcept = null, onConcepts = null } = {}) {
 
             // Not the first N characters of the document. The opening pages of a
             // textbook are a title page, a copyright notice and a table of contents
@@ -824,21 +824,44 @@ ${planSchemaAndLanguage(`{
             const extractPrompt = worksheet ? buildWorksheetPlanPrompt(digest) : buildTopicPlanPrompt(digest);
 
             let firedFirst = false;
+            // Grows past 1 as the plan keeps streaming, so the path on screen
+            // can grow with it instead of sitting on a spinner until every
+            // concept the tier asked for has landed. Gated on the count of
+            // `"importance"` fields — cheap, and the same signal
+            // `firstPlannedConcept` already trusts for "this concept is
+            // whole" — so a full `extractJSON` only runs when a concept has
+            // actually finished, not on every network chunk.
+            let reportedCount = 0;
             const result = await callAI(extractPrompt, '', {
                 maxTokens: MAX_TOKENS.path, task: worksheet ? 'worksheet' : 'path',
                 stream: true,
                 onProgress: (streamed) => {
                     pathProgress(streamed);
-                    if (firedFirst || !onFirstConcept) return;
-                    const first = firstPlannedConcept(streamed);
-                    if (!first) return;
-                    firedFirst = true;
+                    if (!firedFirst && onFirstConcept) {
+                        const first = firstPlannedConcept(streamed);
+                        if (first) {
+                            firedFirst = true;
+                            try {
+                                onFirstConcept(first);
+                            } catch (err) {
+                                // Starting lesson 1 early is an optimisation. A course
+                                // that plans fine must not fail because of it.
+                                console.warn('Could not start the first lesson early:', err);
+                            }
+                        }
+                    }
+                    if (!onConcepts) return;
+                    const doneSoFar = (streamed.match(/"importance"\s*:/g) || []).length;
+                    if (doneSoFar <= reportedCount) return;
+                    const draft = extractJSON(streamed);
+                    const concepts = (draft?.concepts || [])
+                        .filter(c => c && c.name && c.description && c.importance);
+                    if (concepts.length <= reportedCount) return;
+                    reportedCount = concepts.length;
                     try {
-                        onFirstConcept(first);
+                        onConcepts({ language: draft.language, concepts });
                     } catch (err) {
-                        // Starting lesson 1 early is an optimisation. A course
-                        // that plans fine must not fail because of it.
-                        console.warn('Could not start the first lesson early:', err);
+                        console.warn('Could not grow the path early:', err);
                     }
                 },
             });
@@ -2266,6 +2289,16 @@ ${languageRule()}`;
                 courseData, activeSourceText, activeStructure, progress,
             };
 
+            // Set the instant `onFirstConcept` fires, and never after: it is
+            // what tells the rest of this function whether the learner is
+            // already standing on the path (early-started) or still watching
+            // the loading overlay (never got that far, or the plan came back
+            // in one piece with no chance to fire early). Everything below
+            // that touches the screen or `progress` branches on it, because
+            // the two cases need opposite handling — one has state on screen
+            // worth keeping and protecting, the other has nothing to lose.
+            let earlyStartFired = false;
+
             try {
                 const course = await generateLessonPath(text, structure, worksheet, {
                     onFirstConcept: ({ language, concept }) => {
@@ -2279,8 +2312,24 @@ ${languageRule()}`;
                         // exist yet; the previous course's scores must not pitch
                         // this one's first lesson.
                         progress = {};
+                        currentLessonIndex = 0;
                         prefetching.clear();
+                        earlyStartFired = true;
                         prefetchLesson(0);
+                        // The overlay was the only thing standing between the
+                        // learner and a course that, from here, is real enough
+                        // to stand on: lesson 1 is already being written
+                        // in the background and opens the moment it is tapped.
+                        hideMessage();
+                        document.getElementById('sourcePicker').hidden = true;
+                        document.getElementById('libraryScreen').hidden = true;
+                        document.getElementById('learningPath').classList.add('active');
+                        displayLearningPathInProgress();
+                    },
+                    onConcepts: ({ concepts }) => {
+                        if (!courseData) return;
+                        courseData.concepts = concepts;
+                        displayLearningPathInProgress();
                     },
                 });
                 if (!course) {
@@ -2294,11 +2343,15 @@ ${languageRule()}`;
                     || cleanTitle(course.courseName)
                     || cleanTitle(title)
                     || 'Untitled course';
-                buildStage('save', 'Building your learning path');
+                // Already on the path with lesson 1 in hand: saving is a
+                // background detail now, not something worth blocking the
+                // overlay back over what the learner is already reading.
+                if (!earlyStartFired) buildStage('save', 'Building your learning path');
                 const id = await saveCourse(course, text, structure);
                 if (!id) {
                     ({ courseData, activeSourceText, activeStructure, progress } = restore);
                     prefetching.clear();
+                    if (earlyStartFired) resetToUpload();   // was already on screen; leave it in a clean state
                     return;
                 }
 
@@ -2309,15 +2362,25 @@ ${languageRule()}`;
                 activeCourseId = id;
                 activeSourceText = text;
                 activeStructure = structure;
-                progress = {};
+                // Reset only if nothing has used `progress` yet. Early-started,
+                // it has been live since `onFirstConcept` — the one place a
+                // fresh course actually needs the wipe — and by now may hold
+                // real answers from a lesson 1 the learner already started
+                // while the rest of the plan was still writing itself.
+                if (!earlyStartFired) progress = {};
                 localStorage.setItem(ACTIVE_STORAGE, id);
 
                 applyContentDirection();
                 document.getElementById('sourcePicker').hidden = true;
                 document.getElementById('libraryScreen').hidden = true;
                 document.getElementById('learningPath').classList.add('active');
+                // Early-started, this only reconciles the on-screen path with
+                // the finished course (final order, any concept the plan
+                // dropped) — it does not pull the learner out of a lesson
+                // already open; `displayLearningPath` never touches that
+                // overlay. Not early-started, it's what lands them on the
+                // path for the first time, same as before.
                 displayLearningPath();
-                // Land on the path, not inside a lesson. The user picks where to start.
             } finally {
                 hideMessage();
             }
@@ -2456,6 +2519,21 @@ ${languageRule()}`;
 
             renderReviewBanner();
             requestAnimationFrame(() => { drawLessonPathLine(); scrollToCurrentNode(); });
+        }
+
+        // The same path, plus one soft node at the tail saying the plan is
+        // still being written. Used while a course is building: real nodes
+        // land as `onConcepts` reports them, so this is what the learner sees
+        // between "lesson 1 exists" and "the whole course does" — the one
+        // gap `displayLearningPath` alone has no way to show, since it takes
+        // the concept list as finished.
+        function displayLearningPathInProgress() {
+            displayLearningPath();
+            document.getElementById('lessonPath').insertAdjacentHTML('beforeend', `
+                <div class="lesson-node" aria-hidden="true" style="pointer-events:none">
+                    <div class="lesson-circle skel"></div>
+                </div>`);
+            requestAnimationFrame(drawLessonPathLine);
         }
 
         // ============= Spaced repetition =============
@@ -6210,7 +6288,11 @@ ${languageRule()}`;
                 showError('Could not save that course: ' + error.message);
                 return null;
             }
-            await loadLibrary();
+            // The caller is on its way to the learning path, not the library
+            // screen — refreshing it is unrelated to showing the course that
+            // was just built. Same fire-and-forget shape as `saveProgress`:
+            // nothing here waits on it, it just needs to eventually land.
+            loadLibrary();
             return data.id;
         }
 
@@ -7278,6 +7360,16 @@ ${languageRule()}`;
         // there is quota left to spend on it.
         const prefetching = new Map();   // concept index -> Promise<lesson|null>
 
+        // The index a learner is actually sitting on the "Almost ready…"
+        // overlay for, or null. A prefetch runs with nobody watching most of
+        // the time — lesson 2 written while lesson 1 is still on screen — and
+        // drawing its partial content then would mean opening a lesson screen
+        // nobody asked for. Set only while `loadLesson` is awaiting that exact
+        // index's prefetch, so `prefetchLesson`'s `onPartial` knows when it is
+        // safe to put a draft on screen instead of leaving the learner on a
+        // blank spinner for however long the rest takes.
+        let watchingIndex = null;
+
         function monthlyLessonsLeft() {
             const limits = PLAN_LIMITS[entitlement?.planKey];
             if (!limits || !usage.loaded) return Infinity;   // unknown is not "none"
@@ -7393,7 +7485,15 @@ ${languageRule()}`;
             // the build commits to a document and put back if it never
             // produces a course, which is exactly the question being asked.
             const source = activeSourceText;
-            const promise = generateLesson(concept, { quiet: true })
+            const promise = generateLesson(concept, {
+                quiet: true,
+                // A no-op unless someone is actually waiting on this exact
+                // lesson (see `watchingIndex`) — a prefetch running ahead of
+                // the learner must stay invisible until they ask for it.
+                onPartial: draft => {
+                    if (watchingIndex === index) openPartialLesson(draft, index, concept);
+                },
+            })
                 .then(lesson => {
                     // A course switched away from mid-flight has a different
                     // `progress` object behind it now. Writing this lesson
@@ -7463,6 +7563,11 @@ ${languageRule()}`;
                     // arrive later than the one already in flight.
                     showMessage("Almost ready…");
                     showProgress('This lesson was already being written');
+                    // Tells the prefetch's own `onPartial` (see
+                    // `prefetchLesson`) that its draft is now safe to draw —
+                    // reset in the `finally` below regardless of how this
+                    // turns out.
+                    watchingIndex = index;
                     lesson = await prefetching.get(index);
                     if (!lesson) {
                         // The background attempt failed quietly. Now that
@@ -7477,11 +7582,10 @@ ${languageRule()}`;
                     progress[index].lesson = lesson;
                     saveProgress();
                 } else {
-                    // The only branch that waits on the model with nobody
-                    // reading anything, so it is the only one that opens the
-                    // lesson early. A cached lesson is instant already, and one
-                    // being prefetched is most of the way written by the time
-                    // anyone asks for it.
+                    // Nobody reading anything yet, so this is the other branch
+                    // that opens the lesson early — a cached lesson is instant
+                    // already, and one being prefetched is covered by
+                    // `watchingIndex` above.
                     lesson = await generateLesson(concept, {
                         onPartial: draft => openPartialLesson(draft, index, concept),
                     });
@@ -7548,6 +7652,7 @@ ${languageRule()}`;
                 renderStep();
             } finally {
                 lessonLoading = false;
+                watchingIndex = null;
                 hideMessage();
             }
         }

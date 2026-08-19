@@ -1237,8 +1237,9 @@ ${languageRule()}`;
         //
         // `onPartial` is called at most once, the moment enough of the lesson
         // has streamed in to open it on its first steps (see `openingLesson`).
-        // A prefetch passes nothing: there is no screen to open early when
-        // nobody is waiting.
+        // A prefetch that nobody has asked to watch yet passes it too now
+        // (see `prefetchLesson`'s own `onPartial`, gated on `watchingIndex`) —
+        // it just stays a no-op until someone actually taps that lesson.
         async function generateLesson(concept, { quiet = false, onPartial = null } = {}) {
             // Ground the lesson in the actual document, not the model's priors.
             const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
@@ -1284,13 +1285,23 @@ ${languageRule()}`;
                 }
             } : null;
 
+            // `quiet` used to gate this off entirely, back when a prefetch
+            // never watched its own stream at all. Once `prefetchLesson`
+            // started passing `onPartial` (see above), that made the watcher
+            // dead code — the one thing that would ever call it was switched
+            // off for exactly the calls it was added for, so a lesson
+            // someone tapped mid-prefetch sat on a bare "Almost ready…" for
+            // the rest of the generation instead of opening on its hook the
+            // way a fresh, unprefetched lesson already did. `lessonProgress`
+            // (the screen's progress line) still only runs when not quiet —
+            // there is no such screen to update yet.
             const result = await callAI(message, '', {
                 maxTokens: MAX_TOKENS.lesson, task: 'lesson', quiet,
                 stream: true,
-                onProgress: quiet ? null : (text) => {
-                    lessonProgress(text);
+                onProgress: (!quiet || watchForOpening) ? (text) => {
+                    if (!quiet) lessonProgress(text);
                     if (watchForOpening) watchForOpening(text);
-                },
+                } : null,
             });
 
             // callAI returns null when it already reported an error, and '' when

@@ -577,6 +577,23 @@ failures to the console rather than onto a screen showing something else, and a 
 switched away from mid-flight discards what lands, because writing it into the new
 course's `progress` would file one course's lesson 4 as another's.
 
+**A lesson tapped mid-prefetch opens on its hook too, not a bare spinner.** `loadLesson`
+already knew how to swap in behind a learner reading a lesson's opening while the rest
+streams — `openPartialLesson` — but the one path that never used it was the most common
+one: tapping the lesson a prefetch was *already* writing, which lands on `"Almost ready…"`
+and waits for the whole thing. `prefetchLesson`'s own `onPartial` calls `openPartialLesson`
+too now, gated on `watchingIndex` so a prefetch nobody is watching yet — lesson 2, written
+while lesson 1 is still on screen — stays invisible until asked for. That gate lives in
+`generateLesson`, not `prefetchLesson`, and `generateLesson`'s `onProgress` was wired as
+`quiet ? null : ...` — right for the errors `quiet` exists to silence, wrong for the one
+prefetch call that now also carries an `onPartial`: nulling `onProgress` starves the only
+thing that would ever call it, so the watcher never fired regardless of `watchingIndex`.
+Every lesson opened from a prefetch — which is most of them, once a course is under way —
+sat on a bare spinner with no progress line for however long the rest took to write,
+looking exactly like the stuck screen this whole feature was built to remove. `onProgress`
+now runs whenever `onPartial` was given one, quiet or not; `lessonProgress` (the on-screen
+progress line) still only runs when there's a screen to update.
+
 **Lesson 1 is written while the course is still being planned.** Planning and lesson
 writing used to run strictly one after the other, and both are slow for the same reason:
 thousands of output tokens, generated one at a time. Caching does nothing for that — it

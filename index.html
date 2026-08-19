@@ -2555,6 +2555,26 @@
             color: var(--text-muted);
             text-align: center;
         }
+        /* The live consequence of picking interests — which starter course
+           it currently resolves to — so a tap visibly changes something
+           instead of only toggling a highlight. Green: this previews the
+           product's own next action, same role the token carries everywhere
+           else in the app. */
+        .onb-preview {
+            margin-top: var(--sp-3);
+            padding: var(--sp-3) var(--sp-4);
+            border-radius: var(--r-md);
+            background: var(--brand-tint);
+            text-align: center;
+        }
+        .onb-preview-label {
+            display: block;
+            font-size: var(--fs-xs); font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.03em;
+            color: var(--brand-strong);
+            margin-bottom: 2px;
+        }
+        .onb-preview-title { font-size: var(--fs-sm); font-weight: 800; color: var(--text); }
 
         /* ---- What the app does: one promise per step, not a list of three read
            top to bottom in one glance. The kicker is the old combined heading,

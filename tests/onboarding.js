@@ -323,7 +323,7 @@ console.log('\n== choosing what to offer ==');
 console.log('\n== the steps ==');
 {
   O.reset();
-  O.setRun({ step: 0, goal: null, interests: [], starter: null, replay: false });
+  O.setRun({ step: 0, goal: null, interests: [], starter: null, replay: false, steps: O.ONBOARDING_STEPS });
 
   // What the app does used to be one screen listing all three promises; it is
   // now one promise per step, walked through with the same Continue button as
@@ -426,7 +426,7 @@ console.log('\n== the steps ==');
   console.log('\n== finishing, skipping, replaying ==');
   {
     O.reset();
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'exam', interests: ['math'], starter: 'pythagoras', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'exam', interests: ['math'], starter: 'pythagoras', replay: false, steps: O.ONBOARDING_STEPS });
     await O.finishOnboarding({ starterId: 'pythagoras' });
     ok('picking a course builds it', O.built().length === 1);
     ok('through the same path an upload takes',
@@ -438,7 +438,7 @@ console.log('\n== the steps ==');
     ok('written to the account, not just this browser', O.upserts().length === 1);
 
     O.reset();
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'work', interests: ['money'], starter: null, replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'work', interests: ['money'], starter: null, replay: false, steps: O.ONBOARDING_STEPS });
     await O.finishOnboarding({ skipped: true });
     ok('skipping halfway still records what was answered',
        O.state().interests[0] === 'money' && O.state().goal === 'work');
@@ -447,7 +447,7 @@ console.log('\n== the steps ==');
     ok('and they land on the upload screen', O.screen() === 'home');
 
     O.reset();
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['tech'], starter: null, replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['tech'], starter: null, replay: false, steps: O.ONBOARDING_STEPS });
     await O.finishOnboarding({ starterId: null });
     ok('"I\'ll upload my own" builds nothing', O.built().length === 0);
     ok('and says what to do next', O.toasts().length === 1);
@@ -457,7 +457,7 @@ console.log('\n== the steps ==');
     const settle = () => new Promise(r => setTimeout(r, 5));
 
     O.reset();
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['other'], starter: null, topic: '  Roman roads ', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: 'curious', interests: ['other'], starter: null, topic: '  Roman roads ', replay: false, steps: O.ONBOARDING_STEPS });
     O.onboardingNext();          // the button, not the handler — it trims on the way
     await settle();
     ok('a typed subject is written up first', O.primerFor() === 'Roman roads');
@@ -469,14 +469,14 @@ console.log('\n== the steps ==');
     // A typed subject wins over a card left selected from before, and a card is
     // only used when nothing was typed.
     O.reset();
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: 'pythagoras', topic: 'Roman roads', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: 'pythagoras', topic: 'Roman roads', replay: false, steps: O.ONBOARDING_STEPS });
     O.onboardingNext();
     await settle();
     ok('what they typed last is what gets built', O.primerFor() === 'Roman roads' && O.built().length === 1);
 
     O.reset();
     O.setPrimer('');
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: null, topic: 'a subject', replay: false });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('starter'), goal: null, interests: [], starter: null, topic: 'a subject', replay: false, steps: O.ONBOARDING_STEPS });
     O.onboardingNext();
     await settle();
     ok('material that never arrives builds nothing', O.built().length === 0);
@@ -486,12 +486,30 @@ console.log('\n== the steps ==');
     // Replaying it from the Account screen changes the answers and nothing else.
     O.reset();
     O.setState({ done: true, goal: 'exam', interests: ['math'], completedAt: 1000 });
-    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'curious', interests: ['mind'], starter: null, replay: true });
+    O.setRun({ step: O.ONBOARDING_STEPS.indexOf('interests'), goal: 'curious', interests: ['mind'], starter: null, replay: true, steps: O.ONBOARDING_STEPS });
     await O.finishOnboarding({ starterId: null });
     ok('a replay updates the answers', O.state().interests[0] === 'mind' && O.state().goal === 'curious');
     ok('and leaves the date the account actually finished', O.state().completedAt === 1000);
     ok('landing back on the screen it was opened from', O.accountRenders() === 1);
     ok('rather than throwing them at the upload box', O.screen() === null);
+
+    // The Account row is only ever about interests, so it runs a one-step
+    // flow rather than the whole first-run tour — see startOnboarding's
+    // `steps` option in app.js.
+    O.reset();
+    O.setState({ done: true, goal: 'exam', interests: ['math'], completedAt: 1000 });
+    O.setRun({ step: 0, goal: 'exam', interests: ['math'], starter: null, topic: '', replay: true, steps: ['interests'] });
+    ok('it opens straight on interests, not the tour or the goal question',
+       O.onboardingStepId() === 'interests');
+    ok('and the button says what pressing it does, not "Continue" to a screen that never comes',
+       O.onboardingNextLabel() === 'Save');
+    O.run().interests.push('tech');
+    O.onboardingNext();          // fires finishOnboarding without waiting on it
+    await settle();
+    ok('pressing it saves and returns instead of walking on to "starter"',
+       O.state().interests.includes('tech') && O.accountRenders() === 1);
+    ok('without building anything — nobody asked for a course here', O.built().length === 0);
+    ok('and the date the account actually finished is untouched', O.state().completedAt === 1000);
   }
 
   console.log('\n== the answers, shown back ==');

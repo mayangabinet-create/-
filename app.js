@@ -982,8 +982,9 @@ ${planSchemaAndLanguage(`{
                 spec: '{"type":"blank","text":"Water boils at ___ degrees.","options":["50","100","200"],"correct":1,"explanation":"…"}',
             },
             mistake: {
-                use: 'find the one wrong statement among correct ones',
-                spec: '{"type":"mistake","text":"Which statement is WRONG?","options":["true1","FALSE one","true2"],"correct":1,"explanation":"…"}',
+                use: 'find the one wrong statement among correct ones. Each option is one self-contained '
+                    + 'claim — never alternatives joined by "or", never labelled right/wrong in its own text',
+                spec: '{"type":"mistake","text":"Which statement is WRONG?","options":["A squared plus B squared equals C squared","The hypotenuse is the shortest side","Both legs are shorter than the hypotenuse"],"correct":1,"explanation":"…"}',
             },
             hotspot: {
                 use: 'tap a part of a figure. "visual" must be a shape; "target" is side:N, vertex:N or angle:N, numbered as in that shape',
@@ -1058,6 +1059,8 @@ ${planSchemaAndLanguage(`{
   is the worst thing this lesson can contain.
 - Distractors must be mistakes a real learner would make.
 - Vary the position of the correct answer. Never always first.
+- Explanations must match the arithmetic shown, not a rule that merely
+  sounds right — check any sign, sum or size claim against those numbers.
 
 VISUALS — attach one to a card, worked example, summary or question in its
 "visual" field; omit it where a diagram adds nothing. Never invent a type not on
@@ -1201,6 +1204,10 @@ what they must have thought, not that they were wrong.
 
 Two quiz questions must test the SAME idea in different clothes — other numbers,
 another context, another representation — so memorising one answer is not enough.
+
+Keep every explanation, whyWrong line and hint to ONE short sentence — this is
+read on a phone mid-lesson, not a textbook footnote. Say what is true, not
+everything that is true about it.
 ${languageRule()}`;
         }
 
@@ -3444,7 +3451,11 @@ ${languageRule()}`;
                 </p>`;
 
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
-            document.getElementById('acctIntro').onclick = () => startOnboarding({ replay: true });
+            // This row is only ever about interests — replaying the whole
+            // "what the app does" tour to change one answer was the getting-
+            // to-know-you screens standing between someone and the one thing
+            // they actually came here to edit.
+            document.getElementById('acctIntro').onclick = () => startOnboarding({ replay: true, steps: ['interests'] });
             const reviewBtn = document.getElementById('acctReview');
             if (reviewBtn) reviewBtn.onclick = () => showReview();
             wireAppearanceRow();
@@ -8573,24 +8584,39 @@ ${languageRule()}`;
 
         // What the app does, in the order it does it. Said as three promises
         // rather than a feature list: nothing here names a screen or a button.
+        //
+        // Each carries a `visual` — the same spec shape a real lesson's cards
+        // use, drawn by the same `renderVisual()` — so the promise is shown,
+        // not just told, and the screen underneath it is filled with the one
+        // thing this app already knows how to draw instead of empty space
+        // waiting on nothing. No new asset, no illustration to keep on brand:
+        // the diagram a real lesson would use IS the illustration here.
         const ONBOARDING_VALUES = [
             {
                 icon: 'file',
                 title: 'It teaches your material, not a syllabus',
                 body: 'Give it a PDF, a chapter or a page of notes. It reads the whole thing, '
                     + 'finds the 10 to 20 ideas inside it, and puts them in the order they have to be learned.',
+                visual: { type: 'flow', steps: ['Your document', '10–20 ideas found', 'Ordered by what to learn first'] },
             },
             {
                 icon: 'star',
                 title: 'Lessons you do, not lessons you read',
                 body: 'Every idea becomes a short lesson: a question before the explanation, diagrams you can '
                     + 'drag, a worked example, a quiz. Every fact in it comes from your document.',
+                visual: { type: 'compare',
+                    left: { title: 'Reading', points: ['Paragraphs, top to bottom', 'You judge if it landed'] },
+                    right: { title: 'This app', points: ['A question before the answer', 'Right or wrong, right away'] } },
             },
             {
                 icon: 'refresh',
                 title: 'It brings things back before you forget them',
                 body: 'Each finished lesson is scheduled for review by how well it went — and the next lesson '
                     + 'opens with one question from whatever is closest to being forgotten.',
+                visual: { type: 'timeline', events: [
+                    { label: 'Day 1', text: 'Learned' }, { label: 'Day 3', text: 'Reviewed' },
+                    { label: 'Day 7', text: 'Reviewed' }, { label: 'Day 21', text: 'Remembered' },
+                ] },
             },
         ];
 
@@ -8882,7 +8908,10 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             return true;
         }
 
-        function startOnboarding({ replay = false, resume = null } = {}) {
+        // `steps` lets a caller run a subset of the wizard rather than the
+        // full first-run tour — see the Account "What you're interested in"
+        // row, which only wants the one screen it names.
+        function startOnboarding({ replay = false, resume = null, steps = ONBOARDING_STEPS } = {}) {
             onboardingRun = resume || {
                 step: 0,
                 goal: onboarding.goal || null,
@@ -8890,6 +8919,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                 starter: null,
                 topic: '',
                 replay,
+                steps,
             };
             const screen = document.getElementById('onboardingScreen');
             screen.hidden = false;
@@ -8915,7 +8945,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         }
 
         function onboardingStepId() {
-            return ONBOARDING_STEPS[onboardingRun.step];
+            return onboardingRun.steps[onboardingRun.step];
         }
 
         // The one rule for the footer button: a step that asks a question is not
@@ -8933,6 +8963,10 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         function onboardingNextLabel() {
             const step = onboardingStepId();
             if (step === 'starter') return 'Build this course';
+            // The last step of a short flow (interests, from Account) saves
+            // and returns rather than moving on — "Continue" would promise a
+            // next screen that isn't coming.
+            if (onboardingRun.step === onboardingRun.steps.length - 1) return 'Save';
             return 'Continue';
         }
 
@@ -8950,6 +8984,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                         <span class="onb-value-solo-icon">${ICONS[v.icon]}</span>
                         <h2 class="onb-title">${esc(v.title)}</h2>
                         <p class="onb-lede">${esc(v.body)}</p>
+                        ${renderVisual(v.visual)}
                     </div>
                     ${isLast ? `
                         <p class="onb-foot-note">Two quick questions next, then a course to start on. Under a minute.</p>
@@ -8977,6 +9012,14 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
 
             if (step === 'interests') {
                 const n = onboardingRun.interests.length;
+                // The whole point of picking is stated in the lede ("it decides
+                // which course we offer you") but used to stay an unverifiable
+                // claim until the last screen — a tap here just toggled a
+                // highlight with nothing to show for it. Naming the actual
+                // pick, live, off the same `starterPicks()` the last screen
+                // itself calls, makes each tap visibly do something instead
+                // of only looking pressed.
+                const preview = n ? starterPicks(onboardingRun.interests, 1)[0] : null;
                 return `
                     <h2 class="onb-title">What are you interested in?</h2>
                     <p class="onb-lede">Pick as many as you like — it decides which course we offer you to start on.</p>
@@ -8991,7 +9034,12 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                             </button>`;
                         }).join('')}
                     </div>
-                    <p class="onb-count" role="status">${n ? `${n} picked` : 'Nothing picked yet'}</p>`;
+                    <p class="onb-count" role="status">${n ? `${n} picked` : 'Nothing picked yet'}</p>
+                    ${preview ? `
+                    <div class="onb-preview" role="status">
+                        <span class="onb-preview-label">You'll be offered</span>
+                        <strong class="onb-preview-title">${esc(preview.title)}</strong>
+                    </div>` : ''}`;
             }
 
             // starter
@@ -9030,10 +9078,13 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             if (!onboardingRun) return;
 
             const bar = document.getElementById('onbStepBar');
-            bar.innerHTML = ONBOARDING_STEPS.map((_, i) =>
+            // A one-screen flow (editing interests from Account) has nothing
+            // for a progress bar to show progress through.
+            bar.hidden = onboardingRun.steps.length <= 1;
+            bar.innerHTML = onboardingRun.steps.map((_, i) =>
                 `<span class="step-segment${i < onboardingRun.step ? ' filled' : i === onboardingRun.step ? ' current' : ''}"></span>`
             ).join('');
-            bar.setAttribute('aria-label', `Step ${onboardingRun.step + 1} of ${ONBOARDING_STEPS.length}`);
+            bar.setAttribute('aria-label', `Step ${onboardingRun.step + 1} of ${onboardingRun.steps.length}`);
 
             document.getElementById('onbBack').hidden = onboardingRun.step === 0;
 
@@ -9094,6 +9145,15 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             if (onboardingStepId() === 'starter') {
                 const topic = cleanTitle(onboardingRun.topic);
                 finishOnboarding(topic ? { topic } : { starterId: onboardingRun.starter });
+                return;
+            }
+            // A short flow (e.g. just 'interests', from Account) ends on
+            // whatever its last step is rather than always on 'starter' —
+            // finishing here saves the answer and returns instead of running
+            // off the end of a shorter step list into a course-building step
+            // nobody asked to reach.
+            if (onboardingRun.step === onboardingRun.steps.length - 1) {
+                finishOnboarding();
                 return;
             }
             onboardingRun.step++;

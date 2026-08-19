@@ -129,6 +129,25 @@ against a tolerance, for anything the learner is meant to *work out*: four optio
 calculation away. `hotspot` is answered by tapping a part of a figure — *tap the
 hypotenuse* — and any question type may carry a figure it asks about.
 
+A real generated lesson (factoring quadratics, pulled from the live database while
+chasing a report that math lessons felt "off") turned up two concrete ways a `mistake`
+question and an explanation can go wrong even when every card and every other question in
+the same lesson is correct. One option read as three alternative phrasings joined by "or",
+with one of them literally labelled `(error)` inside its own text — which both gives the
+answer away and buries the one that is actually wrong under two that are actually right.
+Separately, a `numeric` explanation asserted a sign relationship — "the sum is the
+coefficient with the sign flipped" — that was the opposite of the arithmetic it had just
+shown. Neither is a rendering bug; both are the model writing something that sounds like a
+rule instead of checking the one it already worked out. The `mistake` spec's own example
+no longer models a self-labelled option (`"FALSE one"` written as if it were a template
+variable was exactly the pattern being copied), Principles now says explanations must
+match the arithmetic already shown rather than a rule that merely sounds right, and every
+explanation, `whyWrong` line and hint is asked to stay one short sentence — read on a phone
+mid-lesson, not a footnote. `tests/lesson-visuals.js` still measures the widest prompt
+against `TEMPLATE_ALLOWANCE`, which is why this stayed a few sentences rather than a
+paragraph: 709 characters of margin was traded for wording that is enforceable, not just
+longer.
+
 **The prompt writes itself.** `VISUALS` and `QUESTION_TYPES` in `app.js` are the single
 source of truth: each entry holds what the model is shown (`use` and `spec`), what a spec
 must survive to be drawn (`check`), and the renderer (`draw`). The catalogue in the
@@ -408,9 +427,33 @@ runs the demo through the real step engine, and reopens the intro on the step it
 so the proof does not cost the setup.
 
 Both answers are stored, shown back on the Account screen under *What you're interested
-in*, and editable there — the same four screens reopen, and a replay changes the answers
-without rewriting the date the account finished its first run. An answer nobody can see
-or change afterwards is a question that should not have been asked.
+in*, and editable there. That row is only ever about interests, so tapping it no longer
+reopens the whole four-screen tour to change one answer — `startOnboarding` takes a
+`steps` list now, and Account passes `['interests']`: one screen, no step bar (nothing to
+show progress through), and a footer button that says *Save* rather than *Continue*,
+since pressing it saves and returns rather than promising a screen that isn't coming.
+`onboardingNext` finishes on whichever step is last in that list instead of assuming it
+is always `starter` — a replay changes the answers without rewriting the date the account
+finished its first run, and never funnels someone editing a preference into building a
+course they didn't ask for.
+
+**Picking a subject used to just toggle a highlight.** Nothing on screen connected the
+tap to the thing the lede already claimed it did — "it decides which course we offer
+you" — until the last screen, three taps later. The interests grid now previews the
+actual consequence live, off the same `starterPicks()` the last screen itself calls: pick
+"Maths & logic" and a card reading *You'll be offered: Right triangles and Pythagoras*
+appears immediately, in the same green the rest of the app reserves for its own primary
+action. It is not a separate guess at what the last screen will show; it is one call to
+the real function, early.
+
+**The three "what the app does" screens used to be a small flat icon over a lot of empty
+space.** Each now carries a `visual` — the same spec shape a lesson's own cards use,
+drawn by the same `renderVisual()` that already renders them there: a `flow` for document
+→ concepts → order, a `compare` for reading against doing, a `timeline` for the review
+schedule. No illustration asset was added and none of the app's constraints changed — the
+diagram a real lesson would draw for exactly this kind of claim *is* the illustration,
+reusing a renderer that already has to stay correct, cache-free and dependency-free for
+lessons regardless.
 
 **Once** is the part with the failure modes, so it is where the tests are. The flag
 lives in `user_stats.onboarding` — on the account, not the browser — with localStorage

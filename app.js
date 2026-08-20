@@ -2472,9 +2472,13 @@ ${languageRule()}`;
             // a different one the eye has to reconcile once the real path lands.
             const pathContainer = document.getElementById('lessonPath');
             clearLessonPathNodes();
+            // Every real node carries a label under its circle — a bare row
+            // of circles reads as a different, sparser thing than the path
+            // that is about to replace it.
             pathContainer.insertAdjacentHTML('beforeend', Array.from({ length: 6 }, () => `
                 <div class="lesson-node" aria-hidden="true" style="pointer-events:none">
                     <div class="lesson-circle skel"></div>
+                    <span class="skel" style="display:block;width:64px;height:0.85em;margin-top:var(--sp-3);border-radius:5px"></span>
                 </div>`).join(''));
             requestAnimationFrame(drawLessonPathLine);
         }
@@ -2843,7 +2847,15 @@ ${languageRule()}`;
 
         async function showReview() {
             setScreen('review');
-            renderReview();               // paint what we already know, then refresh
+            // `dueOverview` starts `null` and `renderReview()` reads an empty
+            // array the same way it would read a real account with nothing
+            // due — so on a true first load it told someone with five
+            // courses "Build a course first" for the half-second before the
+            // real fetch landed. Only that case gets a skeleton; a revisit
+            // already has `dueOverview` from earlier this session and paints
+            // it immediately, same as the library tab.
+            if (currentUser && dueOverview === null) renderReviewSkeleton();
+            else renderReview();          // paint what we already know, then refresh
             if (!currentUser) return;
             await loadLibrary();
             await loadDueOverview();
@@ -2861,6 +2873,36 @@ ${languageRule()}`;
                         <button class="button" id="${actionId}">${actionLabel}</button>
                         ${secondary ? `<button class="button button-secondary" id="${secondary.id}">${secondary.label}</button>` : ''}
                     </div>
+                </div>`;
+        }
+
+        // Shaped like renderReview()'s real cards — the summary hero plus a
+        // couple of course rows, same classes so nothing shifts size when
+        // the real content lands — but with no claim about what those
+        // numbers are yet. Two rows is a guess, same as the library
+        // skeleton's three cards: neither pretends to be an exact count.
+        function renderReviewSkeleton() {
+            const body = document.getElementById('reviewBody');
+            const sub = document.getElementById('reviewSubtitle');
+            if (!body) return;
+            sub.textContent = '';
+            body.innerHTML = `
+                <div class="review-summary" aria-hidden="true">
+                    <span class="skel" style="width:44px;height:2.2em;border-radius:8px"></span>
+                    <div class="review-summary-text">
+                        <span class="skel" style="width:9em;height:1em;border-radius:6px"></span>
+                        <span class="skel" style="width:14em;max-width:60vw;height:0.85em;border-radius:6px"></span>
+                    </div>
+                </div>
+                <div class="review-list">
+                    ${Array.from({ length: 2 }, () => `
+                        <div class="review-course" aria-hidden="true">
+                            <div class="review-course-main">
+                                <span class="skel" style="display:block;width:60%;height:1.05em;border-radius:6px;margin-bottom:8px"></span>
+                                <span class="skel" style="display:block;width:40%;height:0.85em;border-radius:6px"></span>
+                            </div>
+                            <span class="skel" style="width:7em;height:2.4em;border-radius:var(--r-md)"></span>
+                        </div>`).join('')}
                 </div>`;
         }
 
@@ -6509,9 +6551,15 @@ ${languageRule()}`;
             empty.hidden = true;
             grid.innerHTML = Array.from({ length: count }, () => `
                 <div class="course-card skel-card" aria-hidden="true">
-                    <div class="skel" style="height:1.15em;width:65%;border-radius:6px"></div>
-                    <div class="skel" style="height:0.85em;width:40%;margin-top:10px;border-radius:6px"></div>
-                    <div class="course-progress-row" style="margin-top:14px">
+                    <div class="course-card-head">
+                        <div class="skel" style="flex:1;max-width:65%;height:1.15em;border-radius:6px"></div>
+                        <div class="course-card-actions">
+                            <span class="skel" style="width:var(--tap);height:var(--tap);border-radius:var(--r-full)"></span>
+                            <span class="skel" style="width:var(--tap);height:var(--tap);border-radius:var(--r-full)"></span>
+                        </div>
+                    </div>
+                    <div class="skel" style="height:0.85em;width:40%;margin-bottom:var(--sp-4);border-radius:6px"></div>
+                    <div class="course-progress-row">
                         <div class="course-bar skel"></div>
                         <span class="skel" style="display:inline-block;width:2.2em;height:0.85em;border-radius:6px"></span>
                     </div>

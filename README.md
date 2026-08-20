@@ -527,6 +527,27 @@ one input, one chip, one card, one callout, one stat tile, one empty state, one
 overlay. Where the same thing used to be styled three times — three stat tiles, five
 chips, six callouts, three overlays — it is now one rule plus a modifier.
 
+**A skeleton is a placeholder for what's actually about to be there, not a generic
+shimmer.** Three of them were checked against the real content they precede and two
+did not hold up. The library card skeleton drew two lines and a progress bar, but the
+real `.course-card-head` is a flex row with a title *and* two round icon buttons
+(rename, delete) — the skeleton reserved no space for them, so the card visibly
+reflowed the instant real data arrived. It now wraps the title bar in the same
+`.course-card-head`/`.course-card-actions` markup with two `--tap`-sized circles
+standing in for the icons, so nothing moves when the real ones land. The course path
+skeleton drew bare circles; every real `.lesson-node` carries a text label under its
+circle, so six unlabelled circles read as a sparser, different thing than the path
+about to replace them — it now draws a label-sized bar under each one. The Review tab
+had no loading state at all: `dueOverview` starts `null`, and `renderReview()` reads
+that the same way it reads a real account with nothing due, so the *first* thing
+anyone with courses already in progress saw on that tab was "Build a course first" —
+a wrong answer, confidently stated in full sentences, for the half-second before the
+real fetch landed. `renderReviewSkeleton()` now covers that gap, gated on `dueOverview
+=== null` so a revisit within the session still paints instantly from memory and never
+shows a skeleton it doesn't need to. The account tab's `field()` helper — a shimmer
+swapped in for exactly the numbers still loading, real labels and layout around it
+the whole time — was the pattern worth generalising *from*; these three now match it.
+
 The reasoning behind these choices, compared against sites held up as UI/UX best and
 worst practice, is in [`docs/ui-ux-research.md`](docs/ui-ux-research.md) — including a
 checklist to run before merging a new UI feature.

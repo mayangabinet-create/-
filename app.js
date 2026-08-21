@@ -4182,12 +4182,21 @@ ${languageRule()}`;
                 return `<path class="pie-slice pie-slice-${i}" d="M ${C} ${C} L ${x1.toFixed(1)} ${y1.toFixed(1)} A ${R} ${R} 0 ${large} 1 ${x2.toFixed(1)} ${y2.toFixed(1)} Z"></path>`;
             }).join('');
 
+            // A slice's own value and "share of the total" are the same fact
+            // twice whenever the value is already a percentage — the prompt's
+            // own example spec hands the model unit:"%" with slices that sum to
+            // 100, and every legend row came out "96% · 96%". Only a slice given
+            // in some other unit ($, students, kg) makes the share worth stating
+            // as a second, different number.
+            const val = s => v.unit === '%'
+                ? `${esc(fmtNum(num(s.value), 1))}%`
+                : `${esc(fmtNum(num(s.value), 1))}${esc(v.unit || '')} · ${Math.round((num(s.value) / total) * 100)}%`;
             return `<div class="vis-pie">
                 <svg viewBox="0 0 ${C * 2} ${C * 2}" role="img" aria-label="${escAttr(v.caption || 'proportions')}">${paths}</svg>
                 <ul class="pie-legend">${slices.map((s, i) => `
                     <li><span class="pie-swatch pie-slice-${i}"></span>
                         <span class="pie-key">${esc(s.label || '')}</span>
-                        <span class="pie-val">${esc(fmtNum(num(s.value), 1))}${esc(v.unit || '')} · ${Math.round((num(s.value) / total) * 100)}%</span>
+                        <span class="pie-val">${val(s)}</span>
                     </li>`).join('')}</ul>
             </div>`;
         }

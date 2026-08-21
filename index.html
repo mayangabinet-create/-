@@ -2093,10 +2093,24 @@
             margin-inline: auto;
         }
         .cat-bucket:hover { border-color: var(--info); background: var(--info-tint); }
+        /* A button, not a span: tapping a placed item sends it back to the pool,
+           the same escape hatch `.order-undo` gives the ordering question type.
+           `.is-graded` on the container turns that back into a plain label the
+           instant grading has happened, so a fixed answer can't be un-fixed. */
         .cat-placed {
-            padding: var(--sp-1) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); font-weight: 700;
+            display: inline-flex; align-items: center; gap: var(--sp-1);
+            padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-3); border-radius: var(--r-sm);
+            font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
             background: var(--surface); color: var(--text); border: 1px solid var(--border);
+            cursor: pointer;
+            transition: border-color var(--dur-2) var(--ease), background var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
         }
+        .cat-placed:hover { border-color: var(--danger); background: var(--danger-tint); color: var(--danger-strong); }
+        .cat-placed svg { width: 0.85em; height: 0.85em; flex: none; }
+        .cat-buckets.is-graded .cat-placed { cursor: default; pointer-events: none; }
+        .cat-buckets.is-graded .cat-placed svg { display: none; }
+        .cat-placed.is-right { border-color: var(--brand); background: var(--brand-tint); color: var(--brand-strong); }
+        .cat-placed.is-wrong { border-color: var(--danger); background: var(--danger-tint); color: var(--danger-strong); }
 
         .match-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); margin-top: var(--sp-1); }
         .match-col { display: flex; flex-direction: column; gap: var(--sp-2); }

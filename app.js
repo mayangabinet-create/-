@@ -6917,7 +6917,7 @@ ${languageRule()}`;
             const pool = shuffle(q.items.map((it, idx) => ({ it, idx }))).map(({ it, idx }) =>
                 `<button class="cat-chip" data-idx="${idx}">${esc(it.text)}</button>`).join('');
             return `<h2 class="question-text">${esc(q.text)}</h2>
-                    <div class="step-note">Tap an item, then tap its group</div>
+                    <div class="step-note">Tap an item, then tap its group — tap a placed item to move it back</div>
                     <div class="cat-pool" id="catPool">${pool}</div>
                     <div class="cat-buckets" id="catBuckets">${buckets}</div>`;
         }
@@ -7228,9 +7228,16 @@ ${languageRule()}`;
 
         function wireCategorize(q, done) {
             const pool = document.getElementById('catPool');
+            const buckets = document.getElementById('catBuckets');
             let selected = null;   // the chip element awaiting a bucket
             const assign = {};     // idx -> bucket index
             const total = q.items.length;
+            // Grading is automatic the moment every item has a bucket, which
+            // means a misplaced item was locked in with no way back until the
+            // ordering question type got an undo and this one didn't. A tap
+            // on the placed chip un-assigns it — right up until grading, after
+            // which `.is-graded` below turns the pointer back into a label.
+            let graded = false;
 
             pool.querySelectorAll('.cat-chip').forEach(chip => {
                 chip.onclick = () => {
@@ -7248,10 +7255,21 @@ ${languageRule()}`;
                     const idx = Number(selected.dataset.idx);
                     const bucket = Number(drop.dataset.bucket);
                     assign[idx] = bucket;
-                    const clone = document.createElement('span');
-                    clone.className = 'cat-placed';
-                    clone.textContent = q.items[idx].text;
-                    drop.appendChild(clone);
+                    const placedChip = document.createElement('button');
+                    placedChip.type = 'button';
+                    placedChip.className = 'cat-placed';
+                    placedChip.dataset.idx = idx;
+                    placedChip.setAttribute('aria-label', `Move "${q.items[idx].text}" back to the list`);
+                    placedChip.innerHTML = `<span>${esc(q.items[idx].text)}</span>${ICONS.x}`;
+                    placedChip.onclick = e => {
+                        e.stopPropagation();
+                        if (graded) return;
+                        delete assign[idx];
+                        placedChip.remove();
+                        const original = pool.querySelector(`.cat-chip[data-idx="${idx}"]`);
+                        if (original) original.classList.remove('placed');
+                    };
+                    drop.appendChild(placedChip);
                     selected.classList.add('placed');
                     selected.classList.remove('selected');
                     selected = null;
@@ -7260,10 +7278,18 @@ ${languageRule()}`;
             });
 
             const grade = () => {
+                graded = true;
+                if (buckets) buckets.classList.add('is-graded');
                 let right = 0;
                 q.items.forEach((it, idx) => {
                     const correctBucket = q.buckets.indexOf(it.bucket);
-                    if (assign[idx] === correctBucket) right++;
+                    const chip = buckets?.querySelector(`.cat-placed[data-idx="${idx}"]`);
+                    if (assign[idx] === correctBucket) {
+                        right++;
+                        if (chip) chip.classList.add('is-right');
+                    } else if (chip) {
+                        chip.classList.add('is-wrong');
+                    }
                 });
                 const allRight = right === total;
                 let exp = q.explanation || '';
@@ -8323,6 +8349,17 @@ ${languageRule()}`;
 
             if (s.type === 'memory') {
                 document.getElementById('memorySubmit').onclick = () => evaluateMemory();
+                const input = document.getElementById('memoryInput');
+                if (input) {
+                    // Plain Enter has to stay a newline — this is the one step
+                    // that asks for a written answer — so the submit shortcut
+                    // rides the modifier instead, same idea as the numeric
+                    // step's bare Enter-to-check.
+                    input.onkeydown = e => {
+                        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); evaluateMemory(); }
+                    };
+                    input.focus({ preventScroll: true });
+                }
             }
 
             if (s.type === 'complete') {

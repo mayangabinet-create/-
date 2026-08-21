@@ -4820,16 +4820,30 @@ ${languageRule()}`;
             },
             'quadratic': {
                 domains: ['math'],
-                use: 'a parabola y = ax² + bx + c, plotted, with roots and vertex computed',
+                use: 'a parabola y = ax² + bx + c, plotted, with roots, factoring and vertex computed',
                 params: 'a, b, c',
                 build: p => {
                     const a = tNum(p, 'a', 1, -100, 100), b = tNum(p, 'b', -2, -100, 100), c = tNum(p, 'c', -3, -100, 100);
                     if (a === 0) return null;
                     const vx = -b / (2 * a), disc = b * b - 4 * a * c;
                     const span = Math.max(4, Math.abs(vx) + 4);
-                    const roots = disc > 0
-                        ? `roots at x = ${fmtNum((-b - Math.sqrt(disc)) / (2 * a), 2)} and x = ${fmtNum((-b + Math.sqrt(disc)) / (2 * a), 2)}`
-                        : (disc === 0 ? `one root at x = ${fmtNum(vx, 2)}` : 'no real roots');
+                    // The factored form is the same fact as the roots, not a second
+                    // one to get right: a(x − r1)(x − r2) is exactly ax² + bx + c
+                    // once r1, r2 are the roots, so it costs nothing the app has not
+                    // already computed — which is the whole point of putting it
+                    // here instead of leaving the model to write its own factoring
+                    // steps by hand, freeform, in an equation spec of its own.
+                    const coeff = a === 1 ? '' : a === -1 ? '−' : fmtNum(a);
+                    const term = r => r === 0 ? 'x' : `x ${r > 0 ? '−' : '+'} ${fmtNum(Math.abs(r), 3)}`;
+                    let roots;
+                    if (disc > 0) {
+                        const r1 = (-b - Math.sqrt(disc)) / (2 * a), r2 = (-b + Math.sqrt(disc)) / (2 * a);
+                        roots = `roots at x = ${fmtNum(r1, 2)} and x = ${fmtNum(r2, 2)} → ${coeff}(${term(r1)})(${term(r2)})`;
+                    } else if (disc === 0) {
+                        roots = `one root at x = ${fmtNum(vx, 2)} → ${coeff}(${term(vx)})²`;
+                    } else {
+                        roots = 'no real roots';
+                    }
                     return [
                         { type: 'plot', xLabel: 'x', yLabel: 'y',
                           series: [{ label: `y = ${polynomial([[a, 'x²'], [b, 'x'], [c, '']])}`,

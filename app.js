@@ -1831,8 +1831,12 @@ ${languageRule()}`;
         const uiAlert = (body, title = 'Heads up', { html = false } = {}) =>
             openDialog({ title, confirmText: 'Got it', ...(html ? { bodyHtml: body } : { body }) });
 
-        const uiConfirm = (title, body, { confirmText = 'Confirm', danger = false } = {}) =>
-            openDialog({ title, body, confirmText, cancelText: 'Cancel', danger });
+        // cancelText was accepted here and then thrown away — every call site
+        // that never set it got the right button by luck, and the one that
+        // did (confirmUnsuitable's "Use a different document") silently got
+        // "Cancel" instead, on both of its dialogs.
+        const uiConfirm = (title, body, { confirmText = 'Confirm', cancelText = 'Cancel', danger = false } = {}) =>
+            openDialog({ title, body, confirmText, cancelText, danger });
 
         const uiPrompt = (title, value, { validate = null, confirmText = 'Save' } = {}) =>
             openDialog({ title, input: value || '', confirmText, cancelText: 'Cancel', validate });
@@ -2195,14 +2199,40 @@ ${languageRule()}`;
         }
 
         // Show what we think is wrong and let the learner overrule it. Returns
-        // true if the build should go ahead.
+        // true if the build should go ahead as originally requested, 'worksheet'
+        // if it should go ahead in worksheet mode instead, or false to cancel.
         //
         // Two ways out, and the one that disagrees with us also tells us so.
         // The check is arithmetic guessing at intent; when it guesses wrong the
         // learner is the only one who knows, and a refusal nobody can report is
         // a threshold nobody can fix.
-        async function confirmUnsuitable(verdict, text) {
+        async function confirmUnsuitable(verdict, text, worksheet) {
             hideMessage();          // never ask a question over a spinner
+
+            // "1. Solve 2x+5=13" has almost no real words and nothing a human
+            // would call a sentence — assessMaterial's prose checks fire on a
+            // worksheet of exercises by design (see assessWorksheetMaterial's
+            // own note on exactly this). When that is the shape that tripped
+            // the gate, and worksheet mode was not already on, the fix is not
+            // to force this content through the chapter-summarising prompt —
+            // it is to send it through the mode built for exactly this, which
+            // judges it by its own, lighter gate rather than needing an
+            // override at all. Offered before the daily override limit below,
+            // and not counted against it: this is a reclassification, not a
+            // bypass, and a worksheet that is still unsuitable is caught by
+            // assessWorksheetMaterial's own checks on the next pass.
+            const looksLikeExercises = !worksheet && (verdict.code === 'not-prose' || verdict.code === 'mostly-numbers');
+            if (looksLikeExercises) {
+                const ok = await uiConfirm(
+                    verdict.title,
+                    `${verdict.detail}\n\nThis often means it is a worksheet of exercises rather than a `
+                    + 'chapter to read. "This is a worksheet" mode teaches every exercise in order instead '
+                    + 'of trying to summarise it into themes.',
+                    { confirmText: 'Build it as a worksheet', cancelText: 'Use a different document' });
+                if (ok) reportMisjudged(verdict);
+                return ok ? 'worksheet' : false;
+            }
+
             const { already, left } = overrideState(text);
             // Already waved through once — do not ask the same question twice
             // about the same document.
@@ -2313,9 +2343,16 @@ ${languageRule()}`;
             // fails every shape-of-prose check assessMaterial runs.
             buildStage('check', 'Checking your material');
             const verdict = worksheet ? assessWorksheetMaterial(text) : assessMaterial(text);
-            if (verdict && !(await confirmUnsuitable(verdict, text))) {
-                resetToUpload();
-                return;
+            if (verdict) {
+                const decision = await confirmUnsuitable(verdict, text, worksheet);
+                if (decision === 'worksheet') {
+                    setWorksheetMode(true);
+                    return processLearningMaterial(text, title, chosenName, structure, true);
+                }
+                if (!decision) {
+                    resetToUpload();
+                    return;
+                }
             }
 
             // The point of need: building a course is the first thing that

@@ -3875,7 +3875,12 @@ ${languageRule()}`;
         function fmtNum(n, decimals = 2) {
             if (typeof n !== 'number' || !isFinite(n)) return '';
             const rounded = Number(n.toFixed(Math.max(0, Math.min(6, decimals))));
-            return String(rounded);
+            // JS prints a negative number with a plain hyphen, but every formula
+            // and equation string around it (`polynomial()`, "b² − 4ac", the
+            // solve-linear steps) is hand-written with the real minus sign — a
+            // hyphen sitting next to it in the same line of maths is what a
+            // "-7" next to a "−4ac" looks like it is: a typo, not a value.
+            return String(rounded).replace(/-/g, '−');
         }
 
         // ---- Geometry ------------------------------------------------------
@@ -4801,8 +4806,12 @@ ${languageRule()}`;
                 build: p => {
                     const a = tNum(p, 'a', 2, -1000, 1000), b = tNum(p, 'b', 4, -1000, 1000), c = tNum(p, 'c', 10, -1000, 1000);
                     if (a === 0) return null;
+                    // b === 0 skips the "subtract b" step below, so the problem
+                    // line has to skip showing it too — "2x + 0 = 10" is not
+                    // how anyone would actually write ax = c.
                     const sign = b < 0 ? '−' : '+';
-                    const lines = [{ expr: `${fmtNum(a)}x ${sign} ${fmtNum(Math.abs(b))} = ${fmtNum(c)}`, note: 'start' }];
+                    const opening = b === 0 ? `${fmtNum(a)}x = ${fmtNum(c)}` : `${fmtNum(a)}x ${sign} ${fmtNum(Math.abs(b))} = ${fmtNum(c)}`;
+                    const lines = [{ expr: opening, note: 'start' }];
                     if (b !== 0) lines.push({ expr: `${fmtNum(a)}x = ${fmtNum(c - b)}`,
                                               note: `${b < 0 ? 'add' : 'subtract'} ${fmtNum(Math.abs(b))}` });
                     lines.push({ expr: `x = ${fmtNum((c - b) / a, 3)}`, note: `divide by ${fmtNum(a)}` });
@@ -7025,6 +7034,17 @@ ${languageRule()}`;
                 .replace(/[\s '`״׳]/g, '')
                 .replace(/,(?=\d{3}\b)/g, '')     // 1,200 → 1200
                 .replace(/,/g, '.');              // 3,5 → 3.5
+            // A math answer is often correct as a fraction — "1/2" for a
+            // question graded against the decimal 0.5 — and typing the
+            // decimal instead is not how anyone actually thinks the answer.
+            // Divide it out before falling back to reading a single number
+            // out of the string, so "1/2" is not read as "1" with a stray
+            // "/2" ignored.
+            const frac = /^(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)$/.exec(cleaned);
+            if (frac) {
+                const den = Number(frac[2]);
+                return den ? Number(frac[1]) / den : null;
+            }
             const m = /-?\d+(\.\d+)?/.exec(cleaned);
             return m ? Number(m[0]) : null;
         }

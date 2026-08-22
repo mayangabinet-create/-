@@ -1,0 +1,52 @@
+name: tests
+
+# There is no build step for this app (app.js ships as-is, no bundler), so CI
+# is exactly the two commands documented in the README and in tools/README.md:
+# `node tests/<file>` for each JS suite, and pytest for the Python tools. The
+# only thing this workflow adds over running them by hand is doing it on
+# every push/PR, and installing the full tools/requirements.txt so the
+# PyMuPDF/reportlab end-to-end tests actually run instead of skipping.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: app.js suites (lift-and-compile from the shipping source)
+        run: |
+          set -e
+          for f in tests/lesson-flow.js tests/onboarding.js tests/pdf-pipeline.js \
+                   tests/lesson-visuals.js tests/learning-state.js; do
+            echo "== $f =="
+            node "$f"
+          done
+      - name: ai-proxy policy suite
+        run: node tests/ai-proxy-policy.mjs
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # tesseract + its Hebrew pack + a DejaVu font are what let
+      # ScannedDocumentTests run instead of skipping (see tests/test_pdf_prep.py).
+      - name: System packages for OCR tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-heb fonts-dejavu-core
+      - name: Install tools/requirements.txt (+ pytest)
+        run: |
+          pip install -r tools/requirements.txt
+          pip install pytest
+      - name: pdf_prep / pdf_index suites
+        run: pytest tests/test_pdf_prep.py tests/test_pdf_index.py -v

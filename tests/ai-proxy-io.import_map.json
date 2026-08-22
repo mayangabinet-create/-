@@ -1,0 +1,6 @@
+{
+  "imports": {
+    "jsr:@supabase/functions-js/edge-runtime.d.ts": "./ai-proxy-io.edge-runtime-stub.ts",
+    "jsr:@supabase/supabase-js@2": "./ai-proxy-io.supabase-js-stub.ts"
+  }
+}

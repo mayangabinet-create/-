@@ -72,3 +72,22 @@ jobs:
           sudo -u postgres createdb rls_test
           sudo -u postgres psql -d rls_test -c 'create extension pgtap;'
           sudo -u postgres pg_prove -d rls_test supabase/tests/database/rls_policies.test.sql
+
+  # ai-proxy/index.ts (the Edge Function's HTTP handler — auth, entitlement,
+  # quota enforcement, the streaming/non-streaming split) had no test at all;
+  # only policy.mjs's pure decision logic did (the `js` job, above). This
+  # runs the real, unmodified index.ts over real HTTP loopback via Deno.serve
+  # — an import map redirects its jsr: imports to local stubs (same idiom as
+  # every other suite here: stub Supabase directly, not its wire protocol),
+  # so no network access to jsr.io is required.
+  ai-proxy-io:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: ai-proxy I/O suite
+        run: |
+          deno run --allow-net --allow-env \
+            --import-map=tests/ai-proxy-io.import_map.json tests/ai-proxy-io.test.ts

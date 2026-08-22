@@ -91,3 +91,24 @@ jobs:
         run: |
           deno run --allow-net --allow-env \
             --import-map=tests/ai-proxy-io.import_map.json tests/ai-proxy-io.test.ts
+
+  # The one flow tests/pdf-pipeline.js documents as manual/browser-only that
+  # doesn't need a real account: the upload box (bundle / .txt / rejected
+  # .json), asserting on #authModal and the error dialog. See
+  # tests/playwright/upload-box.test.mjs's header for what's deliberately
+  # left out (signed-in flows — those need an account and spend real tokens).
+  upload-box:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies + Chromium
+        working-directory: tests/playwright
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Upload-box suite
+        working-directory: tests/playwright
+        run: node upload-box.test.mjs

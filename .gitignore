@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+tests/playwright/node_modules/
+tests/playwright/site/

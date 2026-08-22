@@ -1,0 +1,10 @@
+{
+  "name": "ai-tutor-upload-box-smoke-test",
+  "private": true,
+  "description": "Playwright driver for the anonymous upload-box flow — see the header comment in upload-box.test.mjs and the recipe in ../pdf-pipeline.js.",
+  "devDependencies": {
+    "@supabase/supabase-js": "2.112.3",
+    "pdfjs-dist": "3.11.174",
+    "playwright": "^1.62.1"
+  }
+}

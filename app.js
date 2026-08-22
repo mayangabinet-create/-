@@ -184,6 +184,8 @@
         let lastCallTruncated = false;
 
         const AI_ENDPOINT = `${SUPABASE_URL}/functions/v1/ai-proxy`;
+        const STRIPE_CHECKOUT_ENDPOINT = `${SUPABASE_URL}/functions/v1/stripe-checkout`;
+        const STRIPE_PORTAL_ENDPOINT = `${SUPABASE_URL}/functions/v1/stripe-portal`;
 
         /**
          * Split an SSE stream into the JSON payloads it carries.
@@ -3304,7 +3306,7 @@ ${languageRule()}`;
             if (!currentUser) { entitlement = null; return null; }
             const { data, error } = await supabaseClient
                 .from('subscriptions')
-                .select('status, plan, interval, current_period_end')
+                .select('status, plan, interval, current_period_end, stripe_customer_id')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
             if (error) {
@@ -3323,6 +3325,11 @@ ${languageRule()}`;
                 // Same fallback the Edge Function uses: an unknown plan is the
                 // smallest tier, never the largest.
                 planKey: trialing ? 'trial' : (data?.plan && PLAN_LIMITS[data.plan] ? data.plan : 'basic'),
+                // Gates "Manage billing": true only once a real Stripe
+                // customer exists, so a debug-switched plan (see
+                // setDebugPlan) never shows a portal link that has nothing
+                // real behind it.
+                hasStripeCustomer: !!data?.stripe_customer_id,
             };
             return entitlement;
         }
@@ -3456,6 +3463,7 @@ ${languageRule()}`;
                         ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free, any time — it's already yours.`}
                     </p>
                     <button class="button button-secondary" id="acctPlans" ${loading ? 'disabled' : ''}>${loading ? field('', '5em') : (ent?.active ? 'Change plan' : 'See plans')}</button>
+                    ${!loading && ent?.hasStripeCustomer ? `<button class="button button-secondary" id="acctBilling">Manage billing</button>` : ''}
                 </section>
 
                 <section class="account-card">
@@ -3530,6 +3538,8 @@ ${languageRule()}`;
                 </p>`;
 
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
+            const billingBtn = document.getElementById('acctBilling');
+            if (billingBtn) billingBtn.onclick = () => openBillingPortal(billingBtn);
             // This row is only ever about interests — replaying the whole
             // "what the app does" tour to change one answer was the getting-
             // to-know-you screens standing between someone and the one thing
@@ -9494,9 +9504,64 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         }
 
         // The tier most accounts should actually want: real model quality
-        // without Max's price. Marked, not sold — there's no checkout yet to
-        // steer toward, just a clearer read of which card is "the" one.
+        // without Max's price. Marked, and — now that checkout exists — the
+        // one steered toward as well.
         const RECOMMENDED_PLAN = 'pro';
+
+        // Opens Stripe Checkout for the given plan and sends the browser
+        // there. On success or cancel, Stripe returns to this same page
+        // (see the init block below), never to a page of its own.
+        async function startCheckout(planKey, button) {
+            setButtonBusy(button, true);
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (!session) { showAuthModal('signin'); return; }
+                const res = await fetch(STRIPE_CHECKOUT_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'authorization': `Bearer ${session.access_token}`,
+                        'apikey': SUPABASE_ANON_KEY,
+                    },
+                    body: JSON.stringify({ plan: planKey, origin: window.location.origin }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.url) throw new Error(data.message || data.error || `Checkout failed (${res.status})`);
+                window.location.href = data.url;
+            } catch (e) {
+                showError('Could not start checkout: ' + e.message);
+            } finally {
+                setButtonBusy(button, false);
+            }
+        }
+
+        // Opens Stripe's own Customer Portal (cancel, change payment method,
+        // see invoices) for whichever Stripe customer this account already
+        // has. Nothing here writes to `subscriptions` — the portal's own
+        // changes come back through the stripe-webhook function.
+        async function openBillingPortal(button) {
+            setButtonBusy(button, true);
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (!session) { showAuthModal('signin'); return; }
+                const res = await fetch(STRIPE_PORTAL_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'content-type': 'application/json',
+                        'authorization': `Bearer ${session.access_token}`,
+                        'apikey': SUPABASE_ANON_KEY,
+                    },
+                    body: JSON.stringify({ origin: window.location.origin }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.url) throw new Error(data.message || data.error || `Could not open billing (${res.status})`);
+                window.location.href = data.url;
+            } catch (e) {
+                showError('Could not open billing: ' + e.message);
+            } finally {
+                setButtonBusy(button, false);
+            }
+        }
 
         function showUpgradePrompt() {
             const rows = Object.entries(PLAN_LIMITS)
@@ -9507,6 +9572,9 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                     // turn an abstract character budget into something you can
                     // picture against the document you were about to upload.
                     const pages = Math.round(p.readChars / 1800);
+                    const subscribeBtn = here
+                        ? ''
+                        : `<button type="button" class="button plan-subscribe-btn" data-subscribe-plan="${key}">Subscribe to ${p.label}</button>`;
                     const debugBtn = canDebugPlan() && !here
                         ? `<button type="button" class="button button-secondary plan-debug-btn" data-debug-plan="${key}">Switch to ${p.label} (debug)</button>`
                         : '';
@@ -9525,6 +9593,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                         <li class="plan-card${here ? ' is-current' : ''}">
                             <div class="plan-card-head"><strong>${p.label}</strong>${badge}</div>
                             <ul class="plan-card-features">${features}</ul>
+                            ${subscribeBtn}
                             ${debugBtn}
                         </li>`;
                 }).join('');
@@ -9537,11 +9606,11 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             uiAlert(
                 `<ul class="plan-list">${rows}</ul>
                  ${debugNote}
-                 <p>Checkout isn't live yet, so there's nothing to buy today. Until it is,
-                 everything you've already built keeps working: open any course, replay any
-                 lesson, and run reviews and extra practice as often as you like — replays
-                 and reviews reuse lessons you already generated and don't count against
-                 any limit.</p>`,
+                 <p>Subscribing opens Stripe's own checkout — card details go to Stripe, never to us.
+                 Your plan updates automatically within a few seconds of paying. Cancel any time from
+                 Account → Manage billing, and everything you've already built keeps working either way:
+                 open any course, replay any lesson, and run reviews as often as you like — replays and
+                 reviews reuse lessons you already generated and never count against a limit.</p>`,
                 entitlement?.trialing ? 'Plans' : 'Your trial has ended',
                 { html: true });
 
@@ -9549,6 +9618,9 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             // openDialog fills the DOM synchronously before returning it.
             document.querySelectorAll('[data-debug-plan]').forEach(btn => {
                 btn.onclick = () => setDebugPlan(btn.dataset.debugPlan, btn);
+            });
+            document.querySelectorAll('[data-subscribe-plan]').forEach(btn => {
+                btn.onclick = () => startCheckout(btn.dataset.subscribePlan, btn);
             });
         }
 
@@ -9802,6 +9874,17 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
 
         (async () => {
             try {
+                // Stripe returns here after checkout with ?checkout=success|cancel.
+                // Strip it immediately so a reload never re-triggers this, whether
+                // or not it turns out there's anything to react to.
+                const params = new URLSearchParams(location.search);
+                const checkoutResult = params.get('checkout');
+                if (checkoutResult) {
+                    params.delete('checkout');
+                    const query = params.toString();
+                    history.replaceState(null, '', location.pathname + (query ? `?${query}` : '') + location.hash);
+                }
+
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (session?.user) {
                     try {
@@ -9812,8 +9895,21 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                         }
                     } catch (_) {}
                     await onSignedIn(session.user);
+                    if (checkoutResult === 'success') {
+                        // stripe-webhook usually lands within a second or two of
+                        // the redirect, but never before it — give it a moment
+                        // rather than showing the old plan as if payment failed.
+                        setTimeout(async () => {
+                            await loadEntitlement();
+                            if (document.getElementById('accountBody')) renderAccount();
+                            toast('Payment received — your plan is updating.');
+                        }, 2000);
+                    }
                 } else {
                     showAnonymousHome();
+                    if (checkoutResult === 'success') {
+                        toast('Payment received. Sign in to see your updated plan.');
+                    }
                 }
             } catch (e) {
                 console.error('init failed:', e);

@@ -5,8 +5,6 @@
  *
  *   - the SM-2 review scheduler, which decides when a finished lesson comes
  *     back and how much easier or harder it gets each time;
- *   - the streak, cached locally and merged against the account's row so two
- *     devices agree on it;
  *   - extractJSON, which turns a possibly-truncated model response into an
  *     object without the caller ever seeing a parse error;
  *   - parseLearnerNumber, which reads a typed answer — fractions, comma
@@ -23,8 +21,7 @@
  *
  * Every one of these fails silently. A wrong ease factor does not throw, it
  * just reviews a concept too often or too rarely forever. A mis-parsed "1/2"
- * does not throw, it marks a correct answer wrong. A merge that picks the
- * wrong streak does not throw, it just quietly resets someone's count.
+ * does not throw, it marks a correct answer wrong.
  */
 const fs = require('fs');
 const path = require('path');
@@ -128,10 +125,6 @@ function grab(decl) {
 const names = [
   'function scheduleReview', 'function isDueForReview',
   'function getDueLessons', 'function getPracticeLessons',
-  'const STREAK_STORAGE', 'const streakKey', 'function todayStr',
-  'function parseStreak', 'function readLocalStreak', 'function writeLocalStreak',
-  'function mergeStreak', 'function loadStreak', 'function saveStreak',
-  'function getStreak', 'function bumpStreak',
   'const PLAN_LIMITS', 'function totalXp', 'const PRICE_IN', 'const PRICE_OUT', 'function totalCost',
   'function extractJSON', 'function firstPlannedConcept', 'function parseLearnerNumber',
   'const REPORT_QUEUE', 'function queueReport', 'function sendReports', 'function flushReports',
@@ -157,26 +150,13 @@ const MAX_COURSES = 8;
 const store = new Map();
 const localStorage = {
   getItem: k => (store.has(k) ? store.get(k) : null),
-  setItem: (k, v) => { if (throwOnWrite) throw new Error('quota'); store.set(k, String(v)); },
+  setItem: (k, v) => store.set(k, String(v)),
   removeItem: k => store.delete(k),
 };
-let throwOnWrite = false;
-function renderHud() {}
 
-let upserts = [];
 let reportInserts = [];
-let upsertError = null;
-let statsRow = null;   // what user_stats.select() returns for loadStreak
-let selectError = null;
 const supabaseClient = {
   from: (table) => ({
-    select: () => ({ eq: () => ({ maybeSingle: async () =>
-      selectError ? { data: null, error: selectError } : { data: statsRow, error: null } }) }),
-    upsert: async (row) => {
-      upserts.push({ table, row });
-      if (upsertError) return { error: upsertError };
-      return { error: null };
-    },
     insert: async (rows) => {
       reportInserts.push(...rows);
       return { error: null };
@@ -188,8 +168,6 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
   scheduleReview, isDueForReview, getDueLessons, getPracticeLessons,
-  todayStr, parseStreak, readLocalStreak, writeLocalStreak, mergeStreak,
-  loadStreak, saveStreak, getStreak, bumpStreak,
   totalXp, totalCost, extractJSON, firstPlannedConcept, parseLearnerNumber,
   queueReport, sendReports, flushReports, reportMisjudged,
   courseProgressPct, unitNumber, maxCourses, planReadChars, contextBudget, excerptBudget,
@@ -205,16 +183,11 @@ module.exports = {
     usage = state.usage ?? { inputTokens: 0, outputTokens: 0 };
     store.clear();
     for (const [k, v] of Object.entries(state.storage ?? {})) store.set(k, v);
-    throwOnWrite = state.throwOnWrite ?? false;
-    upserts = []; reportInserts = []; upsertError = state.upsertError ?? null;
-    statsRow = 'statsRow' in state ? state.statsRow : null;
-    selectError = 'selectError' in state ? state.selectError : null;
-    streak = { count: 0, lastActive: null };
+    reportInserts = [];
   },
   progressRow: i => progress[i],
   storageGet: k => (store.has(k) ? store.get(k) : null),
   storageHas: k => store.has(k),
-  upsertCalls: () => upserts,
   reportRows: () => reportInserts,
 };
 `;
@@ -325,117 +298,6 @@ console.log('\n== which lessons are due ==');
   });
   ok('due but with no lesson generated is left out of the due list',
      P.getDueLessons().length === 0);
-}
-
-// -------------------------------------------------------------------- streak
-console.log('\n== the streak, cached locally ==');
-{
-  ok('todayStr with no offset is today', P.todayStr() === new Date().toISOString().slice(0, 10));
-  ok('an offset of -1 is yesterday',
-     P.todayStr(-1) === new Date(Date.now() - DAY).toISOString().slice(0, 10));
-
-  ok('valid JSON round-trips', JSON.stringify(P.parseStreak('{"count":3,"lastActive":"2026-01-01"}'))
-     === '{"count":3,"lastActive":"2026-01-01"}');
-  ok('garbage reads as a fresh streak, not a thrown error',
-     JSON.stringify(P.parseStreak('not json')) === '{"count":0,"lastActive":null}');
-  ok('nothing stored also reads as fresh', JSON.stringify(P.parseStreak(null)) === '{"count":0,"lastActive":null}');
-
-  // readLocalStreak: per-account key first, legacy shared key as a one-time
-  // migration, and the legacy key must be gone afterwards so it can't be
-  // re-adopted by a second account on the same browser.
-  P.reset({ storage: { 'streak_data:u1': '{"count":7,"lastActive":"2026-08-20"}' } });
-  ok('a scoped key is read directly', P.readLocalStreak().count === 7);
-
-  P.reset({ storage: { 'streak_data': '{"count":4,"lastActive":"2026-08-19"}' } });
-  const migrated = P.readLocalStreak();
-  ok('a legacy unscoped key is adopted when no scoped key exists yet', migrated.count === 4);
-  ok('and removed once adopted, so a second account cannot inherit it too',
-     !P.storageHas('streak_data'));
-
-  P.reset({ storage: {} });
-  ok('neither key present is a fresh streak', P.readLocalStreak().count === 0);
-
-  P.reset({});
-  P.writeLocalStreak({ count: 9, lastActive: '2026-08-22' });
-  ok('write lands under the per-account key', P.storageGet('streak_data:u1').includes('9'));
-
-  P.reset({ throwOnWrite: true });
-  ok('a storage write that throws (private mode) is swallowed, not raised',
-     (P.writeLocalStreak({ count: 1, lastActive: 'x' }), true));
-
-  // mergeStreak: the one with real activity wins over one with none; the more
-  // recent day wins outright; same day, the higher count wins (never lower
-  // one device's count by trusting the other blindly).
-  const A = { count: 5, lastActive: '2026-08-20' };
-  const B = { count: 2, lastActive: '2026-08-21' };
-  ok('an empty record loses to any real one', P.mergeStreak({ lastActive: null }, A) === A);
-  ok('and loses symmetrically', P.mergeStreak(A, { lastActive: null }) === A);
-  ok('the later day wins even with a lower count', P.mergeStreak(A, B) === B);
-  ok('same day: the higher count wins', P.mergeStreak(
-    { count: 3, lastActive: '2026-08-20' }, { count: 5, lastActive: '2026-08-20' }
-  ).count === 5);
-  ok('same day, same count: either is acceptable but not thrown',
-     P.mergeStreak({ count: 3, lastActive: 'd' }, { count: 3, lastActive: 'd' }).count === 3);
-}
-
-console.log('\n== bumping and reading the streak ==');
-{
-  // bumpStreak operates on the module-level `streak` variable, which is only
-  // set by loadStreak/readLocalStreak inside the real app. Drive it through
-  // loadStreak so `streak` is actually populated first — signed in, with no
-  // remote row, so the local cache passes through untouched by the merge.
-  const withStreak = async (initial) => {
-    P.reset({ currentUser: { id: 'u1' }, storage: { 'streak_data:u1': JSON.stringify(initial) } });
-    return P.loadStreak();
-  };
-
-  await withStreak({ count: 4, lastActive: P.todayStr(-1) });
-  P.bumpStreak();
-  ok('a streak active yesterday extends by one today',
-     JSON.parse(P.storageGet('streak_data:u1')).count === 5);
-
-  await withStreak({ count: 4, lastActive: P.todayStr(-3) });
-  P.bumpStreak();
-  ok('a gap of more than a day resets the streak to one',
-     JSON.parse(P.storageGet('streak_data:u1')).count === 1);
-
-  await withStreak({ count: 4, lastActive: P.todayStr() });
-  const before = P.storageGet('streak_data:u1');
-  P.bumpStreak();
-  ok('bumping twice in the same day is a no-op',
-     P.storageGet('streak_data:u1') === before);
-
-  ok('getStreak reads 0 once neither today nor yesterday was active',
-     (await withStreak({ count: 9, lastActive: P.todayStr(-5) }), P.getStreak() === 0));
-  ok('getStreak still reports the count the day after last active',
-     (await withStreak({ count: 6, lastActive: P.todayStr(-1) }), P.getStreak() === 6));
-
-  // loadStreak: local vs. remote merge, and the write-back-if-local-won rule.
-  P.reset({
-    currentUser: { id: 'u1' },
-    storage: { 'streak_data:u1': JSON.stringify({ count: 8, lastActive: P.todayStr() }) },
-    statsRow: { streak_count: 2, streak_last_active: P.todayStr(-3) },
-  });
-  const merged = await P.loadStreak();
-  ok('a newer local streak wins the merge against a stale remote row', merged.count === 8);
-  ok('and is written back to the account so other devices see it',
-     P.upsertCalls().some(c => c.table === 'user_stats' && c.row.streak_count === 8));
-
-  P.reset({
-    currentUser: { id: 'u1' },
-    storage: { 'streak_data:u1': JSON.stringify({ count: 1, lastActive: P.todayStr(-10) }) },
-    statsRow: { streak_count: 6, streak_last_active: P.todayStr() },
-  });
-  P.upsertCalls().length = 0;
-  const remoteWon = await P.loadStreak();
-  ok('a newer remote streak wins over a stale local one', remoteWon.count === 6);
-  ok('and is not written back — the row already holds it, nothing to sync',
-     !P.upsertCalls().some(c => c.table === 'user_stats'));
-
-  P.reset({ currentUser: { id: 'u1' }, storage: {}, selectError: { message: 'network down' } });
-  const onError = await P.loadStreak();
-  ok('a failed remote read falls back to the cached local streak rather than throwing',
-     onError.count === 0);
 }
 
 // -------------------------------------------------------------------- totals

@@ -1641,6 +1641,72 @@ ${languageRule()}`;
             }
         }
 
+        function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+        // Sends the dot from one lesson node to the next along one dedicated
+        // curve, then hands off to the real unlock celebration (burstAt)
+        // above via onDone — that part is untouched, this only gives it a
+        // run-up instead of appearing out of nowhere.
+        //
+        // This does not reuse the shared multi-node curve drawLessonPathLine
+        // draws: that curve's interior points are smoothing control handles
+        // (see its own comment), not points the line actually passes
+        // through, so a node's real center can sit slightly off it. A
+        // one-shot quadratic between exactly these two centers always passes
+        // through both exactly, which is what a "does it land on the node"
+        // effect actually needs.
+        function travelDotToNode(fromNode, toNode, onDone) {
+            const container = document.getElementById('lessonPath');
+            if (prefersReducedMotion() || !container || !fromNode || !toNode) { onDone(); return; }
+
+            const containerRect = container.getBoundingClientRect();
+            const centerOf = (node) => {
+                const circle = node.querySelector('.lesson-circle') || node;
+                const r = circle.getBoundingClientRect();
+                return { x: r.left + r.width / 2 - containerRect.left, y: r.top + r.height / 2 - containerRect.top };
+            };
+            const from = centerOf(fromNode);
+            const to = centerOf(toNode);
+            const midX = (from.x + to.x) / 2;
+            const midY = Math.min(from.y, to.y);   // arcs toward whichever node sits higher
+
+            // A geometry helper, not a visible line — stroked "none" and
+            // removed once the animation reads its last point. It's attached
+            // to the real path SVG rather than left detached: getTotalLength
+            // doesn't need a rendered document to answer from, but attaching
+            // it costs nothing and asks nothing of any renderer.
+            const svg = document.getElementById('lessonPathLine');
+            const curve = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            curve.setAttribute('d', `M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`);
+            curve.style.stroke = 'none';
+            if (svg) svg.appendChild(curve);
+            const len = curve.getTotalLength();
+
+            const dot = document.createElement('div');
+            dot.className = 'dot dot-transit is-thinking';
+            dot.style.left = `${from.x}px`;
+            dot.style.top = `${from.y}px`;
+            container.appendChild(dot);
+            requestAnimationFrame(() => { dot.style.opacity = '1'; });
+
+            const DURATION = 620;
+            const start = performance.now();
+            function frame(now) {
+                const t = Math.min(1, (now - start) / DURATION);
+                const pt = curve.getPointAtLength(easeOutCubic(t) * len);
+                dot.style.left = `${pt.x}px`;
+                dot.style.top = `${pt.y}px`;
+                if (t < 1) { requestAnimationFrame(frame); return; }
+                curve.remove();
+                dot.classList.remove('is-thinking');
+                dot.classList.add('is-pop');
+                setTimeout(() => { dot.style.opacity = '0'; }, 260);
+                setTimeout(() => dot.remove(), 700);
+                onDone();
+            }
+            requestAnimationFrame(frame);
+        }
+
         // Keep the active lesson centred as you travel the path
         function scrollToCurrentNode() {
             const container = document.querySelector('.path-container');
@@ -2597,16 +2663,29 @@ ${languageRule()}`;
                     <span class="lesson-label" aria-hidden="true">${esc(concept.name)}</span>
                 `;
 
-                // Celebrate nodes that just became available
+                // Celebrate nodes that just became available. The dot travels
+                // from the previously-appended node to this one first (see
+                // travelDotToNode), then hands off to the existing burst/pop
+                // the instant it lands — both need this node and its
+                // predecessor laid out, so the celebration itself runs after
+                // appendChild below, not here; only the decision is made now.
                 const nowUnlocked = !node.classList.contains('locked');
-                if (hadNodes && nowUnlocked && !previouslyUnlocked.has(index)) {
-                    node.classList.add('unlocking');
-                    burstAt(node);
-                    setTimeout(() => node.classList.remove('unlocking'), 700);
-                }
+                const justUnlocked = hadNodes && nowUnlocked && !previouslyUnlocked.has(index);
 
                 node.onclick = () => openPreview(index);
                 pathContainer.appendChild(node);
+
+                if (justUnlocked) {
+                    const priorNodes = pathContainer.querySelectorAll('.lesson-node');
+                    const fromNode = priorNodes[priorNodes.length - 2];   // the one just before this one
+                    const celebrate = () => {
+                        node.classList.add('unlocking');
+                        burstAt(node);
+                        setTimeout(() => node.classList.remove('unlocking'), 700);
+                    };
+                    if (fromNode) travelDotToNode(fromNode, node, celebrate);
+                    else celebrate();
+                }
             });
 
             renderReviewBanner();
@@ -9791,7 +9870,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         // duplicating the SVG markup inline in the HTML.
         const staticIcons = {
             hudIconStreak: 'flame', hudIconXp: 'star',
-            libraryEmptyIcon: 'book', uploadIcon: 'file', reviewBannerIcon: 'refresh', demoLessonIcon: 'book',
+            uploadIcon: 'file', reviewBannerIcon: 'refresh', demoLessonIcon: 'book',
             navIconHome: 'home', navIconCourses: 'book', navIconReview: 'refresh', navIconAccount: 'account',
             authCloseBtn: 'x', courseRenameBtn: 'pencil',
         };

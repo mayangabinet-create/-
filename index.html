@@ -181,6 +181,20 @@
             --gold-ink:           #5C3A02;
             --gold-ring:          rgba(242, 179, 46, 0.55);
 
+            /* The dot: a small circular mark with no other job on screen, so
+               it borrows brand green rather than adding a seventh hue. In
+               light mode it's brand as-is; in dark mode the roles swap
+               (see the dark block below) so it stays vivid against a dark
+               background instead of reading as the muddy tone brand is
+               tuned to sit under white button text. --dot-light has no
+               existing equivalent in either theme — it's the one genuinely
+               new value, the gradient highlight that makes the fill read as
+               a lit sphere instead of a flat circle. */
+            --dot:        var(--brand);
+            --dot-deep:   var(--brand-strong);
+            --dot-light:  #6FBF47;
+            --dot-ring:   rgba(62, 133, 35, 0.25);
+
             --accent:             #7C3FBF;   /* the analogy box */
             --accent-strong:      #6D34AB;
             --accent-tint:        #F4EDFD;
@@ -302,6 +316,16 @@
 
                 --gold-strong:        #F5C04A;
 
+                /* The two roles swap here: the bright value becomes the
+                   dot's own fill, and plain --brand (unchanged, still
+                   #3E8523) becomes its shadow edge. --dot-light needs a
+                   value brighter than --brand-strong for the highlight to
+                   read as a highlight at all, which nothing existing is. */
+                --dot:        var(--brand-strong);
+                --dot-deep:   var(--brand);
+                --dot-light:  #A9EB84;
+                --dot-ring:   rgba(126, 217, 87, 0.30);
+
                 --accent-strong:      #B98AEE;
                 --accent-tint:        #241733;
                 --accent-tint-hover:  #2D1D3F;
@@ -341,6 +365,11 @@
             --danger-border:      #4A2222;
 
             --gold-strong:        #F5C04A;
+
+            --dot:        var(--brand-strong);
+            --dot-deep:   var(--brand);
+            --dot-light:  #A9EB84;
+            --dot-ring:   rgba(126, 217, 87, 0.30);
 
             --accent-strong:      #B98AEE;
             --accent-tint:        #241733;
@@ -770,6 +799,9 @@
         /* One rule instead of three inline margins on three submit buttons. */
         .form-submit { margin-top: var(--sp-4); }
         #backToLibraryBtn { margin-top: var(--sp-3); }
+        /* Same footprint .screen-empty-icon gives every other empty state's
+           icon badge — this is the one spot that badge is a dot instead. */
+        #libraryEmptyIcon { --size: 48px; margin: 0 auto var(--sp-4); }
 
         /* ---- Segmented control: two exclusive modes in one track ---- */
         .source-tabs {
@@ -1235,6 +1267,50 @@
             stroke-width: 3px;
             stroke-linecap: round;
             stroke-dasharray: 2 14;
+        }
+
+        /* ---- The dot: one small circular mark, no face, no name. It never sits
+           anywhere as a companion — only around three real moments (an empty
+           library, a course being written, moving to the next lesson) — and it
+           never changes shape, only how it moves: resting (is-idle), working
+           (is-thinking), or just landed (is-pop, one-shot). ---- */
+        .dot {
+            --size: 32px;
+            width: var(--size); height: var(--size); border-radius: 50%;
+            position: relative;
+            flex: none;
+            background: radial-gradient(circle at 32% 26%, var(--dot-light) 0%, var(--dot) 55%, var(--dot-deep) 100%);
+            /* Ring widths scale with --size so one rule reads right whether
+               this instance is 24px riding the path or 40px in an empty state. */
+            box-shadow: 0 0 0 calc(var(--size) * 0.07) var(--surface),
+                        0 0 0 calc(var(--size) * 0.13) var(--dot-ring);
+        }
+        .dot::before {
+            content: ""; position: absolute; inset: calc(var(--size) * -0.19); border-radius: 50%;
+            background: conic-gradient(from 0deg, transparent 0deg, var(--dot-ring) 100deg, transparent 200deg);
+            opacity: 0; transition: opacity var(--dur-2) var(--ease);
+        }
+        .dot.is-idle     { animation: dotBreathe 2.6s var(--ease) infinite; }
+        .dot.is-thinking { animation: dotBreathe 1.35s var(--ease) infinite; }
+        .dot.is-thinking::before { opacity: 1; animation: dotSpin 1.3s linear infinite; }
+        .dot.is-pop      { animation: dotPop 720ms var(--ease-bounce) 1; }
+
+        @keyframes dotBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+        @keyframes dotSpin    { to { transform: rotate(360deg); } }
+        @keyframes dotPop {
+            0%   { transform: scale(1); }
+            45%  { transform: scale(1.32); filter: brightness(1.12); }
+            100% { transform: scale(1); filter: brightness(1); }
+        }
+
+        /* The dot in transit between two lesson nodes — see travelDotToNode()
+           in app.js. Position is set inline per-frame; this only carries the
+           centring transform, kept off .dot itself so it never fights the
+           scale() the keyframes above apply. */
+        .dot-transit {
+            position: absolute; left: 0; top: 0; transform: translate(-50%, -50%);
+            opacity: 0; transition: opacity var(--dur-2) var(--ease);
+            z-index: 2;
         }
 
         /* A real <button> — the path is the app's primary navigation and every node
@@ -2827,7 +2903,7 @@
                      screen: what's missing, why it matters, and the button that
                      fixes it. -->
                 <div class="library-empty screen-empty" id="libraryEmpty" hidden>
-                    <div class="screen-empty-icon" id="libraryEmptyIcon" aria-hidden="true"></div>
+                    <div class="dot is-idle" id="libraryEmptyIcon" aria-hidden="true"></div>
                     <h3 class="screen-empty-title">No courses yet</h3>
                     <p class="screen-empty-body">
                         A course is built from your own material — a PDF, a chapter, a page of

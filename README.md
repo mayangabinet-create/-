@@ -946,12 +946,13 @@ project, not something this repo can finish on its own):
    `STRIPE_WEBHOOK_SECRET`.
 5. Apply `supabase/migrations/20260822120000_stripe_columns.sql` (adds
    `stripe_customer_id`/`stripe_subscription_id` to `subscriptions`).
-6. Optional, once the app's real domain is settled: set
-   `STRIPE_ALLOWED_ORIGIN` on `stripe-checkout` and `stripe-portal` to that
-   exact origin. Until then, either function accepts any `https://` origin
-   the browser itself sends for the post-Stripe redirect — the worst a
-   forged one buys is sending the caller's own browser to a page of their
-   own choosing, since every call still only ever acts on the caller's own
+6. Optional, now that GitHub Pages is live at
+   `https://mayangabinet-create.github.io/-/`: set `STRIPE_ALLOWED_ORIGIN` on
+   `stripe-checkout` and `stripe-portal` to that exact origin (no trailing
+   slash). Until then, either function accepts any `https://` origin the
+   browser itself sends for the post-Stripe redirect — the worst a forged
+   one buys is sending the caller's own browser to a page of their own
+   choosing, since every call still only ever acts on the caller's own
    account, but a fixed allowlist is tighter once there's one real answer.
 7. Test with [Stripe's test cards](https://stripe.com/docs/testing) in test
    mode before switching the secrets over to live keys.

@@ -8,11 +8,12 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-// Unset until the app's real domain is settled (see README — GitHub Pages
-// isn't enabled yet). Until then any https origin the browser itself sends
-// is trusted for the post-checkout redirect: the worst a forged one buys is
-// sending the caller's own browser to a page of the caller's own choosing,
-// since the session can only ever act on its own account.
+// Unset until this secret is set by hand in the Supabase dashboard (see
+// README — GitHub Pages is live at https://mayangabinet-create.github.io/-/,
+// which is the value to set it to). Until then any https origin the browser
+// itself sends is trusted for the post-checkout redirect: the worst a forged
+// one buys is sending the caller's own browser to a page of the caller's own
+// choosing, since the session can only ever act on its own account.
 const ALLOWED_ORIGIN = Deno.env.get("STRIPE_ALLOWED_ORIGIN") || null;
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });

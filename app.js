@@ -9562,9 +9562,9 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             return (currentUser?.email || '').trim().toLowerCase() === DEBUG_PLAN_EMAIL;
         }
 
-        // A stand-in for checkout, which does not exist yet (see README). One
-        // account gets to try the tiers directly; everyone else sees the same
-        // "checkout isn't live" plan list this always showed.
+        // A way to try the tiers without paying, alongside real checkout (see
+        // README — Payments). One account gets these buttons; everyone else
+        // just sees the Subscribe button per plan.
         async function setDebugPlan(planKey, button) {
             const original = button.textContent;
             button.disabled = true;

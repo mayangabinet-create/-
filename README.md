@@ -1004,7 +1004,22 @@ the button is drawn, which is why the address is duplicated in both places —
   is enforced server-side in `consume_ai_quota`, so a single account can't run up an
   unbounded bill — but nothing here stops a script from creating many accounts to stack
   free trials. Worth adding (Supabase Auth supports hCaptcha/Turnstile natively) before
-  publicizing the site, not after.
+  publicizing the site, not after. Neither piece can be turned on from this repo — both
+  need a human in two different dashboards, in this order:
+  1. Get a site key + secret key from [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/)
+     or [hCaptcha](https://www.hcaptcha.com/) (either works — Supabase Auth supports both).
+  2. Supabase dashboard → Authentication → Attack Protection: paste the secret key,
+     pick the matching provider, save.
+  3. In `index.html`, add the provider's widget script/div near the auth form (Turnstile:
+     `<div class="cf-turnstile" data-sitekey="…"></div>` plus its script tag — both need
+     an entry in the CSP's `script-src`/`connect-src`/`frame-src`, which is currently
+     locked to `'self'` and one CDN, so the exact origin the provider's docs list has to
+     be added there too, not guessed).
+  4. In `app.js`, the two calls this gates are at line ~9866 — `signUp({ email, password })`
+     and `signInWithPassword({ email, password })` — each needs `options: { captchaToken }`
+     added, reading the token the widget produced. Do steps 3–4 in the same change as
+     step 2: turning on Attack Protection without a token flowing from the client fails
+     every signup, not just abusive ones.
 - **`privacy.html` and `terms.html` are drafts, not legal documents.** Written from what
   the app's code actually does (the external services it talks to, what each
   stores, that there's no tracking or ads), plus the account holder's own answers on

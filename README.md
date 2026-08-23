@@ -976,30 +976,35 @@ the button is drawn, which is why the address is duplicated in both places —
 
 ## What's not done yet
 
-- **Payments setup on the live project.** The code above is complete and
-  tested, but nothing charges a real card until the seven setup steps in
-  *Payments* are done by hand against the real Stripe and Supabase accounts —
-  see that section for the list.
+- **GitHub Pages is live.** Enabled, 68+ successful deployments — the app is reachable
+  at `https://mayangabinet-create.github.io/-/`.
+- **`ai-proxy` and all three Stripe Edge Functions are deployed** on the live Supabase
+  project (`stripe-webhook` correctly with `--no-verify-jwt`). `delete_own_account()` is
+  applied too, including the check that refuses to run while a Stripe subscription is
+  still live (`20260822120100_delete_own_account_block_active_billing.sql`) — the
+  account-deletion button no longer fails.
+- **Payments still won't charge a real card** until the Stripe-side setup is done by
+  hand: create the three Prices in the Stripe Dashboard, set `STRIPE_SECRET_KEY` /
+  `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_MAX` / `STRIPE_WEBHOOK_SECRET`
+  as Edge Function secrets, add the webhook endpoint in Stripe pointed at
+  `stripe-webhook`, and activate the Stripe Customer Portal (Settings → Billing →
+  Customer portal) so `stripe-portal` can return a link. See *Payments* for the full
+  list — none of this can be done from here, it needs the Stripe dashboard.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
   it spends real API budget (~$0.75 for the Max run), so it isn't run automatically.
-- **GitHub Pages.** Needs enabling once, in this repo's Settings → Pages, pointing at
-  whichever branch should be live.
 - **Leaked password protection is off.** Supabase Auth can reject a password found in
   a known breach (checked against HaveIBeenPwned) and it is not turned on for this
   project. It is a toggle in the dashboard — Authentication → Providers → Email — not
   something a migration can reach.
-- **`delete_own_account()` is written but not applied.** Account deletion in Account
-  settings calls it, and the migrations
-  (`supabase/migrations/20260818140000_delete_own_account.sql`, its anon-grant
-  fix, and `20260822120100_delete_own_account_block_active_billing.sql`, which
-  adds the check that refuses to run while a Stripe subscription is still
-  live) are checked in and mirror `debug_set_plan`'s SECURITY DEFINER +
-  REVOKE/GRANT shape — but applying a function with DELETE rights on
-  `auth.users` to the live project needs a human to run it (via the SQL
-  editor or `supabase db push`), not an agent. Until it's applied, the button
-  fails with a clear error rather than doing nothing.
+- **No signup abuse protection.** New accounts get a 14-day trial automatically from
+  just an email + password, with no CAPTCHA and no email confirmation gate found in the
+  auth flow. The trial plan is capped (one course, 10 lessons, lifetime) and the quota
+  is enforced server-side in `consume_ai_quota`, so a single account can't run up an
+  unbounded bill — but nothing here stops a script from creating many accounts to stack
+  free trials. Worth adding (Supabase Auth supports hCaptcha/Turnstile natively) before
+  publicizing the site, not after.
 - **`privacy.html` and `terms.html` are drafts, not legal documents.** Written from what
   the app's code actually does (the external services it talks to, what each
   stores, that there's no tracking or ads), plus the account holder's own answers on

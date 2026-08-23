@@ -29,11 +29,18 @@
  * writing 4k — roughly $0.75. Run it once.
  */
 
+// model here is modelCourse (this file only ever sends a course-planning
+// call — see coursePrompt()/max_tokens below), not modelLesson. Must track
+// PLANS in ai-proxy/policy.mjs: Pro deliberately plans on Haiku even though
+// its lessons are written on Sonnet, and Max plans on Sonnet, not Opus — see
+// the comment above PLANS for why. This drifted out of sync with that policy
+// once (this file still expected sonnet/opus here), which would have failed
+// modelOk on a run that was actually correct.
 const TIER_EXPECT = {
   trial: { concepts: 10, model: /haiku/,  docChars:   5000 },
   basic: { concepts: 10, model: /haiku/,  docChars:   5000 },
-  pro:   { concepts: 12, model: /sonnet/, docChars:  40000 },
-  max:   { concepts: 15, model: /opus/,   docChars: 120000 },
+  pro:   { concepts: 12, model: /haiku/,  docChars:  40000 },
+  max:   { concepts: 15, model: /sonnet/, docChars: 120000 },
 };
 
 const TEMPLATE_ALLOWANCE = 12000;  // must match ai-proxy/index.ts

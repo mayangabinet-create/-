@@ -15,7 +15,8 @@ in your library or by tapping the title above the path.
   works fine) — it talks to the same hosted backend either way.
 
 There's no API key to paste in. Every account gets a 14-day free trial automatically;
-subscribing after that isn't wired up yet (see below).
+subscribing after that goes through Stripe Checkout (see *Payments*, below, for what's
+wired up and the setup steps still needed on a live project).
 
 ## What a lesson contains
 
@@ -597,6 +598,9 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
+- **`stripe-checkout`, `stripe-portal`, `stripe-webhook` Edge Functions** — turn a
+  plan choice into a real subscription and keep `subscriptions` in sync with what
+  Stripe reports. See *Payments*, below.
 - New signups get a 14-day trial automatically via a trigger on `auth.users`.
 
 ## Why the bigger plans felt slower, and what was done about it
@@ -803,9 +807,11 @@ text goes, so it lives in `privacy.html` beside everything else of that kind.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without
-Max's price), a checkmark per feature. There's no price on them because checkout
-isn't wired up yet; the redesign is about reading the difference between tiers at a
-glance, not about selling one.
+Max's price), a checkmark per feature, and a Subscribe button that opens Stripe
+Checkout for that plan. There's still no price printed on the cards — Stripe's own
+checkout page is where the actual amount is shown and can change without a
+deploy — the redesign is about reading the difference between tiers at a glance,
+not about repeating a number that lives elsewhere.
 
 ## Cost model
 
@@ -886,22 +892,93 @@ artifact that service would produce if it is ever built. Run the migration in
 the console and saves the course anyway, deriving structure from the text as
 before. `tools/pdf_prep/README.md` has the details and the limits.
 
+## Payments
+
+Checkout and billing management run through Stripe, called from three Edge
+Functions:
+
+- **`stripe-checkout`** — verifies the caller's session, creates (or reuses) a
+  Stripe Customer for their account, and returns a Checkout Session URL for
+  `basic`/`pro`/`max`. The browser navigates there directly; no card details
+  ever reach this app.
+- **`stripe-portal`** — opens Stripe's own Customer Portal for an account
+  that already has a Stripe customer, for cancelling, changing payment
+  method, or looking at past invoices.
+- **`stripe-webhook`** — the only thing that actually writes `subscriptions`.
+  It verifies Stripe's signature, then on `checkout.session.completed`,
+  `customer.subscription.updated`, and `customer.subscription.deleted`
+  writes the account's plan, status, interval, and renewal date.
+  `customer.subscription.deleted` needs no special case: Stripe reports it
+  with `status: "canceled"` on the same shape an update carries, so both go
+  through one code path.
+
+The price-to-plan mapping and the row a subscription event should produce are
+pure functions in `supabase/functions/_shared/stripe-policy.mjs`, imported by
+both the checkout and webhook functions and by `tests/stripe-policy.mjs` —
+the same split `ai-proxy`/`policy.mjs` already uses, so the test covers the
+shipping decision logic rather than a copy of it.
+
+**Client side**, `showUpgradePrompt()` renders a Subscribe button per plan
+(`startCheckout` in `app.js`), and the Account tab grows a "Manage billing"
+button once `subscriptions.stripe_customer_id` is set (`openBillingPortal`).
+Returning from Stripe lands on `index.html?checkout=success` or
+`?checkout=cancel`; the init block strips that query param immediately and,
+on success, re-reads `subscriptions` a couple of seconds later — long enough
+for the webhook to have landed — rather than trusting the redirect itself as
+proof of payment.
+
+**Setting this up on a live project** (none of this can be done from here —
+it needs the Stripe and Supabase dashboards, so it's on whoever runs the
+project, not something this repo can finish on its own):
+
+1. In Stripe, create one product per plan with a recurring monthly Price.
+   Copy the three Price IDs.
+2. In the Supabase project's Edge Function secrets, set `STRIPE_SECRET_KEY`
+   and `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_MAX`.
+3. Deploy the three functions — `supabase functions deploy stripe-checkout`
+   and `stripe-portal` normally, and `stripe-webhook` with
+   `--no-verify-jwt`, since Stripe calls it directly with no Supabase
+   session to present.
+4. In the Stripe Dashboard, add a webhook endpoint at
+   `<SUPABASE_URL>/functions/v1/stripe-webhook`, subscribed to
+   `checkout.session.completed`, `customer.subscription.updated`, and
+   `customer.subscription.deleted`. Copy its signing secret into
+   `STRIPE_WEBHOOK_SECRET`.
+5. Apply `supabase/migrations/20260822120000_stripe_columns.sql` (adds
+   `stripe_customer_id`/`stripe_subscription_id` to `subscriptions`).
+6. Optional, once the app's real domain is settled: set
+   `STRIPE_ALLOWED_ORIGIN` on `stripe-checkout` and `stripe-portal` to that
+   exact origin. Until then, either function accepts any `https://` origin
+   the browser itself sends for the post-Stripe redirect — the worst a
+   forged one buys is sending the caller's own browser to a page of their
+   own choosing, since every call still only ever acts on the caller's own
+   account, but a fixed allowlist is tighter once there's one real answer.
+7. Test with [Stripe's test cards](https://stripe.com/docs/testing) in test
+   mode before switching the secrets over to live keys.
+
+Deleting an account with a live Stripe subscription is refused by
+`delete_own_account()` — cancel it from Account → Manage billing first (see
+`20260822120100_delete_own_account_block_active_billing.sql`). Before Stripe
+existed, deleting the account could never leave anything running outside
+this database; now it can, since `subscriptions` cascades away with the
+account while Stripe itself has no way to know the account is gone.
+
+One account can still try the tiers without paying: the plan dialog offers
+debug buttons that call `debug_set_plan(new_plan)`, a Postgres function
+(`supabase/migrations/20260813150000_debug_set_plan.sql`) that writes
+`subscriptions` for real — quotas and models change — but checks the
+*caller's own* email against `auth.users` inside the function, hardcoded,
+before it will touch a row. A client can ask it for any plan; it cannot ask
+on someone else's behalf. `app.js`'s `canDebugPlan()` only decides whether
+the button is drawn, which is why the address is duplicated in both places —
+`tests/pdf-pipeline.js` pins that the two agree.
+
 ## What's not done yet
 
-- **Payments.** `subscriptions.status` and the trial trigger exist and are enforced by
-  `ai-proxy`, but there's no Stripe integration yet. `showUpgradePrompt()` lists the
-  real tiers and what each one buys, and says plainly that checkout isn't live and
-  what still works without it — it just can't take money. Once a Stripe account and
-  price exist, this needs a checkout Edge Function and a webhook that updates `subscriptions` on
-  `checkout.session.completed` / `customer.subscription.updated`/`deleted`.
-  Until then, one account can try the tiers directly: the plan dialog offers debug
-  buttons that call `debug_set_plan(new_plan)`, a Postgres function
-  (`supabase/migrations/20260813150000_debug_set_plan.sql`) that writes `subscriptions`
-  for real — quotas and models change — but checks the *caller's own* email against
-  `auth.users` inside the function, hardcoded, before it will touch a row. A client
-  can ask it for any plan; it cannot ask on someone else's behalf. `app.js`'s
-  `canDebugPlan()` only decides whether the button is drawn, which is why the address
-  is duplicated in both places — `tests/pdf-pipeline.js` pins that the two agree.
+- **Payments setup on the live project.** The code above is complete and
+  tested, but nothing charges a real card until the seven setup steps in
+  *Payments* are done by hand against the real Stripe and Supabase accounts —
+  see that section for the list.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
@@ -913,19 +990,25 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
   project. It is a toggle in the dashboard — Authentication → Providers → Email — not
   something a migration can reach.
 - **`delete_own_account()` is written but not applied.** Account deletion in Account
-  settings calls it, and the migration
-  (`supabase/migrations/20260818140000_delete_own_account.sql`) is checked in and
-  mirrors `debug_set_plan`'s SECURITY DEFINER + REVOKE/GRANT shape — but applying a
-  function with DELETE rights on `auth.users` to the live project needs a human to run
-  it (via the SQL editor or `supabase db push`), not an agent. Until it's applied, the
-  button fails with a clear error rather than doing nothing.
+  settings calls it, and the migrations
+  (`supabase/migrations/20260818140000_delete_own_account.sql`, its anon-grant
+  fix, and `20260822120100_delete_own_account_block_active_billing.sql`, which
+  adds the check that refuses to run while a Stripe subscription is still
+  live) are checked in and mirror `debug_set_plan`'s SECURITY DEFINER +
+  REVOKE/GRANT shape — but applying a function with DELETE rights on
+  `auth.users` to the live project needs a human to run it (via the SQL
+  editor or `supabase db push`), not an agent. Until it's applied, the button
+  fails with a clear error rather than doing nothing.
 - **`privacy.html` and `terms.html` are drafts, not legal documents.** Written from what
-  the app's code actually does (the two external services it talks to, what each
+  the app's code actually does (the external services it talks to, what each
   stores, that there's no tracking or ads), plus the account holder's own answers on
-  contact address, age cutoff, and jurisdiction (Israel). The one thing still marked
-  `[open]` is the payments section in `terms.html`, which has nothing real to say
-  until Stripe exists. Neither document has been reviewed by a lawyer — that still
-  needs to happen before either is relied on for anything.
+  contact address, age cutoff, and jurisdiction (Israel). Both now describe billing
+  through Stripe — what it stores, and the terms' renewal/cancellation/refund
+  language — since that's no longer hypothetical. Neither document has been
+  reviewed by a lawyer — that still needs to happen before either is relied on for
+  anything, and the billing section in particular should be checked against
+  whatever Israeli consumer-protection rules apply to recurring subscriptions
+  before real charging starts.
 
 Fixed while checking for exactly this kind of gap: every owner-scoped RLS policy
 (`courses`, `progress`, `subscriptions`, `ai_usage`, `user_stats`, `material_reports`)

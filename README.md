@@ -14,7 +14,7 @@ in your library or by tapping the title above the path.
 - **Locally:** open `index.html` directly in a browser (double-click, or `file://`
   works fine) — it talks to the same hosted backend either way.
 
-There's no API key to paste in. Every account gets a 14-day free trial automatically;
+There's no API key to paste in. Every account gets a 3-day free trial automatically;
 subscribing after that goes through Stripe Checkout (see *Payments*, below, for what's
 wired up and the setup steps still needed on a live project).
 
@@ -601,7 +601,7 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
 - **`stripe-checkout`, `stripe-portal`, `stripe-webhook` Edge Functions** — turn a
   plan choice into a real subscription and keep `subscriptions` in sync with what
   Stripe reports. See *Payments*, below.
-- New signups get a 14-day trial automatically via a trigger on `auth.users`.
+- New signups get a 3-day trial automatically via a trigger on `auth.users`.
 
 ## Why the bigger plans felt slower, and what was done about it
 
@@ -998,7 +998,7 @@ the button is drawn, which is why the address is duplicated in both places —
   a known breach (checked against HaveIBeenPwned) and it is not turned on for this
   project. It is a toggle in the dashboard — Authentication → Providers → Email — not
   something a migration can reach.
-- **No signup abuse protection.** New accounts get a 14-day trial automatically from
+- **No signup abuse protection.** New accounts get a 3-day trial automatically from
   just an email + password, with no CAPTCHA and no email confirmation gate found in the
   auth flow. The trial plan is capped (one course, 10 lessons, lifetime) and the quota
   is enforced server-side in `consume_ai_quota`, so a single account can't run up an

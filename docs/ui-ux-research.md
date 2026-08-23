@@ -66,15 +66,16 @@ teaches nothing except that guessing is expensive." המחיר של טעות ה�
 לדרוש הזנה ידנית. לשמור על הכיוון הזה: כל שדה חדש שנוסף לטופס כדאי לשאול
 קודם "האם זה כבר קיים במסמך שהועלה?".
 
-**דארק פאטרנס / Roach Motel** (Ryanair). מסלול התשלום כבר מחובר בקוד
-(`stripe-checkout`/`stripe-portal`/`stripe-webhook`, ראו "Payments" ב-README) —
-הכפתור "Manage billing" ב-Account פותח את ה-Customer Portal המקורי של Stripe,
-כך שביטול לא דורש שום מסך מיוחד באפליקציה עצמה. שני דברים עדיין שווים בדיקה
-לפני שתשלום אמיתי נכנס: (1) ה-Customer Portal של Stripe עצמו צריך "הפעלה"
-חד-פעמית בדשבורד (Settings → Billing → Customer portal) לפני ש-`stripe-portal`
-יכול בכלל להחזיר קישור — בלי זה הקריאה נכשלת; (2) לוודא בדשבורד שאפשרות
-הביטול פעילה שם ולא רק עדכון אמצעי תשלום, אחרת הכפתור קיים אבל לא עושה את
-מה שהוא מבטיח.
+**דארק פאטרנס / Roach Motel** (Ryanair). מסלול התשלום עבר מ-Stripe ל-Cardcom
+(Stripe לא תומך בעסקים רשומים בישראל) — `cardcom-checkout`/`cardcom-webhook`/
+`cardcom-cancel`/`cardcom-billing-cron`, ראו "Payments" ב-README. ל-Cardcom אין
+Customer Portal מארח כמו ל-Stripe, אז הכפתור "Manage billing" ב-Account הוא
+דיאלוג אישור בתוך האפליקציה עצמה (`manageBilling`) שקורא ל-`cardcom-cancel` —
+לא הפניה החוצה. זה דווקא פותר מראש את הדאגה של הפטרן הזה (ביטול קל לפחות כמו
+ההרשמה), אבל שווה בדיקה לפני שתשלום אמיתי נכנס: הצורה המדויקת של ה-callback
+מ-Cardcom לא אומתה מול התיעוד הרשמי שלהם (לא היה נגיש בזמן הבנייה — ראו
+ההערה תחת "Payments" ב-README) — `cardcom-webhook` בכוונה לא סומך על שום דבר
+בקריאה הנכנסת ומוודא הכל ישירות מול Cardcom, בדיוק בשביל זה.
 
 **דפים כבדים ואיטיים** (CNN). אין build step ואין framework — שני קבצים
 (`index.html`, `app.js`) בלבד. זו הגנה מובנית, אבל שווה לזכור אותה כמגבלה

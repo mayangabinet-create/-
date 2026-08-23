@@ -30,8 +30,8 @@ jobs:
           done
       - name: ai-proxy policy suite
         run: node tests/ai-proxy-policy.mjs
-      - name: stripe policy suite
-        run: node tests/stripe-policy.mjs
+      - name: cardcom policy suite
+        run: node tests/cardcom-policy.mjs
 
   python:
     runs-on: ubuntu-latest

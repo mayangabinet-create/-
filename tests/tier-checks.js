@@ -7,7 +7,8 @@
  *
  *     await tierCheck('basic')
  *
- * Set the account's plan first (no Stripe yet, so this part is SQL):
+ * Set the account's plan first, directly in SQL (simplest way regardless of
+ * which payment processor is wired up):
  *
  *     update subscriptions set status='active', plan='basic',
  *            current_period_end = now() + interval '30 days'

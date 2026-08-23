@@ -1,14 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import Stripe from "npm:stripe@17";
 
-const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ALLOWED_ORIGIN = Deno.env.get("STRIPE_ALLOWED_ORIGIN") || null;
-
-const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,10 +17,10 @@ function json(body: unknown, status: number) {
   });
 }
 
-// Opens Stripe's own Customer Portal — cancellation, payment method updates,
-// invoice history — rather than reimplementing any of it here. Nothing this
-// function does changes `subscriptions`; whatever the account does in the
-// portal comes back through stripe-webhook the same way checkout does.
+// No Cardcom call either way: cancelling here only ever means "stop letting
+// cardcom-billing-cron charge the saved token again," a fact this app's own
+// subscriptions row decides -- there is no hosted subscription object on
+// Cardcom's side to cancel. { resume: true } undoes it, same endpoint.
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -51,33 +46,25 @@ Deno.serve(async (req: Request) => {
   try {
     body = await req.json();
   } catch {
-    // A body is optional here (only `origin` is read from it).
+    // A body is optional -- absent means "cancel," the common case.
   }
-
-  const origin = typeof body?.origin === "string" ? body.origin : req.headers.get("origin");
-  if (!origin || !/^https:\/\//.test(origin) || (ALLOWED_ORIGIN && origin !== ALLOWED_ORIGIN)) {
-    return json({ error: "invalid_origin" }, 400);
-  }
+  const resume = body?.resume === true;
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const { data: sub } = await admin
+  const { data, error } = await admin
     .from("subscriptions")
-    .select("stripe_customer_id")
+    .update({ cancel_at_period_end: !resume })
     .eq("user_id", user.id)
+    .not("cardcom_token", "is", null)
+    .select()
     .maybeSingle();
 
-  if (!sub?.stripe_customer_id) {
-    return json({ error: "no_stripe_customer", message: "Subscribe to a plan first, then manage billing here." }, 404);
+  if (error) {
+    console.error("cardcom-cancel failed:", error.message);
+    return json({ error: "cancel_failed", message: "Could not update your subscription. Try again in a moment." }, 502);
   }
-
-  try {
-    const portalSession = await stripe.billingPortal.sessions.create({
-      customer: sub.stripe_customer_id,
-      return_url: `${origin}/`,
-    });
-    return json({ url: portalSession.url }, 200);
-  } catch (err) {
-    console.error("stripe-portal failed:", err instanceof Error ? err.message : err);
-    return json({ error: "portal_failed", message: "Could not open billing. Try again in a moment." }, 502);
+  if (!data) {
+    return json({ error: "no_subscription", message: "No paid subscription found on this account." }, 404);
   }
+  return json({ ok: true, cancelAtPeriodEnd: !resume }, 200);
 });

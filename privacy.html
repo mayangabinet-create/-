@@ -56,9 +56,10 @@ happens to it.</p>
     <li><strong>What you upload.</strong> The PDF or text you provide to build a
         course, and the course, lessons, and quiz answers generated from it.</li>
     <li><strong>Billing info, if you subscribe.</strong> Your card details go
-        directly to Stripe and never reach our servers. We keep only what Stripe
-        needs us to have on our side: your Stripe customer and subscription id,
-        and your plan's status and renewal date.</li>
+        directly to Cardcom and never reach our servers. What we keep on our side is
+        a token Cardcom gives us that represents your saved card for renewing your
+        subscription automatically — not the card number itself — plus your plan's
+        status and renewal date.</li>
     <li><strong>Your progress.</strong> Which lessons you've completed, quiz
         results, and streak/usage counts, so the app can track what you've learned
         and when to review it.</li>
@@ -82,10 +83,13 @@ is sold or shared for advertising.</p>
         is planning a course or writing a lesson. We change which model handles
         which job as they improve; it is always Anthropic, and it is always
         excerpts of your own material rather than the whole document.</li>
-    <li><strong>Stripe</strong> processes payment if you subscribe to a paid plan —
-        your card details, billing address, and payment history are Stripe's, not
-        ours. We only ever see your subscription's status and renewal date; see
-        <a href="https://stripe.com/privacy" target="_blank" rel="noopener">Stripe's privacy policy</a>.</li>
+    <li><strong>Cardcom</strong> processes payment if you subscribe to a paid plan —
+        your card details, billing address, and payment history are Cardcom's, not
+        ours. Cardcom also automatically charges your saved card again each month on
+        our behalf, using the token described above; we only ever see your
+        subscription's status and renewal date, never the charge happening. See
+        <a href="https://cardcom.co.il" target="_blank" rel="noopener">Cardcom's website</a>
+        for their own privacy policy.</li>
 </ul>
 <p>We don't share your material or account with anyone else.</p>
 
@@ -94,9 +98,11 @@ is sold or shared for advertising.</p>
 time, or your entire account — including every course, all progress, and the
 account itself — from Account settings. Account deletion is immediate and
 cannot be undone. If you've subscribed, cancel first from Account → Manage
-billing — deleting the account does not itself cancel billing. Stripe keeps
-its own records of past payments independently of us, for as long as it's
-required to for accounting and legal reasons.</p>
+billing — deleting the account while a subscription is active is blocked
+until you do. Once deleted, your saved card token is deleted with it, so
+nothing here can charge you again; Cardcom keeps its own records of past
+payments independently of us, for as long as it's required to for accounting
+and legal reasons.</p>
 
 <h2>Your rights</h2>
 <p>You can access everything the app holds about you by opening it and looking

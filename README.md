@@ -15,8 +15,8 @@ in your library or by tapping the title above the path.
   works fine) — it talks to the same hosted backend either way.
 
 There's no API key to paste in. Every account gets a 3-day free trial automatically;
-subscribing after that goes through Stripe Checkout (see *Payments*, below, for what's
-wired up and the setup steps still needed on a live project).
+subscribing after that goes through Cardcom's hosted checkout (see *Payments*, below,
+for what's wired up and the setup steps still needed on a live project).
 
 ## What a lesson contains
 
@@ -598,9 +598,9 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
-- **`stripe-checkout`, `stripe-portal`, `stripe-webhook` Edge Functions** — turn a
-  plan choice into a real subscription and keep `subscriptions` in sync with what
-  Stripe reports. See *Payments*, below.
+- **`cardcom-checkout`, `cardcom-webhook`, `cardcom-cancel`, `cardcom-billing-cron`
+  Edge Functions** — turn a plan choice into a real, self-renewing subscription and
+  keep `subscriptions` in sync. See *Payments*, below.
 - New signups get a 3-day trial automatically via a trigger on `auth.users`.
 
 ## Why the bigger plans felt slower, and what was done about it
@@ -807,11 +807,11 @@ text goes, so it lives in `privacy.html` beside everything else of that kind.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without
-Max's price), a checkmark per feature, and a Subscribe button that opens Stripe
-Checkout for that plan. There's still no price printed on the cards — Stripe's own
-checkout page is where the actual amount is shown and can change without a
-deploy — the redesign is about reading the difference between tiers at a glance,
-not about repeating a number that lives elsewhere.
+Max's price), a checkmark per feature, and a Subscribe button that opens Cardcom's
+hosted checkout for that plan. There's still no price printed on the cards —
+Cardcom's own checkout page is where the actual amount is shown and can change
+without a deploy — the redesign is about reading the difference between tiers at a
+glance, not about repeating a number that lives elsewhere.
 
 ## Cost model
 
@@ -894,75 +894,113 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
 
 ## Payments
 
-Checkout and billing management run through Stripe, called from three Edge
-Functions:
+Billing runs through **Cardcom**, not Stripe — Stripe does not support
+businesses registered in Israel, which this account is. Cardcom has no
+hosted subscription object the way Stripe does: its LowProfile API hands
+back a reusable card **token**, and this app is the one that has to remember
+to charge it again every month. Four Edge Functions:
 
-- **`stripe-checkout`** — verifies the caller's session, creates (or reuses) a
-  Stripe Customer for their account, and returns a Checkout Session URL for
-  `basic`/`pro`/`max`. The browser navigates there directly; no card details
-  ever reach this app.
-- **`stripe-portal`** — opens Stripe's own Customer Portal for an account
-  that already has a Stripe customer, for cancelling, changing payment
-  method, or looking at past invoices.
-- **`stripe-webhook`** — the only thing that actually writes `subscriptions`.
-  It verifies Stripe's signature, then on `checkout.session.completed`,
-  `customer.subscription.updated`, and `customer.subscription.deleted`
-  writes the account's plan, status, interval, and renewal date.
-  `customer.subscription.deleted` needs no special case: Stripe reports it
-  with `status: "canceled"` on the same shape an update carries, so both go
-  through one code path.
+- **`cardcom-checkout`** — verifies the caller's session, calls
+  `LowProfile/Create` with `Operation: "ChargeAndCreateToken"` (charges the
+  first month and saves a token in the same call), and returns the hosted
+  payment page URL. The browser navigates there directly; no card details
+  ever reach this app. Before returning the URL it writes a row to
+  `cardcom_pending_checkout` — the only way `cardcom-webhook` later knows
+  which account and plan a given `LowProfileId` belongs to.
+- **`cardcom-webhook`** — the only thing that actually activates a plan.
+  Cardcom's own docs, as far as could be found while building this (see
+  below), never name a signature or checksum the callback carries, so
+  nothing in the incoming call is trusted — not even which `LowProfileId` it
+  claims. That value is read only as a hint of which id to ask Cardcom
+  about: the function calls `LowProfile/GetLpResult` back, server-to-server,
+  with this app's own `ApiName`/`TerminalNumber`, and only a confirmed
+  success from that call — matched against the pending row `cardcom-checkout`
+  wrote — ever gets written to `subscriptions`.
+- **`cardcom-cancel`** — sets or clears `subscriptions.cancel_at_period_end`
+  for the caller's own account. No Cardcom call either way: cancelling only
+  ever means "stop letting the monthly job charge this token again," which
+  is this app's own decision, not something to cancel on Cardcom's side.
+- **`cardcom-billing-cron`** — the piece Stripe didn't need: triggered daily
+  by a `pg_cron` job (see `supabase/migrations/20260823130100_cardcom_billing_cron_schedule.sql`),
+  it charges every account whose `current_period_end` has passed. Each row
+  is claimed atomically — `current_period_end` is pushed a month forward
+  *before* the card is charged, so a second concurrent trigger's identical
+  query finds nothing left due — and rolled back to "now" if the charge
+  itself then fails, so the next day's run retries the same card. Three
+  consecutive missed days lapses the plan (`past_due` → `canceled`); every
+  attempt, success or failure, is logged to `cardcom_charges`.
 
-The price-to-plan mapping and the row a subscription event should produce are
-pure functions in `supabase/functions/_shared/stripe-policy.mjs`, imported by
-both the checkout and webhook functions and by `tests/stripe-policy.mjs` —
-the same split `ai-proxy`/`policy.mjs` already uses, so the test covers the
-shipping decision logic rather than a copy of it.
+The price map, the LowProfile request shape, and what a `subscriptions` row
+should become after a checkout or a recurring charge are pure functions in
+`supabase/functions/_shared/cardcom-policy.mjs`, imported by all four
+functions and by `tests/cardcom-policy.mjs` — the same split
+`ai-proxy`/`policy.mjs` already uses.
 
 **Client side**, `showUpgradePrompt()` renders a Subscribe button per plan
 (`startCheckout` in `app.js`), and the Account tab grows a "Manage billing"
-button once `subscriptions.stripe_customer_id` is set (`openBillingPortal`).
-Returning from Stripe lands on `index.html?checkout=success` or
-`?checkout=cancel`; the init block strips that query param immediately and,
-on success, re-reads `subscriptions` a couple of seconds later — long enough
-for the webhook to have landed — rather than trusting the redirect itself as
-proof of payment.
+button once `subscriptions.cardcom_token` is set. Cardcom has no hosted
+portal to open, so that button is a confirm dialog (`manageBilling`) that
+calls `cardcom-cancel` directly — it reads "Resume subscription" instead once
+`cancel_at_period_end` is already true. Returning from checkout lands on
+`index.html?checkout=success` or `?checkout=cancel`; the init block strips
+that query param immediately and, on success, re-reads `subscriptions` a
+couple of seconds later — long enough for the webhook to have landed —
+rather than trusting the redirect itself as proof of payment.
+
+**How the API details here were found.** `secure.cardcom.solutions`'s own
+docs pages weren't reachable while building this — the request/response
+shapes above came from reading real, working integrations instead: the
+official `@tsdiapi/cardcom` npm package's source (`LowProfile/Create`,
+`LowProfile/GetLpResult`, `Transactions/Transaction`, the `ApiName`/
+`ApiPassword`/`TerminalNumber` auth shape) and public search results naming
+the `Operation` values (`ChargeOnly`, `ChargeAndCreateToken`,
+`CreateTokenOnly`, `SuspendedDeal`, `Do3DSAndSubmit`). None of it came from
+Cardcom's dashboard, so **treat every field name and endpoint path here as
+needing a live sandbox test before real money moves through it** — the
+webhook's re-verify-with-GetLpResult design was chosen specifically because
+it doesn't depend on any of this being exactly right about how Cardcom
+proves a callback is genuine.
 
 **Setting this up on a live project** (none of this can be done from here —
-it needs the Stripe and Supabase dashboards, so it's on whoever runs the
+it needs the Cardcom and Supabase dashboards, so it's on whoever runs the
 project, not something this repo can finish on its own):
 
-1. In Stripe, create one product per plan with a recurring monthly Price.
-   Copy the three Price IDs.
-2. In the Supabase project's Edge Function secrets, set `STRIPE_SECRET_KEY`
-   and `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_MAX`.
-3. Deploy the three functions — `supabase functions deploy stripe-checkout`
-   and `stripe-portal` normally, and `stripe-webhook` with
-   `--no-verify-jwt`, since Stripe calls it directly with no Supabase
+1. Open a Cardcom account (business registration required — this is the
+   part that needed a human, not the API). Get the **Terminal Number**,
+   **API Name**, and **API Password** for it.
+2. In the Supabase project's Edge Function secrets, set
+   `CARDCOM_TERMINAL_ID`, `CARDCOM_API_NAME`, `CARDCOM_API_PASSWORD`, and
+   `CARDCOM_PRICE_BASIC` / `CARDCOM_PRICE_PRO` / `CARDCOM_PRICE_MAX` (plain
+   numbers, in ILS).
+3. Deploy the four functions — `cardcom-checkout`, `cardcom-cancel`, and
+   `cardcom-billing-cron` normally, and `cardcom-webhook` with
+   `--no-verify-jwt`, since Cardcom calls it directly with no Supabase
    session to present.
-4. In the Stripe Dashboard, add a webhook endpoint at
-   `<SUPABASE_URL>/functions/v1/stripe-webhook`, subscribed to
-   `checkout.session.completed`, `customer.subscription.updated`, and
-   `customer.subscription.deleted`. Copy its signing secret into
-   `STRIPE_WEBHOOK_SECRET`.
-5. Apply `supabase/migrations/20260822120000_stripe_columns.sql` (adds
-   `stripe_customer_id`/`stripe_subscription_id` to `subscriptions`).
-6. Optional, now that GitHub Pages is live at
-   `https://mayangabinet-create.github.io/-/`: set `STRIPE_ALLOWED_ORIGIN` on
-   `stripe-checkout` and `stripe-portal` to that exact origin (no trailing
-   slash). Until then, either function accepts any `https://` origin the
-   browser itself sends for the post-Stripe redirect — the worst a forged
-   one buys is sending the caller's own browser to a page of their own
-   choosing, since every call still only ever acts on the caller's own
-   account, but a fixed allowlist is tighter once there's one real answer.
-7. Test with [Stripe's test cards](https://stripe.com/docs/testing) in test
-   mode before switching the secrets over to live keys.
+4. Apply `supabase/migrations/20260823130000_cardcom_billing.sql` and
+   `20260823130100_cardcom_billing_cron_schedule.sql` (schema, and the daily
+   billing trigger).
+5. Optional, now that GitHub Pages is live at
+   `https://mayangabinet-create.github.io/-/`: set `CARDCOM_ALLOWED_ORIGIN`
+   on `cardcom-checkout` to that exact origin (no trailing slash). Until
+   then it accepts any `https://` origin the browser itself sends for the
+   post-checkout redirect — the worst a forged one buys is sending the
+   caller's own browser to a page of their own choosing, since every call
+   still only ever acts on the caller's own account.
+6. **Before any of this touches a real card**: run one full checkout in
+   Cardcom's test/sandbox mode if it offers one, and confirm — by actually
+   watching `cardcom_pending_checkout`, `subscriptions`, and the
+   `cardcom-webhook` function logs — that `LowProfileId` really does arrive
+   in the shape this code expects. This is the step the design above
+   couldn't verify from outside Cardcom's dashboard.
 
-Deleting an account with a live Stripe subscription is refused by
+Deleting an account with a live Cardcom subscription is refused by
 `delete_own_account()` — cancel it from Account → Manage billing first (see
-`20260822120100_delete_own_account_block_active_billing.sql`). Before Stripe
-existed, deleting the account could never leave anything running outside
-this database; now it can, since `subscriptions` cascades away with the
-account while Stripe itself has no way to know the account is gone.
+`20260823130000_cardcom_billing.sql`). Unlike Stripe, there's nothing
+external left dangling once the account is deleted: `cardcom-billing-cron`
+only ever charges a token it finds on a live `subscriptions` row, so
+cascading that row away when the account goes *is* what stops future
+charges — the block is about not losing a paid plan to a misclick, not about
+an orphaned external charge.
 
 One account can still try the tiers without paying: the plan dialog offers
 debug buttons that call `debug_set_plan(new_plan)`, a Postgres function
@@ -978,18 +1016,22 @@ the button is drawn, which is why the address is duplicated in both places —
 
 - **GitHub Pages is live.** Enabled, 68+ successful deployments — the app is reachable
   at `https://mayangabinet-create.github.io/-/`.
-- **`ai-proxy` and all three Stripe Edge Functions are deployed** on the live Supabase
-  project (`stripe-webhook` correctly with `--no-verify-jwt`). `delete_own_account()` is
-  applied too, including the check that refuses to run while a Stripe subscription is
-  still live (`20260822120100_delete_own_account_block_active_billing.sql`) — the
-  account-deletion button no longer fails.
-- **Payments still won't charge a real card** until the Stripe-side setup is done by
-  hand: create the three Prices in the Stripe Dashboard, set `STRIPE_SECRET_KEY` /
-  `STRIPE_PRICE_BASIC` / `STRIPE_PRICE_PRO` / `STRIPE_PRICE_MAX` / `STRIPE_WEBHOOK_SECRET`
-  as Edge Function secrets, add the webhook endpoint in Stripe pointed at
-  `stripe-webhook`, and activate the Stripe Customer Portal (Settings → Billing →
-  Customer portal) so `stripe-portal` can return a link. See *Payments* for the full
-  list — none of this can be done from here, it needs the Stripe dashboard.
+- **Payments moved from Stripe to Cardcom.** Stripe does not support businesses
+  registered in Israel; Cardcom does, and is now what `cardcom-checkout` /
+  `cardcom-webhook` / `cardcom-cancel` / `cardcom-billing-cron` integrate with. All
+  four are deployed, `delete_own_account()` checks `cardcom_token` instead of a
+  Stripe subscription, and the schema migrated — see *Payments* for the full design,
+  including **the one thing this move couldn't finish from here**: the request and
+  response shapes were pieced together from a real open-source SDK and public search
+  results, not Cardcom's own docs, which weren't reachable while building this. It
+  needs one live sandbox checkout, watched end to end, before it's trusted with a
+  real card.
+- **Payments still won't charge a real card** until the Cardcom-side setup is done by
+  hand: a Cardcom account (business registration — this is the part that needed a
+  human either way), then `CARDCOM_TERMINAL_ID` / `CARDCOM_API_NAME` /
+  `CARDCOM_API_PASSWORD` / `CARDCOM_PRICE_BASIC` / `CARDCOM_PRICE_PRO` /
+  `CARDCOM_PRICE_MAX` as Edge Function secrets. See *Payments* for the full list —
+  none of this can be done from here, it needs the Cardcom dashboard.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
@@ -1024,7 +1066,7 @@ the button is drawn, which is why the address is duplicated in both places —
   the app's code actually does (the external services it talks to, what each
   stores, that there's no tracking or ads), plus the account holder's own answers on
   contact address, age cutoff, and jurisdiction (Israel). Both now describe billing
-  through Stripe — what it stores, and the terms' renewal/cancellation/refund
+  through Cardcom — what it stores, and the terms' renewal/cancellation/refund
   language — since that's no longer hypothetical. Neither document has been
   reviewed by a lawyer — that still needs to happen before either is relied on for
   anything, and the billing section in particular should be checked against

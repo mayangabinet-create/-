@@ -184,8 +184,8 @@
         let lastCallTruncated = false;
 
         const AI_ENDPOINT = `${SUPABASE_URL}/functions/v1/ai-proxy`;
-        const STRIPE_CHECKOUT_ENDPOINT = `${SUPABASE_URL}/functions/v1/stripe-checkout`;
-        const STRIPE_PORTAL_ENDPOINT = `${SUPABASE_URL}/functions/v1/stripe-portal`;
+        const CARDCOM_CHECKOUT_ENDPOINT = `${SUPABASE_URL}/functions/v1/cardcom-checkout`;
+        const CARDCOM_CANCEL_ENDPOINT = `${SUPABASE_URL}/functions/v1/cardcom-cancel`;
 
         /**
          * Split an SSE stream into the JSON payloads it carries.
@@ -3385,7 +3385,7 @@ ${languageRule()}`;
             if (!currentUser) { entitlement = null; return null; }
             const { data, error } = await supabaseClient
                 .from('subscriptions')
-                .select('status, plan, interval, current_period_end, stripe_customer_id')
+                .select('status, plan, interval, current_period_end, cardcom_token, cancel_at_period_end')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
             if (error) {
@@ -3404,11 +3404,11 @@ ${languageRule()}`;
                 // Same fallback the Edge Function uses: an unknown plan is the
                 // smallest tier, never the largest.
                 planKey: trialing ? 'trial' : (data?.plan && PLAN_LIMITS[data.plan] ? data.plan : 'basic'),
-                // Gates "Manage billing": true only once a real Stripe
-                // customer exists, so a debug-switched plan (see
-                // setDebugPlan) never shows a portal link that has nothing
-                // real behind it.
-                hasStripeCustomer: !!data?.stripe_customer_id,
+                // Gates "Manage billing": true only once a real Cardcom token
+                // exists, so a debug-switched plan (see setDebugPlan) never
+                // shows a cancel button that has nothing real behind it.
+                hasCardcomToken: !!data?.cardcom_token,
+                cancelAtPeriodEnd: !!data?.cancel_at_period_end,
             };
             return entitlement;
         }
@@ -3503,6 +3503,11 @@ ${languageRule()}`;
                 const days = Math.max(0, Math.ceil((ent.periodEnd - Date.now()) / 86400000));
                 planLine = days === 0 ? 'Ends today' : `${days} day${days === 1 ? '' : 's'} left`;
                 planTone = days <= 3 ? 'is-warn' : '';
+            } else if (ent.active && ent.cancelAtPeriodEnd) {
+                planLine = ent.periodEnd
+                    ? `Cancels ${new Date(ent.periodEnd).toLocaleDateString()}`
+                    : 'Cancels at the end of the billing period';
+                planTone = 'is-warn';
             } else if (ent.active) {
                 planLine = ent.periodEnd
                     ? `Renews ${new Date(ent.periodEnd).toLocaleDateString()}`
@@ -3542,7 +3547,7 @@ ${languageRule()}`;
                         ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free, any time — it's already yours.`}
                     </p>
                     <button class="button button-secondary" id="acctPlans" ${loading ? 'disabled' : ''}>${loading ? field('', '5em') : (ent?.active ? 'Change plan' : 'See plans')}</button>
-                    ${!loading && ent?.hasStripeCustomer ? `<button class="button button-secondary" id="acctBilling">Manage billing</button>` : ''}
+                    ${!loading && ent?.hasCardcomToken ? `<button class="button button-secondary" id="acctBilling">${ent.cancelAtPeriodEnd ? 'Resume subscription' : 'Manage billing'}</button>` : ''}
                 </section>
 
                 <section class="account-card">
@@ -3618,7 +3623,7 @@ ${languageRule()}`;
 
             document.getElementById('acctPlans').onclick = () => showUpgradePrompt();
             const billingBtn = document.getElementById('acctBilling');
-            if (billingBtn) billingBtn.onclick = () => openBillingPortal(billingBtn);
+            if (billingBtn) billingBtn.onclick = () => manageBilling(billingBtn, ent);
             // This row is only ever about interests — replaying the whole
             // "what the app does" tour to change one answer was the getting-
             // to-know-you screens standing between someone and the one thing
@@ -9548,10 +9553,10 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             document.getElementById('authForgotBtn').closest('.auth-forgot-row').hidden = isUp;
         }
 
-        // Checkout isn't wired up yet (no Stripe), but the tiers are real — the
-        // Edge Function already enforces them. Showing what each one is beats a
-        // one-line "coming soon" that leaves you with nothing to do: the things
-        // that still work without paying are spelled out at the bottom.
+        // The tiers are real and enforced by the Edge Function regardless of
+        // payments — showing what each one is beats a one-line "coming soon"
+        // that leaves you with nothing to do: the things that still work
+        // without paying are spelled out at the bottom.
         // Not a security boundary — the real gate is inside debug_set_plan
         // itself, which checks the caller's own account against this same
         // address on the server and refuses everyone else. This is only
@@ -9587,15 +9592,16 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         // one steered toward as well.
         const RECOMMENDED_PLAN = 'pro';
 
-        // Opens Stripe Checkout for the given plan and sends the browser
-        // there. On success or cancel, Stripe returns to this same page
-        // (see the init block below), never to a page of its own.
+        // Opens Cardcom's hosted LowProfile payment page for the given plan
+        // and sends the browser there. On success or cancel, Cardcom returns
+        // to this same page (see the init block below), never to a page of
+        // its own.
         async function startCheckout(planKey, button) {
             setButtonBusy(button, true);
             try {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (!session) { showAuthModal('signin'); return; }
-                const res = await fetch(STRIPE_CHECKOUT_ENDPOINT, {
+                const res = await fetch(CARDCOM_CHECKOUT_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
@@ -9614,29 +9620,44 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             }
         }
 
-        // Opens Stripe's own Customer Portal (cancel, change payment method,
-        // see invoices) for whichever Stripe customer this account already
-        // has. Nothing here writes to `subscriptions` — the portal's own
-        // changes come back through the stripe-webhook function.
-        async function openBillingPortal(button) {
+        // Cardcom has no hosted billing portal — there's no separate page to
+        // send the browser to, and nothing to change payment method or see
+        // invoices with beyond what Account already shows. "Manage billing"
+        // is really only ever "stop/resume next month's charge," so it's a
+        // confirm dialog and one call to cardcom-cancel, not a redirect.
+        async function manageBilling(button, ent) {
+            const resuming = !!ent?.cancelAtPeriodEnd;
+            const renewsOn = ent?.periodEnd ? new Date(ent.periodEnd).toLocaleDateString() : null;
+            const ok = await uiConfirm(
+                resuming ? 'Resume your subscription?' : 'Cancel your subscription?',
+                resuming
+                    ? 'Billing picks back up on your next renewal date, and nothing changes until then.'
+                    : (renewsOn
+                        ? `You'll keep everything on your current plan until ${renewsOn}, then it won't renew. You can resume any time before that.`
+                        : `You'll keep everything on your current plan until the end of the period you already paid for, then it won't renew.`),
+                { confirmText: resuming ? 'Resume subscription' : 'Cancel subscription', danger: !resuming });
+            if (!ok) return;
+
             setButtonBusy(button, true);
             try {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (!session) { showAuthModal('signin'); return; }
-                const res = await fetch(STRIPE_PORTAL_ENDPOINT, {
+                const res = await fetch(CARDCOM_CANCEL_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
                         'authorization': `Bearer ${session.access_token}`,
                         'apikey': SUPABASE_ANON_KEY,
                     },
-                    body: JSON.stringify({ origin: window.location.origin }),
+                    body: JSON.stringify({ resume: resuming }),
                 });
                 const data = await res.json().catch(() => ({}));
-                if (!res.ok || !data.url) throw new Error(data.message || data.error || `Could not open billing (${res.status})`);
-                window.location.href = data.url;
+                if (!res.ok) throw new Error(data.message || data.error || `Could not update billing (${res.status})`);
+                await loadEntitlement();
+                renderAccount();
+                toast(resuming ? 'Subscription resumed' : "Subscription set to cancel — you're covered until it ends");
             } catch (e) {
-                showError('Could not open billing: ' + e.message);
+                showError('Could not update billing: ' + e.message);
             } finally {
                 setButtonBusy(button, false);
             }
@@ -9685,8 +9706,8 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             uiAlert(
                 `<ul class="plan-list">${rows}</ul>
                  ${debugNote}
-                 <p>Subscribing opens Stripe's own checkout — card details go to Stripe, never to us.
-                 Your plan updates automatically within a few seconds of paying. Cancel any time from
+                 <p>Subscribing opens Cardcom's own secure payment page — card details go to Cardcom, never
+                 to us. Your plan updates automatically within a few seconds of paying. Cancel any time from
                  Account → Manage billing, and everything you've already built keeps working either way:
                  open any course, replay any lesson, and run reviews as often as you like — replays and
                  reviews reuse lessons you already generated and never count against a limit.</p>`,
@@ -9953,7 +9974,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
 
         (async () => {
             try {
-                // Stripe returns here after checkout with ?checkout=success|cancel.
+                // Cardcom returns here after checkout with ?checkout=success|cancel.
                 // Strip it immediately so a reload never re-triggers this, whether
                 // or not it turns out there's anything to react to.
                 const params = new URLSearchParams(location.search);
@@ -9975,7 +9996,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                     } catch (_) {}
                     await onSignedIn(session.user);
                     if (checkoutResult === 'success') {
-                        // stripe-webhook usually lands within a second or two of
+                        // cardcom-webhook usually lands within a second or two of
                         // the redirect, but never before it — give it a moment
                         // rather than showing the old plan as if payment failed.
                         setTimeout(async () => {

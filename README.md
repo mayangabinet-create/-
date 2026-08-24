@@ -15,7 +15,7 @@ in your library or by tapping the title above the path.
   works fine) — it talks to the same hosted backend either way.
 
 There's no API key to paste in. Every account gets a 3-day free trial automatically;
-subscribing after that goes through Cardcom's hosted checkout (see *Payments*, below,
+subscribing after that goes through Grow's hosted checkout (see *Payments*, below,
 for what's wired up and the setup steps still needed on a live project).
 
 ## What a lesson contains
@@ -598,7 +598,7 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
-- **`cardcom-checkout`, `cardcom-webhook`, `cardcom-cancel`, `cardcom-billing-cron`
+- **`grow-checkout`, `grow-webhook`, `grow-cancel`, `grow-billing-cron`
   Edge Functions** — turn a plan choice into a real, self-renewing subscription and
   keep `subscriptions` in sync. See *Payments*, below.
 - New signups get a 3-day trial automatically via a trigger on `auth.users`.
@@ -807,9 +807,9 @@ text goes, so it lives in `privacy.html` beside everything else of that kind.
 
 The plan picker (`showUpgradePrompt`) renders these as cards, not a plain list: one
 badge for "Your plan", one for "Most popular" (Pro — real model quality without
-Max's price), a checkmark per feature, and a Subscribe button that opens Cardcom's
+Max's price), a checkmark per feature, and a Subscribe button that opens Grow's
 hosted checkout for that plan. There's still no price printed on the cards —
-Cardcom's own checkout page is where the actual amount is shown and can change
+Grow's own checkout page is where the actual amount is shown and can change
 without a deploy — the redesign is about reading the difference between tiers at a
 glance, not about repeating a number that lives elsewhere.
 
@@ -894,113 +894,137 @@ before. `tools/pdf_prep/README.md` has the details and the limits.
 
 ## Payments
 
-Billing runs through **Cardcom**, not Stripe — Stripe does not support
-businesses registered in Israel, which this account is. Cardcom has no
-hosted subscription object the way Stripe does: its LowProfile API hands
-back a reusable card **token**, and this app is the one that has to remember
-to charge it again every month. Four Edge Functions:
+Billing runs through **Grow (Meshulam)** — the third payment processor this
+app has used. Stripe doesn't support businesses registered in Israel;
+Cardcom does, but Grow's business onboarding turned out to be the fastest of
+the Israeli options actually tried, so the integration moved once more
+before any real money ever went through Cardcom either. Grow's Light API
+hands back a reusable card token from the first payment, and — as far as
+could be confirmed from outside Grow's dashboard (see below) — this app is
+still the one that has to remember to charge it again every month. Four Edge
+Functions:
 
-- **`cardcom-checkout`** — verifies the caller's session, calls
-  `LowProfile/Create` with `Operation: "ChargeAndCreateToken"` (charges the
-  first month and saves a token in the same call), and returns the hosted
-  payment page URL. The browser navigates there directly; no card details
-  ever reach this app. Before returning the URL it writes a row to
-  `cardcom_pending_checkout` — the only way `cardcom-webhook` later knows
-  which account and plan a given `LowProfileId` belongs to.
-- **`cardcom-webhook`** — the only thing that actually activates a plan.
-  Cardcom's own docs, as far as could be found while building this (see
+- **`grow-checkout`** — verifies the caller's session, calls
+  `createPaymentProcess` with `saveCardToken: "1"` (charges the first month
+  and saves a token in the same call), and returns the hosted payment page
+  URL. The browser navigates there directly; no card details ever reach
+  this app. Before returning the URL it writes a row to
+  `grow_pending_checkout` — the only way `grow-webhook` later knows which
+  account and plan a given `processId` belongs to.
+- **`grow-webhook`** — the only thing that actually activates a plan.
+  Grow's own docs, as far as could be found while building this (see
   below), never name a signature or checksum the callback carries, so
-  nothing in the incoming call is trusted — not even which `LowProfileId` it
-  claims. That value is read only as a hint of which id to ask Cardcom
-  about: the function calls `LowProfile/GetLpResult` back, server-to-server,
-  with this app's own `ApiName`/`TerminalNumber`, and only a confirmed
-  success from that call — matched against the pending row `cardcom-checkout`
-  wrote — ever gets written to `subscriptions`.
-- **`cardcom-cancel`** — sets or clears `subscriptions.cancel_at_period_end`
-  for the caller's own account. No Cardcom call either way: cancelling only
+  nothing in the incoming call is trusted — not even the
+  `transactionId`/`transactionToken` it claims. Those values are read only
+  as a lookup key: the function calls `getTransactionInfo` back,
+  server-to-server, with this app's own `pageCode`, and only a confirmed
+  success (`statusCode: 1`) from that call — matched against the pending
+  row `grow-checkout` wrote — ever gets written to `subscriptions`.
+- **`grow-cancel`** — sets or clears `subscriptions.cancel_at_period_end`
+  for the caller's own account. No Grow call either way: cancelling only
   ever means "stop letting the monthly job charge this token again," which
-  is this app's own decision, not something to cancel on Cardcom's side.
-- **`cardcom-billing-cron`** — the piece Stripe didn't need: triggered daily
-  by a `pg_cron` job (see `supabase/migrations/20260823130100_cardcom_billing_cron_schedule.sql`),
-  it charges every account whose `current_period_end` has passed. Each row
-  is claimed atomically — `current_period_end` is pushed a month forward
-  *before* the card is charged, so a second concurrent trigger's identical
-  query finds nothing left due — and rolled back to "now" if the charge
-  itself then fails, so the next day's run retries the same card. Three
-  consecutive missed days lapses the plan (`past_due` → `canceled`); every
-  attempt, success or failure, is logged to `cardcom_charges`.
+  is this app's own decision, not something to cancel on Grow's side.
+- **`grow-billing-cron`** — triggered daily by a `pg_cron` job (see
+  `supabase/migrations/20260824090100_grow_billing_cron_schedule.sql`), it
+  charges every account whose `current_period_end` has passed, via
+  `CreateTransactionWithToken`. Each row is claimed atomically —
+  `current_period_end` is pushed a month forward *before* the card is
+  charged, so a second concurrent trigger's identical query finds nothing
+  left due — and rolled back to "now" if the charge itself then fails, so
+  the next day's run retries the same card. Three consecutive missed days
+  lapses the plan (`past_due` → `canceled`); every attempt, success or
+  failure, is logged to `grow_charges`. **This function's whole reason for
+  existing is unconfirmed** — see the warning in its own top-of-file
+  comment and in step 6 below.
 
-The price map, the LowProfile request shape, and what a `subscriptions` row
-should become after a checkout or a recurring charge are pure functions in
-`supabase/functions/_shared/cardcom-policy.mjs`, imported by all four
-functions and by `tests/cardcom-policy.mjs` — the same split
+The price map, the `createPaymentProcess` request shape, and what a
+`subscriptions` row should become after a checkout or a recurring charge are
+pure functions in `supabase/functions/_shared/grow-policy.mjs`, imported by
+all four functions and by `tests/grow-policy.mjs` — the same split
 `ai-proxy`/`policy.mjs` already uses.
 
 **Client side**, `showUpgradePrompt()` renders a Subscribe button per plan
 (`startCheckout` in `app.js`), and the Account tab grows a "Manage billing"
-button once `subscriptions.cardcom_token` is set. Cardcom has no hosted
-portal to open, so that button is a confirm dialog (`manageBilling`) that
-calls `cardcom-cancel` directly — it reads "Resume subscription" instead once
+button once `subscriptions.grow_token` is set. Grow has no hosted portal to
+open, so that button is a confirm dialog (`manageBilling`) that calls
+`grow-cancel` directly — it reads "Resume subscription" instead once
 `cancel_at_period_end` is already true. Returning from checkout lands on
 `index.html?checkout=success` or `?checkout=cancel`; the init block strips
 that query param immediately and, on success, re-reads `subscriptions` a
 couple of seconds later — long enough for the webhook to have landed —
 rather than trusting the redirect itself as proof of payment.
 
-**How the API details here were found.** `secure.cardcom.solutions`'s own
-docs pages weren't reachable while building this — the request/response
-shapes above came from reading real, working integrations instead: the
-official `@tsdiapi/cardcom` npm package's source (`LowProfile/Create`,
-`LowProfile/GetLpResult`, `Transactions/Transaction`, the `ApiName`/
-`ApiPassword`/`TerminalNumber` auth shape) and public search results naming
-the `Operation` values (`ChargeOnly`, `ChargeAndCreateToken`,
-`CreateTokenOnly`, `SuspendedDeal`, `Do3DSAndSubmit`). None of it came from
-Cardcom's dashboard, so **treat every field name and endpoint path here as
-needing a live sandbox test before real money moves through it** — the
-webhook's re-verify-with-GetLpResult design was chosen specifically because
-it doesn't depend on any of this being exactly right about how Cardcom
-proves a callback is genuine.
+**How the API details here were found.** `grow-il.readme.io`'s own docs
+pages weren't reachable while building this — the request/response shapes
+above came from reading a real, working third-party integration instead
+(the `@bizup-pay/grow` npm package's source: `createPaymentProcess`,
+`getTransactionInfo`, the `pageCode`/`userId` auth shape, the
+`application/x-www-form-urlencoded` request format) plus public search
+results naming `CreateTransactionWithToken` as the endpoint for charging a
+saved token again. None of it came from Grow's dashboard, so **treat every
+field name and endpoint path here as needing a live sandbox test before real
+money moves through it** — the webhook's re-verify-with-getTransactionInfo
+design was chosen specifically because it doesn't depend on any of this
+being exactly right about how Grow proves a callback is genuine.
+
+**The one open question that matters most**: search results while building
+this mentioned a "Premium Recurring Payment" feature and a webhook fired "for
+recurring payments starting from the second charge" — which could mean Grow
+*already* re-charges a saved token on its own schedule once one is saved,
+making `grow-billing-cron` not just unverified but actively wrong to run
+(it would double-charge every subscriber alongside Grow's own billing).
+`CreateTransactionWithToken`'s existence suggests the opposite — a
+call *this app* is meant to make itself, the same self-managed model
+Cardcom used. This wasn't resolved because it needs an answer from Grow
+directly, not more searching.
 
 **Setting this up on a live project** (none of this can be done from here —
-it needs the Cardcom and Supabase dashboards, so it's on whoever runs the
+it needs the Grow and Supabase dashboards, so it's on whoever runs the
 project, not something this repo can finish on its own):
 
-1. Open a Cardcom account (business registration required — this is the
-   part that needed a human, not the API). Get the **Terminal Number**,
-   **API Name**, and **API Password** for it.
-2. In the Supabase project's Edge Function secrets, set
-   `CARDCOM_TERMINAL_ID`, `CARDCOM_API_NAME`, `CARDCOM_API_PASSWORD`, and
-   `CARDCOM_PRICE_BASIC` / `CARDCOM_PRICE_PRO` / `CARDCOM_PRICE_MAX` (plain
-   numbers, in ILS).
-3. Deploy the four functions — `cardcom-checkout`, `cardcom-cancel`, and
-   `cardcom-billing-cron` normally, and `cardcom-webhook` with
-   `--no-verify-jwt`, since Cardcom calls it directly with no Supabase
+1. Open a Grow account (business registration required — this is the part
+   that needed a human, not the API). Get the **`pageCode`** and
+   **`userId`** for it.
+2. **Ask Grow directly**: does saving a card via `saveCardToken` on
+   `createPaymentProcess` already enroll the account in automatic monthly
+   billing on Grow's side, or does charging it again next month require an
+   explicit call (e.g. `CreateTransactionWithToken`) from this app? The
+   answer decides whether `grow-billing-cron` should run at all — see the
+   warning in that function's own comment.
+3. In the Supabase project's Edge Function secrets, set `GROW_PAGE_CODE`,
+   `GROW_USER_ID`, and `GROW_PRICE_BASIC` / `GROW_PRICE_PRO` /
+   `GROW_PRICE_MAX` (plain numbers, in ILS).
+4. Deploy the four functions — `grow-checkout`, `grow-cancel`, and
+   `grow-billing-cron` (or don't, per step 2) normally, and `grow-webhook`
+   with `--no-verify-jwt`, since Grow calls it directly with no Supabase
    session to present.
-4. Apply `supabase/migrations/20260823130000_cardcom_billing.sql` and
-   `20260823130100_cardcom_billing_cron_schedule.sql` (schema, and the daily
-   billing trigger).
-5. Optional, now that GitHub Pages is live at
-   `https://mayangabinet-create.github.io/-/`: set `CARDCOM_ALLOWED_ORIGIN`
-   on `cardcom-checkout` to that exact origin (no trailing slash). Until
-   then it accepts any `https://` origin the browser itself sends for the
+5. Apply `supabase/migrations/20260824090000_grow_billing.sql` and
+   `20260824090100_grow_billing_cron_schedule.sql` (schema, and the daily
+   billing trigger — skip this second one, or run
+   `select cron.unschedule('grow-daily-billing');` right after, if step 2's
+   answer says Grow already handles recurring on its own).
+6. Optional, now that GitHub Pages is live at
+   `https://mayangabinet-create.github.io/-/`: set `GROW_ALLOWED_ORIGIN` on
+   `grow-checkout` to that exact origin (no trailing slash). Until then it
+   accepts any `https://` origin the browser itself sends for the
    post-checkout redirect — the worst a forged one buys is sending the
    caller's own browser to a page of their own choosing, since every call
    still only ever acts on the caller's own account.
-6. **Before any of this touches a real card**: run one full checkout in
-   Cardcom's test/sandbox mode if it offers one, and confirm — by actually
-   watching `cardcom_pending_checkout`, `subscriptions`, and the
-   `cardcom-webhook` function logs — that `LowProfileId` really does arrive
-   in the shape this code expects. This is the step the design above
-   couldn't verify from outside Cardcom's dashboard.
+7. **Before any of this touches a real card**: run one full checkout in
+   Grow's test/sandbox environment if it offers one, and confirm — by
+   actually watching `grow_pending_checkout`, `subscriptions`, and the
+   `grow-webhook` function logs — that the callback really does arrive in
+   the shape this code expects. This is the step the design above couldn't
+   verify from outside Grow's dashboard.
 
-Deleting an account with a live Cardcom subscription is refused by
+Deleting an account with a live Grow subscription is refused by
 `delete_own_account()` — cancel it from Account → Manage billing first (see
-`20260823130000_cardcom_billing.sql`). Unlike Stripe, there's nothing
-external left dangling once the account is deleted: `cardcom-billing-cron`
-only ever charges a token it finds on a live `subscriptions` row, so
-cascading that row away when the account goes *is* what stops future
-charges — the block is about not losing a paid plan to a misclick, not about
-an orphaned external charge.
+`20260824090000_grow_billing.sql`). There's nothing external left dangling
+once the account is deleted: `grow-billing-cron` (if it turns out to be the
+right design — see above) only ever charges a token it finds on a live
+`subscriptions` row, so cascading that row away when the account goes *is*
+what stops future charges — the block is about not losing a paid plan to a
+misclick, not about an orphaned external charge.
 
 One account can still try the tiers without paying: the plan dialog offers
 debug buttons that call `debug_set_plan(new_plan)`, a Postgres function
@@ -1016,22 +1040,25 @@ the button is drawn, which is why the address is duplicated in both places —
 
 - **GitHub Pages is live.** Enabled, 68+ successful deployments — the app is reachable
   at `https://mayangabinet-create.github.io/-/`.
-- **Payments moved from Stripe to Cardcom.** Stripe does not support businesses
-  registered in Israel; Cardcom does, and is now what `cardcom-checkout` /
-  `cardcom-webhook` / `cardcom-cancel` / `cardcom-billing-cron` integrate with. All
-  four are deployed, `delete_own_account()` checks `cardcom_token` instead of a
-  Stripe subscription, and the schema migrated — see *Payments* for the full design,
-  including **the one thing this move couldn't finish from here**: the request and
-  response shapes were pieced together from a real open-source SDK and public search
-  results, not Cardcom's own docs, which weren't reachable while building this. It
-  needs one live sandbox checkout, watched end to end, before it's trusted with a
-  real card.
-- **Payments still won't charge a real card** until the Cardcom-side setup is done by
-  hand: a Cardcom account (business registration — this is the part that needed a
-  human either way), then `CARDCOM_TERMINAL_ID` / `CARDCOM_API_NAME` /
-  `CARDCOM_API_PASSWORD` / `CARDCOM_PRICE_BASIC` / `CARDCOM_PRICE_PRO` /
-  `CARDCOM_PRICE_MAX` as Edge Function secrets. See *Payments* for the full list —
-  none of this can be done from here, it needs the Cardcom dashboard.
+- **Payments moved from Stripe to Cardcom to Grow.** Stripe does not support
+  businesses registered in Israel; Cardcom does, but Grow's account onboarding was
+  faster, so the integration moved again before either ever touched a real card.
+  `grow-checkout` / `grow-webhook` / `grow-cancel` / `grow-billing-cron` are what's
+  live now. All four are deployed, `delete_own_account()` checks `grow_token`, and
+  the schema migrated — see *Payments* for the full design, including **the two
+  things this move couldn't finish from here**: the request and response shapes were
+  pieced together from a real third-party npm package and public search results, not
+  Grow's own docs, which weren't reachable while building this — and it's genuinely
+  unconfirmed whether `grow-billing-cron` should be running at all, since Grow's
+  "Premium Recurring Payment" feature may already re-charge a saved token on its own
+  schedule (in which case this function would double-charge every subscriber). Both
+  need one live sandbox checkout, watched end to end, and a direct answer from Grow,
+  before this is trusted with a real card.
+- **Payments still won't charge a real card** until the Grow-side setup is done by
+  hand: a Grow account (business registration — this is the part that needed a human
+  either way), then `GROW_PAGE_CODE` / `GROW_USER_ID` / `GROW_PRICE_BASIC` /
+  `GROW_PRICE_PRO` / `GROW_PRICE_MAX` as Edge Function secrets. See *Payments* for
+  the full list — none of this can be done from here, it needs the Grow dashboard.
 - **Tier verification against a live account.** `tests/tier-checks.js` covers the two
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
@@ -1066,7 +1093,7 @@ the button is drawn, which is why the address is duplicated in both places —
   the app's code actually does (the external services it talks to, what each
   stores, that there's no tracking or ads), plus the account holder's own answers on
   contact address, age cutoff, and jurisdiction (Israel). Both now describe billing
-  through Cardcom — what it stores, and the terms' renewal/cancellation/refund
+  through Grow — what it stores, and the terms' renewal/cancellation/refund
   language — since that's no longer hypothetical. Neither document has been
   reviewed by a lawyer — that still needs to happen before either is relied on for
   anything, and the billing section in particular should be checked against

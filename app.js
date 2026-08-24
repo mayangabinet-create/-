@@ -184,8 +184,8 @@
         let lastCallTruncated = false;
 
         const AI_ENDPOINT = `${SUPABASE_URL}/functions/v1/ai-proxy`;
-        const CARDCOM_CHECKOUT_ENDPOINT = `${SUPABASE_URL}/functions/v1/cardcom-checkout`;
-        const CARDCOM_CANCEL_ENDPOINT = `${SUPABASE_URL}/functions/v1/cardcom-cancel`;
+        const GROW_CHECKOUT_ENDPOINT = `${SUPABASE_URL}/functions/v1/grow-checkout`;
+        const GROW_CANCEL_ENDPOINT = `${SUPABASE_URL}/functions/v1/grow-cancel`;
 
         /**
          * Split an SSE stream into the JSON payloads it carries.
@@ -3385,7 +3385,7 @@ ${languageRule()}`;
             if (!currentUser) { entitlement = null; return null; }
             const { data, error } = await supabaseClient
                 .from('subscriptions')
-                .select('status, plan, interval, current_period_end, cardcom_token, cancel_at_period_end')
+                .select('status, plan, interval, current_period_end, grow_token, cancel_at_period_end')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
             if (error) {
@@ -3404,10 +3404,10 @@ ${languageRule()}`;
                 // Same fallback the Edge Function uses: an unknown plan is the
                 // smallest tier, never the largest.
                 planKey: trialing ? 'trial' : (data?.plan && PLAN_LIMITS[data.plan] ? data.plan : 'basic'),
-                // Gates "Manage billing": true only once a real Cardcom token
+                // Gates "Manage billing": true only once a real Grow token
                 // exists, so a debug-switched plan (see setDebugPlan) never
                 // shows a cancel button that has nothing real behind it.
-                hasCardcomToken: !!data?.cardcom_token,
+                hasGrowToken: !!data?.grow_token,
                 cancelAtPeriodEnd: !!data?.cancel_at_period_end,
             };
             return entitlement;
@@ -3547,7 +3547,7 @@ ${languageRule()}`;
                         ${loading ? '' : `${resets ? `Resets ${esc(resets)}. ` : ''}Replaying a lesson you already have is free, any time — it's already yours.`}
                     </p>
                     <button class="button button-secondary" id="acctPlans" ${loading ? 'disabled' : ''}>${loading ? field('', '5em') : (ent?.active ? 'Change plan' : 'See plans')}</button>
-                    ${!loading && ent?.hasCardcomToken ? `<button class="button button-secondary" id="acctBilling">${ent.cancelAtPeriodEnd ? 'Resume subscription' : 'Manage billing'}</button>` : ''}
+                    ${!loading && ent?.hasGrowToken ? `<button class="button button-secondary" id="acctBilling">${ent.cancelAtPeriodEnd ? 'Resume subscription' : 'Manage billing'}</button>` : ''}
                 </section>
 
                 <section class="account-card">
@@ -9592,16 +9592,15 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         // one steered toward as well.
         const RECOMMENDED_PLAN = 'pro';
 
-        // Opens Cardcom's hosted LowProfile payment page for the given plan
-        // and sends the browser there. On success or cancel, Cardcom returns
-        // to this same page (see the init block below), never to a page of
-        // its own.
+        // Opens Grow's hosted payment page for the given plan and sends the
+        // browser there. On success or cancel, Grow returns to this same
+        // page (see the init block below), never to a page of its own.
         async function startCheckout(planKey, button) {
             setButtonBusy(button, true);
             try {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (!session) { showAuthModal('signin'); return; }
-                const res = await fetch(CARDCOM_CHECKOUT_ENDPOINT, {
+                const res = await fetch(GROW_CHECKOUT_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
@@ -9620,11 +9619,11 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             }
         }
 
-        // Cardcom has no hosted billing portal — there's no separate page to
+        // Grow has no hosted billing portal — there's no separate page to
         // send the browser to, and nothing to change payment method or see
         // invoices with beyond what Account already shows. "Manage billing"
         // is really only ever "stop/resume next month's charge," so it's a
-        // confirm dialog and one call to cardcom-cancel, not a redirect.
+        // confirm dialog and one call to grow-cancel, not a redirect.
         async function manageBilling(button, ent) {
             const resuming = !!ent?.cancelAtPeriodEnd;
             const renewsOn = ent?.periodEnd ? new Date(ent.periodEnd).toLocaleDateString() : null;
@@ -9642,7 +9641,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             try {
                 const { data: { session } } = await supabaseClient.auth.getSession();
                 if (!session) { showAuthModal('signin'); return; }
-                const res = await fetch(CARDCOM_CANCEL_ENDPOINT, {
+                const res = await fetch(GROW_CANCEL_ENDPOINT, {
                     method: 'POST',
                     headers: {
                         'content-type': 'application/json',
@@ -9706,7 +9705,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             uiAlert(
                 `<ul class="plan-list">${rows}</ul>
                  ${debugNote}
-                 <p>Subscribing opens Cardcom's own secure payment page — card details go to Cardcom, never
+                 <p>Subscribing opens Grow's own secure payment page — card details go to Grow, never
                  to us. Your plan updates automatically within a few seconds of paying. Cancel any time from
                  Account → Manage billing, and everything you've already built keeps working either way:
                  open any course, replay any lesson, and run reviews as often as you like — replays and
@@ -9974,7 +9973,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
 
         (async () => {
             try {
-                // Cardcom returns here after checkout with ?checkout=success|cancel.
+                // Grow returns here after checkout with ?checkout=success|cancel.
                 // Strip it immediately so a reload never re-triggers this, whether
                 // or not it turns out there's anything to react to.
                 const params = new URLSearchParams(location.search);
@@ -9996,7 +9995,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                     } catch (_) {}
                     await onSignedIn(session.user);
                     if (checkoutResult === 'success') {
-                        // cardcom-webhook usually lands within a second or two of
+                        // grow-webhook usually lands within a second or two of
                         // the redirect, but never before it — give it a moment
                         // rather than showing the old plan as if payment failed.
                         setTimeout(async () => {

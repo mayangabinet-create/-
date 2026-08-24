@@ -17,10 +17,9 @@ function json(body: unknown, status: number) {
   });
 }
 
-// No Cardcom call either way: cancelling here only ever means "stop letting
-// cardcom-billing-cron charge the saved token again," a fact this app's own
-// subscriptions row decides -- there is no hosted subscription object on
-// Cardcom's side to cancel. { resume: true } undoes it, same endpoint.
+// No Grow call either way: cancelling here only ever means "stop letting
+// grow-billing-cron charge the saved token again," a fact this app's own
+// subscriptions row decides. { resume: true } undoes it, same endpoint.
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -46,7 +45,7 @@ Deno.serve(async (req: Request) => {
   try {
     body = await req.json();
   } catch {
-    // A body is optional -- absent means "cancel," the common case.
+    // A body is optional — absent means "cancel," the common case.
   }
   const resume = body?.resume === true;
 
@@ -55,12 +54,12 @@ Deno.serve(async (req: Request) => {
     .from("subscriptions")
     .update({ cancel_at_period_end: !resume })
     .eq("user_id", user.id)
-    .not("cardcom_token", "is", null)
+    .not("grow_token", "is", null)
     .select()
     .maybeSingle();
 
   if (error) {
-    console.error("cardcom-cancel failed:", error.message);
+    console.error("grow-cancel failed:", error.message);
     return json({ error: "cancel_failed", message: "Could not update your subscription. Try again in a moment." }, 502);
   }
   if (!data) {

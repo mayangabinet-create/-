@@ -1,21 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
-import { CHECKOUT_PLANS, priceMapFromEnv, lowProfileCreateBody } from "../_shared/cardcom-policy.mjs";
+import { CHECKOUT_PLANS, priceMapFromEnv, createPaymentProcessBody } from "../_shared/grow-policy.mjs";
 
-const CARDCOM_API_URL = "https://secure.cardcom.solutions/api/v11";
-const CARDCOM_TERMINAL_ID = Deno.env.get("CARDCOM_TERMINAL_ID")!;
-const CARDCOM_API_NAME = Deno.env.get("CARDCOM_API_NAME")!;
+// Matches the real, working integration this was verified against (see
+// README — Payments) — not confirmed against Grow's own docs, which weren't
+// reachable while building this. Override via GROW_API_BASE_URL if Grow's
+// account setup names a different host.
+const GROW_API_BASE_URL = Deno.env.get("GROW_API_BASE_URL") || "https://secure.meshulam.co.il/api/light/server/1.0";
+const GROW_PAGE_CODE = Deno.env.get("GROW_PAGE_CODE")!;
+const GROW_USER_ID = Deno.env.get("GROW_USER_ID")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // Unset until this secret is set by hand in the Supabase dashboard, same
-// idiom as STRIPE_ALLOWED_ORIGIN was. Until then any https origin the
+// idiom as CARDCOM_ALLOWED_ORIGIN was. Until then any https origin the
 // browser itself sends is trusted for the post-checkout redirect: the worst
 // a forged one buys is sending the caller's own browser to a page of their
 // own choosing, since every call still only ever acts on the caller's own
 // account.
-const ALLOWED_ORIGIN = Deno.env.get("CARDCOM_ALLOWED_ORIGIN") || null;
+const ALLOWED_ORIGIN = Deno.env.get("GROW_ALLOWED_ORIGIN") || null;
 
 const PRICE_MAP = priceMapFromEnv((k) => Deno.env.get(k));
 
@@ -67,7 +71,7 @@ Deno.serve(async (req: Request) => {
   if (!amount) {
     return json({
       error: "plan_not_configured",
-      message: `No Cardcom price is configured for the ${plan} plan yet.`,
+      message: `No Grow price is configured for the ${plan} plan yet.`,
     }, 500);
   }
 
@@ -79,43 +83,43 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    const createBody = lowProfileCreateBody({
+    const createBody = createPaymentProcessBody({
       plan,
       amount,
-      terminalId: CARDCOM_TERMINAL_ID,
-      apiName: CARDCOM_API_NAME,
+      pageCode: GROW_PAGE_CODE,
+      userId: GROW_USER_ID,
       successUrl: `${origin}/?checkout=success`,
-      failUrl: `${origin}/?checkout=cancel`,
-      webhookUrl: `${SUPABASE_URL}/functions/v1/cardcom-webhook`,
+      cancelUrl: `${origin}/?checkout=cancel`,
+      webhookUrl: `${SUPABASE_URL}/functions/v1/grow-webhook`,
     });
 
-    const res = await fetch(`${CARDCOM_API_URL}/LowProfile/Create`, {
+    const res = await fetch(`${GROW_API_BASE_URL}/createPaymentProcess`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(createBody),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(createBody).toString(),
     });
     const data = await res.json();
 
-    if (data?.ResponseCode !== 0 || !data?.Url || !data?.LowProfileId) {
-      console.error("cardcom-checkout: LowProfile/Create failed:", data);
+    if (data?.status !== 1 || !data?.data?.url || !data?.data?.processId) {
+      console.error("grow-checkout: createPaymentProcess failed:", data);
       return json({ error: "checkout_failed", message: "Could not start checkout. Try again in a moment." }, 502);
     }
 
-    // Correlates the webhook -- which is never trusted for who or what, see
-    // cardcom-webhook -- back to this account and the plan they picked.
-    const { error: insertErr } = await admin.from("cardcom_pending_checkout").insert({
-      low_profile_id: data.LowProfileId,
+    // Correlates the webhook — which is never trusted for who or what, see
+    // grow-webhook — back to this account and the plan they picked.
+    const { error: insertErr } = await admin.from("grow_pending_checkout").insert({
+      process_id: String(data.data.processId),
       user_id: user.id,
       plan,
     });
     if (insertErr) {
-      console.error("cardcom-checkout: failed to record pending checkout:", insertErr.message);
+      console.error("grow-checkout: failed to record pending checkout:", insertErr.message);
       return json({ error: "checkout_failed", message: "Could not start checkout. Try again in a moment." }, 502);
     }
 
-    return json({ url: data.Url }, 200);
+    return json({ url: data.data.url }, 200);
   } catch (err) {
-    console.error("cardcom-checkout failed:", err instanceof Error ? err.message : err);
+    console.error("grow-checkout failed:", err instanceof Error ? err.message : err);
     return json({ error: "checkout_failed", message: "Could not start checkout. Try again in a moment." }, 502);
   }
 });

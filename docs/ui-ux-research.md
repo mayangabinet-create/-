@@ -66,16 +66,18 @@ teaches nothing except that guessing is expensive." המחיר של טעות ה�
 לדרוש הזנה ידנית. לשמור על הכיוון הזה: כל שדה חדש שנוסף לטופס כדאי לשאול
 קודם "האם זה כבר קיים במסמך שהועלה?".
 
-**דארק פאטרנס / Roach Motel** (Ryanair). מסלול התשלום עבר מ-Stripe ל-Cardcom
-(Stripe לא תומך בעסקים רשומים בישראל) — `cardcom-checkout`/`cardcom-webhook`/
-`cardcom-cancel`/`cardcom-billing-cron`, ראו "Payments" ב-README. ל-Cardcom אין
+**דארק פאטרנס / Roach Motel** (Ryanair). מסלול התשלום עבר מ-Stripe (לא תומך
+בעסקים רשומים בישראל) ל-Cardcom ולבסוף ל-**Grow (Meshulam)** — נבחר לבסוף
+כי חשבון עסקי נפתח מולו הכי מהר מבין השלושה — `grow-checkout`/`grow-webhook`/
+`grow-cancel`/`grow-billing-cron`, ראו "Payments" ב-README. ל-Grow אין
 Customer Portal מארח כמו ל-Stripe, אז הכפתור "Manage billing" ב-Account הוא
-דיאלוג אישור בתוך האפליקציה עצמה (`manageBilling`) שקורא ל-`cardcom-cancel` —
+דיאלוג אישור בתוך האפליקציה עצמה (`manageBilling`) שקורא ל-`grow-cancel` —
 לא הפניה החוצה. זה דווקא פותר מראש את הדאגה של הפטרן הזה (ביטול קל לפחות כמו
 ההרשמה), אבל שווה בדיקה לפני שתשלום אמיתי נכנס: הצורה המדויקת של ה-callback
-מ-Cardcom לא אומתה מול התיעוד הרשמי שלהם (לא היה נגיש בזמן הבנייה — ראו
-ההערה תחת "Payments" ב-README) — `cardcom-webhook` בכוונה לא סומך על שום דבר
-בקריאה הנכנסת ומוודא הכל ישירות מול Cardcom, בדיוק בשביל זה.
+מ-Grow, וגם השאלה אם Grow בכלל מחייב מנוי חוזר לבד או שצריך לבקש את זה בכל
+חודש (`grow-billing-cron`), לא אומתו מול התיעוד הרשמי שלהם (לא היה נגיש בזמן
+הבנייה — ראו ההערה תחת "Payments" ב-README) — `grow-webhook` בכוונה לא סומך
+על שום דבר בקריאה הנכנסת ומוודא הכל ישירות מול Grow, בדיוק בשביל זה.
 
 **דפים כבדים ואיטיים** (CNN). אין build step ואין framework — שני קבצים
 (`index.html`, `app.js`) בלבד. זו הגנה מובנית, אבל שווה לזכור אותה כמגבלה

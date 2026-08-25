@@ -13,6 +13,7 @@
 import {
   CHARS_PER_TOKEN,
   DOMAIN_TOOLKIT_ALLOWANCE,
+  FREE_CALLS_PER_DAY,
   FREE_CALL_CHARS,
   GLOBAL_TOOLKIT_ALLOWANCE,
   HAIKU,
@@ -25,6 +26,7 @@ import {
   classify,
   fixCourseSize,
   minCacheChars,
+  modelFor,
   normaliseContent,
   planFor,
   prepareBlocks,
@@ -76,6 +78,25 @@ console.log("\n== tier resolution ==");
   ok("an unknown plan falls back to basic", planFor("enterprise", false).key === "basic");
   ok("a missing plan falls back to basic", planFor(undefined, false).key === "basic");
   ok("a real plan is honoured", planFor("pro", false).plan.excerptChars === 8_000);
+}
+
+console.log("\n== which model runs the call ==");
+{
+  ok("a course plan runs on the tier's planning model",
+     modelFor("course", PLANS.max) === PLANS.max.modelCourse);
+  ok("a lesson runs on the tier's lesson model",
+     modelFor("lesson", PLANS.pro) === PLANS.pro.modelLesson);
+  // Free work is the only path no monthly quota limits, so it is also the
+  // only path where the model is a cost ceiling rather than a tier benefit.
+  ok("free work runs on Haiku even where the tier writes lessons on Sonnet",
+     modelFor("free", PLANS.pro) === HAIKU && modelFor("free", PLANS.max) === HAIKU);
+  ok("free work on the Haiku tiers is unchanged",
+     modelFor("free", PLANS.basic) === HAIKU);
+  // The daily cap times what one call can cost is the whole ceiling on
+  // unmetered spend; both halves are checked so neither drifts back up alone.
+  ok("the free-call backstop stays bounded",
+     FREE_CALLS_PER_DAY <= 60 && FREE_CALL_CHARS <= 8_000,
+     `${FREE_CALLS_PER_DAY} calls x ${FREE_CALL_CHARS} chars`);
 }
 
 console.log("\n== content normalisation ==");

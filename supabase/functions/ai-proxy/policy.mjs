@@ -94,8 +94,27 @@ export const TEMPLATE_ALLOWANCE = 13_000;
 export const GLOBAL_TOOLKIT_ALLOWANCE = 8_000;
 export const DOMAIN_TOOLKIT_ALLOWANCE = 3_000;
 
-export const FREE_CALL_CHARS = 20_000;
-export const FREE_CALLS_PER_DAY = 200;
+/*
+ * The backstop on unmetered work, sized against what it costs rather than
+ * against what felt generous.
+ *
+ * Free work is the only path that does not consume the monthly course/lesson
+ * quota, so these two numbers — and `modelFor` below — are the whole ceiling
+ * on what one account can spend outside its plan. At 20,000 characters and
+ * 200 calls a day, a Pro account could buy roughly $4 of Sonnet a day, every
+ * day, without touching its quota: about thirty times the subscription it
+ * pays for, and reachable by a retry loop as easily as by anyone meaning
+ * harm.
+ *
+ * What actually sends free work is one `feedback` call per lesson (the
+ * learner's own explanation, evaluated in two or three sentences) and one
+ * `primer` during onboarding. 8,000 characters is far more than either
+ * writes, and 60 calls a day covers more lessons than any tier's monthly
+ * quota allows in one sitting. On Haiku — which `modelFor` now pins free work
+ * to — the ceiling is about $0.30 a day rather than $4.
+ */
+export const FREE_CALL_CHARS = 8_000;
+export const FREE_CALLS_PER_DAY = 60;
 /**
  * `tutor` is still here although the dock that sent it has been deleted from
  * the client, because the server has to outlive the client it talks to. The
@@ -177,6 +196,27 @@ export function planFor(planName, isTrialing) {
   // largest, so a bad row cannot hand out Max limits.
   const key = planName && PLANS[planName] ? planName : "basic";
   return { key, plan: PLANS[key] };
+}
+
+/**
+ * Which model runs this call.
+ *
+ * A tier buys a bigger model for the two things it meters — planning a course
+ * and writing a lesson. Free work is neither: it is a short evaluation of
+ * something the learner typed, or the primer written for a subject during
+ * onboarding, both capped at 1,000 output tokens. Running those on the tier's
+ * lesson model made the most expensive model in the app reachable on the one
+ * path that no monthly quota limits, at twice Haiku's price per token and for
+ * no gain the learner can read — Trial and Basic have always answered the
+ * same calls on Haiku.
+ *
+ * So free work is pinned to Haiku on every tier. This is the cost ceiling,
+ * not a preference: `FREE_CALLS_PER_DAY` bounds how many of these an account
+ * can make, and this bounds what each one can cost.
+ */
+export function modelFor(kind, plan) {
+  if (kind === "free") return HAIKU;
+  return kind === "course" ? plan.modelCourse : plan.modelLesson;
 }
 
 export const CONCEPT_RE = /Identify\s+(?:exactly\s+)?\d+(?:\s*[-–]\s*\d+)?\s+core concepts/i;

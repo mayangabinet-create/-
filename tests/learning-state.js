@@ -125,7 +125,8 @@ function grab(decl) {
 const names = [
   'function scheduleReview', 'function isDueForReview',
   'function getDueLessons', 'function getPracticeLessons',
-  'const PLAN_LIMITS', 'function totalXp', 'const PRICE_IN', 'const PRICE_OUT', 'function totalCost',
+  'const PLAN_LIMITS', 'function totalXp', 'const PLAN_PRICES',
+  'const CACHE_WRITE_RATE', 'const CACHE_READ_RATE', 'function totalCost',
   'function extractJSON', 'function firstPlannedConcept', 'function parseLearnerNumber',
   'const REPORT_QUEUE', 'function queueReport', 'function sendReports', 'function flushReports',
   'function reportMisjudged',
@@ -144,7 +145,7 @@ let activeStructure = null;
 let entitlement = null;
 let library = [];
 let xpByCourse = {};
-let usage = { inputTokens: 0, outputTokens: 0 };
+let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
 const MAX_COURSES = 8;
 
 const store = new Map();
@@ -180,7 +181,7 @@ module.exports = {
     entitlement = 'entitlement' in state ? state.entitlement : null;
     library = state.library ?? [];
     xpByCourse = state.xpByCourse ?? {};
-    usage = state.usage ?? { inputTokens: 0, outputTokens: 0 };
+    usage = state.usage ?? { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
     store.clear();
     for (const [k, v] of Object.entries(state.storage ?? {})) store.set(k, v);
     reportInserts = [];
@@ -312,9 +313,29 @@ console.log('\n== xp and cost ==');
      P.totalXp() === 40 + 10 + 5 + 7);
 
   P.reset({ usage: { inputTokens: 2_000_000, outputTokens: 100_000 } });
-  // $1/M input, $5/M output: 2M in + 100k out = $2.00 + $0.50.
+  // No entitlement read yet, so the smallest tier's rates: $1/M input,
+  // $5/M output. 2M in + 100k out = $2.00 + $0.50.
   ok('cost combines input and output tokens at their own per-token rates',
      Math.abs(P.totalCost() - 2.5) < 1e-9, String(P.totalCost()));
+
+  P.reset({
+    entitlement: { planKey: 'pro' },
+    usage: { inputTokens: 2_000_000, outputTokens: 100_000 },
+  });
+  // The same tokens on a tier that writes its lessons on a costlier model:
+  // $2/M input, $10/M output. Priced at Haiku's rates this read $2.50.
+  ok('a bigger tier prices the same tokens at its own rates',
+     Math.abs(P.totalCost() - 5) < 1e-9, String(P.totalCost()));
+
+  P.reset({
+    usage: { inputTokens: 0, outputTokens: 0,
+             cacheWriteTokens: 1_000_000, cacheReadTokens: 1_000_000 },
+  });
+  // A write bills at 1.25x input and a read at 0.1x, and neither shows up in
+  // `input_tokens` — pricing those two columns at zero is what made a cached
+  // account look almost free.
+  ok('cache writes and reads are priced at their own multiples of input',
+     Math.abs(P.totalCost() - 1.35) < 1e-9, String(P.totalCost()));
 }
 
 // ---------------------------------------------------------------- extractJSON

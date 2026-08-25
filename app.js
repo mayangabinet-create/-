@@ -3296,27 +3296,57 @@ ${languageRule()}`;
         }
 
         // ============= Usage & cost tracking =============
-        // Haiku 4.5 pricing: $1 per 1M input tokens, $5 per 1M output tokens.
-        const PRICE_IN = 1 / 1_000_000;
-        const PRICE_OUT = 5 / 1_000_000;
+        // What a token costs, per tier. This used to be one pair of numbers —
+        // Haiku's — applied to every account, which reported roughly half of
+        // what a Pro or Max account actually spends: those tiers write their
+        // lessons on a model that bills at twice Haiku's rate. The figure on
+        // the Account page is the one anyone checks before deciding whether
+        // the plan pays for itself, so halving it is the wrong direction to be
+        // wrong in.
+        //
+        // Rates, not model names — same reason `PLAN_LIMITS` above carries
+        // `depth` instead of a model: which model a tier runs on is free to
+        // change in `PLANS` in the Edge Function, and a number here does not
+        // become a promise about implementation the way a name does. It does
+        // have to move when that table moves.
+        //
+        // A cache read bills at about a tenth of input and a write at 1.25x,
+        // and `input_tokens` counts only the uncached remainder — so all three
+        // counters have to be priced to get what the calls really cost.
+        const PLAN_PRICES = {
+            trial: { in: 1 / 1_000_000, out: 5 / 1_000_000 },
+            basic: { in: 1 / 1_000_000, out: 5 / 1_000_000 },
+            pro:   { in: 2 / 1_000_000, out: 10 / 1_000_000 },
+            max:   { in: 2 / 1_000_000, out: 10 / 1_000_000 },
+        };
+        const CACHE_WRITE_RATE = 1.25;
+        const CACHE_READ_RATE = 0.1;
 
         // The Edge Function increments ai_usage server-side on every real call —
         // the client just reflects it. "cached" (this app's own lesson cache, not
         // an API call at all) is session-only, there's nothing server-side to sync.
         let usage = { calls: 0, inputTokens: 0, outputTokens: 0, cached: 0,
+                      cacheWriteTokens: 0, cacheReadTokens: 0,
                       coursesMonth: 0, lessonsMonth: 0, monthResetAt: null, loaded: false };
 
         async function refreshUsage() {
             if (!currentUser) return;
             const { data } = await supabaseClient
                 .from('ai_usage')
-                .select('calls, input_tokens, output_tokens, courses_month, lessons_month, month_reset_at')
+                .select('calls, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, courses_month, lessons_month, month_reset_at')
                 .eq('user_id', currentUser.id)
                 .maybeSingle();
             if (data) {
                 usage.calls = data.calls;
                 usage.inputTokens = data.input_tokens;
                 usage.outputTokens = data.output_tokens;
+                // Both columns arrived with the `ai_usage_cache_tokens`
+                // migration and default to 0, so they read as zero for an
+                // account that has never made a cached call. The select above
+                // needs that migration applied — it is the same one `ai-proxy`
+                // needs to record the counts in the first place.
+                usage.cacheWriteTokens = data.cache_write_tokens || 0;
+                usage.cacheReadTokens = data.cache_read_tokens || 0;
                 // The month counters are what the Edge Function actually meters
                 // against your plan — the ones worth showing you before you hit them.
                 usage.coursesMonth = data.courses_month || 0;
@@ -3337,7 +3367,14 @@ ${languageRule()}`;
         }
 
         function totalCost() {
-            return usage.inputTokens * PRICE_IN + usage.outputTokens * PRICE_OUT;
+            // `entitlement` is null until the subscription row has been read;
+            // the smallest tier's rates are the safer guess for that moment,
+            // since a trial account is the one most likely to be looking.
+            const price = PLAN_PRICES[entitlement?.planKey] || PLAN_PRICES.basic;
+            return usage.inputTokens * price.in
+                + (usage.cacheWriteTokens || 0) * price.in * CACHE_WRITE_RATE
+                + (usage.cacheReadTokens || 0) * price.in * CACHE_READ_RATE
+                + usage.outputTokens * price.out;
         }
 
         // Spend used to sit in the header on every screen. It belongs on the

@@ -815,12 +815,47 @@ glance, not about repeating a number that lives elsewhere.
 
 ## Cost model
 
-One Haiku lesson ≈ $0.01; the higher tiers cost more per lesson because they run on
-larger models and read more of the document. Lessons are cached after first
-generation, so replaying or exiting and coming back is free. The Account tab shows
-cumulative spend, call count, and this month's course/lesson quota, read from
-`ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
-out is visible before it happens rather than only when a build is refused.
+What a subscription has to cover, computed from the tier table above and the
+current API rates ($1/$5 per MTok on Haiku, $2/$10 on Sonnet), with every block
+at its ceiling and every generation running to its output cap — the worst case,
+not the typical one:
+
+| | course plan | first lesson | each lesson after | **month at full quota** |
+|---|---|---|---|---|
+| trial | $0.02 | $0.03 | $0.03 | $0.37 (lifetime, one course) |
+| basic | $0.02 | $0.03 | $0.03 | **~$1** |
+| pro | $0.03 | $0.09 | $0.07 | **~$4** |
+| max | $0.10 | $0.11 | $0.08 | **~$10** |
+
+The gap between the first lesson of a course and every one after it is the
+shared context paying for itself: $0.09 → $0.07 on Pro, $0.11 → $0.08 on Max.
+Trial and Basic have no gap because they cache nothing (see *Tiers*). Real
+usage lands well under these rows — few accounts spend a whole month's quota,
+and a lesson rarely runs to 6,000 output tokens — but a plan priced against the
+typical case is a plan that loses money on the accounts that use it most.
+
+Lessons are cached client-side after first generation, so replaying or exiting
+and coming back costs nothing at all.
+
+**The one path a monthly quota does not bound** is free work — `feedback` after
+a learner writes an explanation, `primer` during onboarding — which is metered
+against a daily call cap instead. That cap is the entire ceiling on what an
+account can spend outside its plan, so both halves of it are sized against
+money rather than generosity: 60 calls a day, 8,000 characters each, pinned to
+Haiku on every tier by `modelFor()` regardless of what the tier writes lessons
+on. About $0.30 a day. At the previous 200 calls of 20,000 characters on the
+tier's own lesson model, a single Pro account could have spent ~$4 a day —
+roughly thirty times its subscription — without touching its quota, and a retry
+loop in the client would have reached it as readily as anyone meaning harm.
+
+The Account tab shows cumulative spend, call count, and this month's
+course/lesson quota, read from `ai_usage` and `subscriptions` — the same rows
+`ai-proxy` meters against, so running out is visible before it happens rather
+than only when a build is refused. Spend is priced per tier (`PLAN_PRICES` in
+`app.js`) across all four token columns, cache writes at 1.25x input and reads
+at a tenth: pricing every account at Haiku's rates and ignoring the cache
+columns, as it did, reported roughly half of what a Pro or Max account actually
+costs.
 
 ## Addressing a long PDF by page
 
@@ -1070,7 +1105,8 @@ the button is drawn, which is why the address is duplicated in both places —
 - **No signup abuse protection.** New accounts get a 3-day trial automatically from
   just an email + password, with no CAPTCHA and no email confirmation gate found in the
   auth flow. The trial plan is capped (one course, 10 lessons, lifetime) and the quota
-  is enforced server-side in `consume_ai_quota`, so a single account can't run up an
+  is enforced server-side in `consume_ai_quota`, with unmetered work bounded separately
+  by the daily free-call cap (see *Cost model*), so a single account can't run up an
   unbounded bill — but nothing here stops a script from creating many accounts to stack
   free trials. Worth adding (Supabase Auth supports hCaptcha/Turnstile natively) before
   publicizing the site, not after. Neither piece can be turned on from this repo — both

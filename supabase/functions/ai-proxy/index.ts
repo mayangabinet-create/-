@@ -6,6 +6,7 @@ import {
   FREE_CALLS_PER_DAY,
   fixCourseSize,
   KNOWN_TASKS,
+  modelFor,
   normaliseContent,
   planFor,
   prepareBlocks,
@@ -141,7 +142,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { kind, cap } = classify(max_tokens);
-  const model = kind === "course" ? plan.modelCourse : plan.modelLesson;
+  const model = modelFor(kind, plan);
 
   // Quota. Metered work checks and increments in one statement so two
   // concurrent requests can't both pass the check; free work keeps the old

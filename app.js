@@ -400,11 +400,17 @@
                         return null;
                     }
                     if (status === 429) {
-                        fail(payload.message || "Daily limit reached. Try again tomorrow.");
+                        // This app's own refusals — the daily free-call cap, the
+                        // monthly course and lesson quotas — always carry a
+                        // message. A 429 without one came from upstream: the
+                        // model's rate limit, which is not the learner's quota
+                        // and must not be reported as if it were.
+                        fail(payload.message
+                            || "The service is busy right now. Give it a minute and try again.");
                         return null;
                     }
 
-                    fail(payload.message || payload.error || `HTTP ${status || 'error'}`);
+                    fail(errorText(payload, status));
                     return null;
 
                 } catch (error) {
@@ -1944,9 +1950,43 @@ ${languageRule()}`;
             }, 2600);
         }
 
+        // Anything that reaches a dialog has to be text, and not everything that
+        // reaches this one is: an Error, a Supabase error row, an API error
+        // envelope have all arrived here, and the dialog sets `textContent`, so
+        // every one of them rendered as "[object Object]" — the least useful
+        // string in the language, and the one a learner was actually shown when
+        // the model refused a request. Dig a sentence out of whatever arrived,
+        // and keep the raw shape visible rather than swallowing it: an error
+        // nobody can name is an error nobody can report.
+        function asMessage(value, fallback = 'Something went wrong. Please try again.') {
+            if (typeof value === 'string') return value.trim() || fallback;
+            // A number, a boolean, null, undefined: nothing to read, and
+            // "0" or "false" in a dialog is worse than the fallback.
+            if (!value || typeof value !== 'object') return fallback;
+            if (typeof value.message === 'string' && value.message.trim()) return value.message;
+            if (typeof value.error === 'string' && value.error.trim()) return value.error;
+            try {
+                const json = JSON.stringify(value);
+                if (json && json !== '{}' && json !== 'null') return `${fallback} (${json.slice(0, 200)})`;
+            } catch (_) { /* circular, or something that will not serialise */ }
+            return fallback;
+        }
+
+        // The message in an error response, wherever this particular responder
+        // decided to put it. `message` is what ai-proxy sends; `error.message`
+        // is the shape Anthropic uses and older deployments of ai-proxy passed
+        // through untouched; `error` alone is a bare code like "invalid_content".
+        // A version of ai-proxy from before the refusal fix is still a version
+        // this has to read, which is why all three are tried rather than one.
+        function errorText(payload, status) {
+            const found = [payload?.message, payload?.error?.message, payload?.error, payload?.detail]
+                .find(v => typeof v === 'string' && v.trim());
+            return found || `HTTP ${status || 'error'}`;
+        }
+
         function showError(msg) {
             hideMessage();          // never leave the spinner up behind the dialog
-            uiAlert(msg, 'Something went wrong');
+            uiAlert(asMessage(msg), 'Something went wrong');
         }
 
         // Return the app to a usable state after any failure.

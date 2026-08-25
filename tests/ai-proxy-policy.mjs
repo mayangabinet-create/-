@@ -33,6 +33,7 @@ import {
   shouldFixCourseSize,
   sseScanner,
   streamUsage,
+  upstreamError,
   usageFrom,
   wantsStream,
 } from "../supabase/functions/ai-proxy/policy.mjs";
@@ -274,6 +275,44 @@ console.log("\n== usage accounting ==");
   const plain = usageFrom({ input_tokens: 1_000, output_tokens: 500 });
   ok("an uncached call is unchanged", plain.totalRead === 1_000 && plain.hit === false);
   ok("a missing usage object does not throw", usageFrom(undefined).totalRead === 0);
+}
+
+console.log("\n== a refusal from upstream ==");
+{
+  const anthropic400 = {
+    type: "error",
+    error: { type: "invalid_request_error", message: "text content blocks must be non-empty" },
+  };
+  const out = upstreamError(400, anthropic400);
+  // Forwarded as it arrived, `error` was an object and the client — which
+  // reads `payload.message || payload.error` into a dialog that sets
+  // textContent — showed the learner "[object Object]".
+  ok("the type comes back as a string, never the object it was nested in",
+     out.error === "invalid_request_error");
+  ok("the message says what the model actually objected to",
+     out.message.includes("text content blocks must be non-empty"), out.message);
+  ok("and the raw upstream text is kept for the logs",
+     out.detail === "text content blocks must be non-empty");
+  ok("every field a dialog might read is a string",
+     ["error", "code", "message", "detail"].every(k => typeof out[k] === "string"));
+
+  // A rate limit or an outage is not a bug in the request, and the upstream
+  // wording ("Number of requests has exceeded...") is not something a learner
+  // can act on.
+  for (const status of [429, 500, 529]) {
+    const busy = upstreamError(status, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    ok(`a ${status} reads as transient rather than as a bad request`,
+       /busy right now/.test(busy.message), busy.message);
+    ok(`and a ${status} still records what upstream said`, busy.detail === "Overloaded");
+  }
+
+  const empty = upstreamError(400, {});
+  ok("a body with nothing in it still produces a string message",
+     typeof empty.message === "string" && empty.message.length > 0);
+  ok("and falls back to a generic type", empty.error === "upstream_error");
+
+  const html = upstreamError(502, "<html>gateway</html>");
+  ok("a non-JSON body does not throw", typeof html.message === "string");
 }
 
 console.log("\n== streaming ==");

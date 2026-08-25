@@ -127,6 +127,7 @@ const names = [
   'function getDueLessons', 'function getPracticeLessons',
   'const PLAN_LIMITS', 'function totalXp', 'const PLAN_PRICES',
   'const CACHE_WRITE_RATE', 'const CACHE_READ_RATE', 'function totalCost',
+  'function asMessage', 'function errorText',
   'function extractJSON', 'function firstPlannedConcept', 'function parseLearnerNumber',
   'const REPORT_QUEUE', 'function queueReport', 'function sendReports', 'function flushReports',
   'function reportMisjudged',
@@ -169,7 +170,7 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
   scheduleReview, isDueForReview, getDueLessons, getPracticeLessons,
-  totalXp, totalCost, extractJSON, firstPlannedConcept, parseLearnerNumber,
+  totalXp, totalCost, asMessage, errorText, extractJSON, firstPlannedConcept, parseLearnerNumber,
   queueReport, sendReports, flushReports, reportMisjudged,
   courseProgressPct, unitNumber, maxCourses, planReadChars, contextBudget, excerptBudget,
   reset: (state = {}) => {
@@ -336,6 +337,46 @@ console.log('\n== xp and cost ==');
   // account look almost free.
   ok('cache writes and reads are priced at their own multiples of input',
      Math.abs(P.totalCost() - 1.35) < 1e-9, String(P.totalCost()));
+}
+
+// -------------------------------------------------------------- error messages
+console.log('\n== turning whatever failed into something readable ==');
+{
+  const FALLBACK = 'Something went wrong. Please try again.';
+
+  ok('a string is its own message', P.asMessage('Disk is full') === 'Disk is full');
+  ok('an Error is read for its message',
+     P.asMessage(new Error('network down')) === 'network down');
+  ok('a Supabase-style row is read the same way',
+     P.asMessage({ message: 'duplicate key', code: '23505' }) === 'duplicate key');
+  ok('a bare code is used when there is nothing better',
+     P.asMessage({ error: 'invalid_content' }) === 'invalid_content');
+  // The dialog sets textContent, so an object used to render as
+  // "[object Object]" — the failure this whole function exists to prevent.
+  const nested = P.asMessage({ error: { type: 'invalid_request_error' } });
+  ok('an object with no readable message never renders as [object Object]',
+     !nested.includes('[object Object]'), nested);
+  ok('and keeps the shape visible so it can be reported',
+     nested.startsWith(FALLBACK) && nested.includes('invalid_request_error'), nested);
+  ok('empty and missing values fall back rather than showing nothing',
+     P.asMessage('') === FALLBACK && P.asMessage(null) === FALLBACK
+     && P.asMessage(undefined) === FALLBACK);
+  const circular = {}; circular.self = circular;
+  ok('something that will not serialise still produces a sentence',
+     P.asMessage(circular) === FALLBACK);
+
+  ok("this app's own message wins when there is one",
+     P.errorText({ error: 'course_quota', message: 'You have used all 5 courses.' }, 429)
+       === 'You have used all 5 courses.');
+  // The shape a version of ai-proxy from before the refusal fix forwards.
+  ok("an upstream envelope is read for its nested message",
+     P.errorText({ type: 'error', error: { type: 'invalid_request_error', message: 'text content blocks must be non-empty' } }, 400)
+       === 'text content blocks must be non-empty');
+  ok('a bare error code is still better than a status line',
+     P.errorText({ error: 'invalid_content' }, 400) === 'invalid_content');
+  ok('an empty body falls back to the status', P.errorText({}, 503) === 'HTTP 503');
+  ok('and to a word when there is not even a status',
+     P.errorText(undefined, 0) === 'HTTP error');
 }
 
 // ---------------------------------------------------------------- extractJSON

@@ -389,6 +389,50 @@ function prepareLessonBlocks(blocks, plan, model) {
  * client, old function — both work, which is what lets the two be deployed in
  * either order.
  */
+/**
+ * Turn a refusal from Anthropic into this app's own error shape.
+ *
+ * Anthropic answers a refused request with `{type:"error", error:{type,
+ * message}}`, and this function used to hand that back to the browser
+ * untouched. The client reads `payload.message || payload.error`, so it found
+ * no message, took `error` — an object — and put it straight into a dialog
+ * that sets `textContent`. The learner got "[object Object]", and since
+ * nothing logged the body either, there was no record anywhere of what the
+ * model had actually objected to. Both halves of that are fixed here: a
+ * string message for the dialog, the upstream text kept in `detail`, and a
+ * shape the caller can log.
+ *
+ * A rate limit or an outage is transient and says so in words a learner can
+ * act on. Anything else is a bug in what was sent, and the upstream text is
+ * the most useful thing anyone — them, reporting it, or whoever reads the
+ * logs — can be handed, so it goes in the message rather than being swallowed.
+ */
+export function upstreamError(status, body) {
+  const detail =
+    typeof body?.error?.message === "string" ? body.error.message
+    : typeof body?.message === "string" ? body.message
+    : safeJson(body);
+  const type = typeof body?.error?.type === "string" ? body.error.type : "upstream_error";
+  const transient = status === 429 || status >= 500;
+  return {
+    error: type,
+    code: "upstream_error",
+    message: transient
+      ? "The service is busy right now. Give it a minute and try again."
+      : `The model refused that request: ${detail}`,
+    detail,
+  };
+}
+
+function safeJson(value) {
+  try {
+    const text = JSON.stringify(value);
+    return text && text !== "{}" && text !== "null" ? text.slice(0, 500) : "no details";
+  } catch {
+    return "no details";
+  }
+}
+
 export function wantsStream(body) {
   return body?.stream === true;
 }

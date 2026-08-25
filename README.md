@@ -598,6 +598,18 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
+  A *refusal* is the one thing it does not forward as it arrives: Anthropic's error
+  envelope nests `{type, message}` under `error`, where this app's own errors put a
+  string, so passing it through handed the client an object — which the dialog, being
+  `textContent`, rendered as **"[object Object]"**. `upstreamError()` turns it into a
+  sentence naming what the model objected to (a rate limit or an outage reads as
+  transient instead, since the upstream wording is not something a learner can act on),
+  and `index.ts` logs the same detail, so a refusal now leaves a record on both sides
+  of the wire rather than on neither. The client no longer trusts any of this blindly
+  either: `asMessage()` in `app.js` coerces whatever reaches a dialog into text, and
+  `errorText()` reads a message out of all three shapes — this app's, Anthropic's, and
+  a bare code — because a browser served from GitHub Pages and a function deployed
+  from here are versioned separately.
 - **`grow-checkout`, `grow-webhook`, `grow-cancel`, `grow-billing-cron`
   Edge Functions** — turn a plan choice into a real, self-renewing subscription and
   keep `subscriptions` in sync. See *Payments*, below.

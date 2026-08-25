@@ -14,6 +14,7 @@ import {
   sseScanner,
   streamUsage,
   TEMPLATE_ALLOWANCE,
+  upstreamError,
   clampText,
   usageFrom,
   wantsStream,
@@ -235,14 +236,23 @@ Deno.serve(async (req: Request) => {
 
   const result = await anthropicRes.json();
 
-  if (anthropicRes.ok && result.usage) {
-    await recordUsage(admin, user.id, usageFrom(result.usage));
+  if (anthropicRes.ok) {
+    if (result.usage) await recordUsage(admin, user.id, usageFrom(result.usage));
+    return new Response(JSON.stringify(result), {
+      status: anthropicRes.status,
+      headers: { ...corsHeaders, "content-type": "application/json" },
+    });
   }
 
-  return new Response(JSON.stringify(result), {
-    status: anthropicRes.status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
-  });
+  // A refusal is not forwarded as it arrives. Anthropic's error envelope puts
+  // an object where this app's own errors put a string, which the client
+  // rendered into a dialog as "[object Object]" — and nothing wrote the body
+  // anywhere, so a real refusal left no trace on either side of the wire.
+  // `upstreamError` gives the browser a sentence; this line gives the function
+  // logs the reason.
+  const refusal = upstreamError(anthropicRes.status, result);
+  console.error("anthropic refused:", anthropicRes.status, refusal.error, refusal.detail);
+  return json(refusal, anthropicRes.status);
 });
 
 /**

@@ -1,10 +1,14 @@
 {
   "name": "ai-tutor-upload-box-smoke-test",
   "private": true,
-  "description": "Playwright driver for the anonymous upload-box flow — see the header comment in upload-box.test.mjs and the recipe in ../pdf-pipeline.js.",
+  "description": "Playwright drivers for the anonymous upload-box flow and the scanned-PDF OCR path — see the header comments in upload-box.test.mjs and scanned-pdf.test.mjs, and the recipe in ../pdf-pipeline.js.",
   "devDependencies": {
     "@supabase/supabase-js": "2.112.3",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/heb": "1.0.0",
     "pdfjs-dist": "3.11.174",
-    "playwright": "^1.62.1"
+    "playwright": "^1.62.1",
+    "tesseract.js": "6.0.1",
+    "tesseract.js-core": "6.0.0"
   }
 }

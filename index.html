@@ -3,8 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <!-- Everything this app loads from the network, in one place: supabase-js
-         and (lazily) pdf.js from jsdelivr, XHR/fetch to this Supabase project
-         only, fonts and app.js from this origin. No inline event handlers
+         and (lazily) pdf.js and tesseract.js from jsdelivr, XHR/fetch to this
+         Supabase project only, fonts and app.js from this origin.
+         Reading a scanned PDF is what widens this beyond that: Tesseract runs
+         a WASM core, which needs 'wasm-unsafe-eval' in script-src (a WASM
+         module is compiled, and CSP counts compiling as evaluating), fetches
+         that core from jsdelivr and its language models from tessdata, which
+         is why both are in connect-src, and runs in a worker loaded from
+         jsdelivr rather than a Blob URL — worker-src names the CDN and
+         deliberately does not name blob:. None of it loads until a scan is
+         actually uploaded. No inline event handlers
          remain (see the two addEventListener calls that replaced onclick=
          attributes) and the two inline script elements further down this
          file are allow-listed by hash rather than by 'unsafe-inline' — an
@@ -17,7 +25,7 @@
          X-Frame-Options aren't here on purpose — both are HTTP-header-only
          per spec, silently ignored in a meta tag, and GitHub Pages doesn't
          let this app set custom response headers. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-Vp3obw53+nP1R4z6yk8MT/szzrbQpMEtirtN/U1AT2c=' 'sha256-pCIcK7tGiEuFLlwGrhhG8kDwX6WLhIWGlEIsvAsSSaA='; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://kgkdkkqoebnpahvetwzk.supabase.co; worker-src 'self' https://cdn.jsdelivr.net; child-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-Vp3obw53+nP1R4z6yk8MT/szzrbQpMEtirtN/U1AT2c=' 'sha256-pCIcK7tGiEuFLlwGrhhG8kDwX6WLhIWGlEIsvAsSSaA=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://kgkdkkqoebnpahvetwzk.supabase.co https://cdn.jsdelivr.net https://tessdata.projectnaptha.com; worker-src 'self' https://cdn.jsdelivr.net; child-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <meta name="description" content="Turn a PDF or your own notes into an interactive, spaced-repetition learning path.">

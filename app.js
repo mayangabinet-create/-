@@ -165,6 +165,44 @@
             return pdfjsLoadPromise;
         }
 
+        // Tesseract.js loads the same way, and for a much narrower reason: only a
+        // PDF whose pages carry no text layer needs it. That is the common case
+        // for Hebrew study material — a chapter photographed or scanned by the
+        // department, a summary someone's phone turned into a PDF — and until now
+        // it was the one document the app refused outright, with a message
+        // pointing at a Python tool nobody was going to run.
+        //
+        // It is a heavy dependency (a WASM core, plus a language model per
+        // language) so nothing is fetched until a scan actually arrives. The
+        // browser caches the language data in IndexedDB afterwards, so the
+        // second scan pays only for the core.
+        const TESSERACT_VERSION = '6.0.1';
+        const TESSERACT_CORE_VERSION = '6.0.0';
+        const TESSERACT_BASE = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/`;
+        // The WASM core and the language models are fetched by the worker, not
+        // by this page, so they carry no SRI — which is the reason to pin them
+        // by version here rather than let the library resolve whatever is
+        // current. Both are named in the page's CSP; changing either host means
+        // changing index.html too.
+        const TESSERACT_CORE_BASE = `https://cdn.jsdelivr.net/npm/tesseract.js-core@v${TESSERACT_CORE_VERSION}`;
+        const TESSERACT_LANG_BASE = 'https://tessdata.projectnaptha.com/4.0.0';
+        let tesseractLoadPromise = null;
+        function loadTesseract() {
+            if (window.Tesseract) return Promise.resolve();
+            if (tesseractLoadPromise) return tesseractLoadPromise;
+            tesseractLoadPromise = new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = TESSERACT_BASE + 'tesseract.min.js';
+                // Computed from the file as published to npm, same as PDF.js above.
+                script.integrity = 'sha384-r1ru3tcf6FhnCFR4B7pIFG+BhFF9LlFtz/P1y4pblWn3AGs9y3lBx5SKLNf4+rED';
+                script.crossOrigin = 'anonymous';
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('OCR_UNAVAILABLE'));
+                document.head.appendChild(script);
+            });
+            return tesseractLoadPromise;
+        }
+
         // ============= API & AI Functions =============
         // Token ceilings per task. Nothing here needs 3000 tokens except lesson JSON.
         // Hebrew runs ~2x the tokens of English, and this JSON is verbose.
@@ -439,6 +477,36 @@
         const MAX_PDF_PAGES = 600;      // a hard stop, not a quality budget
         const MAX_SOURCE_CHARS = 600000; // what we're willing to keep per course
 
+        // OCR is the slow path — seconds per page, on the learner's own device —
+        // so it gets a much lower ceiling than reading a text layer does. Forty
+        // pages is a chapter or a set of lecture slides, which is what a scan of
+        // study material almost always is; a scanned 300-page book is a job for
+        // `tools/pdf_prep` and always will be.
+        const MAX_OCR_PAGES = 40;
+
+        // Under this many characters per page there is no text layer worth
+        // having. A born-digital page carries hundreds; a scan carries a handful
+        // of stray marks the extractor mistook for glyphs, or nothing at all.
+        const SCAN_CHARS_PER_PAGE = 80;
+
+        // Hebrew first, English second: the material this is for is Hebrew with
+        // English terms scattered through it, not the other way round. Tesseract
+        // reads both from one pass; the order only sets which model it prefers
+        // when a glyph is ambiguous.
+        const OCR_LANGS = 'heb+eng';
+
+        // Tesseract wants roughly 300 DPI. A PDF page is described at 72, so a
+        // page of ordinary width lands near this once scaled — and the cap stops
+        // an A0 poster from being rendered into a canvas no phone can hold.
+        const OCR_TARGET_WIDTH = 1600;
+        const OCR_MAX_SCALE = 4;
+
+        // Tesseract scores every line it reads. Below this the line is not weak
+        // text, it is the scanner's noise read as letters, and leaving it in
+        // costs twice: once in the digest the planner sees, again in TF-IDF,
+        // where a nonsense token is rare and therefore scores well.
+        const OCR_MIN_CONFIDENCE = 25;
+
         // Two runs belong to the same visual line if their baselines are within a
         // fraction of the text height. Exact equality fails: superscripts, inline
         // maths and mixed font sizes all shift the baseline by a hair.
@@ -648,9 +716,123 @@
             return paragraphs.map(p => p.trim()).filter(Boolean).join('\n\n');
         }
 
+        // Pages of lines become the document. Both readers end here — the text
+        // layer and the OCR below produce the same `{ text, y, height }` lines,
+        // so furniture removal and paragraph reconstruction are shared rather
+        // than written twice and left to drift apart.
+        function pagesToText(pages) {
+            const text = stripRepeatedFurniture(pages)
+                .map(linesToParagraphs)
+                .filter(Boolean)
+                .join('\n\n')
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+
+            return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
+        }
+
+        // Did that document have a text layer at all? A scan has none: what comes
+        // back is empty, or a scatter of marks the extractor read as glyphs. The
+        // measure is per page rather than absolute, because forty characters is
+        // an empty result on one page and a catastrophic one on eighty.
+        function looksScanned(text, pageCount) {
+            if (!pageCount || pageCount < 1) return false;
+            return String(text || '').trim().length < pageCount * SCAN_CHARS_PER_PAGE;
+        }
+
+        // Tesseract's page structure — blocks of paragraphs of lines — flattened
+        // into the line shape the rest of the pipeline reads.
+        //
+        // Two conversions matter. Tesseract's y grows downward and PDF's grows
+        // upward, and every function downstream was written against PDF's, where
+        // reading order is *descending* y; negating y0 is the whole of it. And
+        // unlike the text-layer reader, nothing here needs reordering for RTL:
+        // Tesseract knows the script it is reading and returns a Hebrew line in
+        // reading order already.
+        function ocrLinesToLines(blocks) {
+            const lines = [];
+            for (const block of blocks || []) {
+                for (const para of block?.paragraphs || []) {
+                    for (const line of para?.lines || []) {
+                        const text = String(line?.text || '').replace(/\s+/g, ' ').trim();
+                        if (!text) continue;
+                        const confidence = Number(line?.confidence);
+                        if (Number.isFinite(confidence) && confidence < OCR_MIN_CONFIDENCE) continue;
+                        const top = Number(line?.bbox?.y0) || 0;
+                        const bottom = Number(line?.bbox?.y1) || top;
+                        lines.push({ text, y: -top, height: Math.max(1, bottom - top) });
+                    }
+                }
+            }
+            lines.sort((a, b) => b.y - a.y);
+            return lines;
+        }
+
+        // A page as an image for Tesseract to read. The white fill is not
+        // decoration: a canvas starts transparent, a PDF page that paints no
+        // background leaves it that way, and transparent reads as black — a page
+        // of white-on-black that OCR returns nothing at all from.
+        async function renderPageForOcr(page) {
+            const unscaled = page.getViewport({ scale: 1 });
+            const scale = Math.min(OCR_MAX_SCALE, Math.max(1, OCR_TARGET_WIDTH / (unscaled.width || OCR_TARGET_WIDTH)));
+            const viewport = page.getViewport({ scale });
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.ceil(viewport.width);
+            canvas.height = Math.ceil(viewport.height);
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            return canvas;
+        }
+
+        // Read a scan. One worker for the whole document — starting it costs the
+        // core download and the language model, and paying that per page would
+        // make a ten-page chapter take minutes.
+        async function ocrPdfPages(pdf, pageCount, onProgress) {
+            await loadTesseract();
+            if (!window.Tesseract) throw new Error('OCR_UNAVAILABLE');
+
+            const limit = Math.min(pageCount, MAX_OCR_PAGES);
+            // The worker script is fetched from the CDN rather than wrapped in a
+            // Blob URL, because the page's CSP names the CDN and does not name
+            // `blob:` — and a worker that cannot start is a feature that cannot
+            // run.
+            const worker = await Tesseract.createWorker(OCR_LANGS, 1, {
+                workerPath: TESSERACT_BASE + 'worker.min.js',
+                corePath: TESSERACT_CORE_BASE,
+                langPath: TESSERACT_LANG_BASE,
+                workerBlobURL: false,
+            });
+
+            try {
+                const pages = [];
+                for (let i = 1; i <= limit; i++) {
+                    if (onProgress) onProgress(i, limit);
+                    const page = await pdf.getPage(i);
+                    const canvas = await renderPageForOcr(page);
+                    const { data } = await worker.recognize(canvas, {}, { blocks: true });
+                    pages.push(ocrLinesToLines(data?.blocks));
+                    // Both of these hold megabytes per page. A canvas is only
+                    // collected once its backing store is released, and zeroing
+                    // the dimensions is what releases it.
+                    canvas.width = 0;
+                    canvas.height = 0;
+                    page.cleanup();
+                }
+                return pagesToText(pages);
+            } finally {
+                await worker.terminate();
+            }
+        }
+
         // Read the document. `onProgress` is called per page because a 300-page
         // textbook takes long enough that a frozen "Reading..." looks like a hang.
-        async function extractConceptsFromPDF(file, onProgress) {
+        //
+        // `onScanned` is asked for a decision, not told a fact: OCR is minutes of
+        // the learner's battery, so it happens only if they say so. Left out, the
+        // reader behaves exactly as it did before — text layer or nothing.
+        async function extractConceptsFromPDF(file, onProgress, onScanned) {
             await loadPdfJs();
             if (!window.pdfjsLib) throw new Error('PDF_READER_UNAVAILABLE');
             const arrayBuffer = await file.arrayBuffer();
@@ -669,14 +851,16 @@
                 page.cleanup();
             }
 
-            const text = stripRepeatedFurniture(pages)
-                .map(linesToParagraphs)
-                .filter(Boolean)
-                .join('\n\n')
-                .replace(/\n{3,}/g, '\n\n')
-                .trim();
+            const text = pagesToText(pages);
+            if (!onScanned || !looksScanned(text, pageCount)) return text;
+            if (!await onScanned(pageCount, Math.min(pageCount, MAX_OCR_PAGES))) return text;
 
-            return text.length > MAX_SOURCE_CHARS ? text.slice(0, MAX_SOURCE_CHARS) : text;
+            // A scan can still carry a stray text layer — a watermark, a page
+            // number stamped on afterwards. Whichever read found more is the one
+            // worth keeping, so a failed OCR cannot leave the upload worse off
+            // than not running it would have.
+            const ocrText = await ocrPdfPages(pdf, pageCount, onProgress);
+            return ocrText.length > text.length ? ocrText : text;
         }
 
         // Shared by both plan prompts below — the JSON shape and the language
@@ -2016,11 +2200,11 @@ ${languageRule()}`;
         // prepared bundle, or plain text — and plain text really is plain text,
         // which it was not before: a .txt file went through the PDF reader and
         // came back as "make sure it's a valid PDF".
-        async function readUpload(file, onProgress) {
+        async function readUpload(file, onProgress, onScanned) {
             const name = String(file.name || '').toLowerCase();
             if (name.endsWith('.json')) return readBundle(await file.text());
             if (name.endsWith('.pdf') || file.type === 'application/pdf') {
-                return { text: await extractConceptsFromPDF(file, onProgress), structure: null };
+                return { text: await extractConceptsFromPDF(file, onProgress, onScanned), structure: null };
             }
             const text = await file.text();
             return { text: text.slice(0, MAX_SOURCE_CHARS), structure: null };
@@ -2038,23 +2222,52 @@ ${languageRule()}`;
             if (btn) btn.setAttribute('aria-checked', String(on));
         }
 
+        // What the learner is told when their upload turns out to be a scan.
+        // The count matters: reading eight pages is worth waiting for, and being
+        // told up front that a 90-page scan will be read as far as page 40 is
+        // the difference between a limit and a truncation nobody mentioned.
+        function scanNoticeBody(pageCount, ocrPages) {
+            const cost = ocrPages > 8
+                ? 'Reading them takes a few seconds a page, so expect a couple of minutes.'
+                : 'It should take under a minute.';
+            const scope = ocrPages < pageCount
+                ? `It's ${pageCount} pages and the first ${ocrPages} can be read here — for the whole document, tools/pdf_prep has no such limit.`
+                : `All ${pageCount} ${pageCount === 1 ? 'page' : 'pages'} can be read here.`;
+            return `This PDF has no text in it — it's a scan or a photograph, so the words are part of the picture. ${scope} ${cost}`;
+        }
+
         async function handleFileUpload(file) {
             // Name the file being read. "Reading PDF..." after picking the wrong one
             // from a list of near-identical names gives you nothing to check against.
             buildStage('read', `Reading ${file.name}`);
             let text, structure;
+            let usedOcr = false, declinedOcr = false;
+            const onProgress = (page, total) => {
+                // A long document takes tens of seconds to read. Without a
+                // moving count that is indistinguishable from a hung tab.
+                // A real count, because this one is genuinely known.
+                const verb = usedOcr ? 'Reading the scan of' : 'Reading';
+                // OCR is slow enough that page 1 of 3 is already worth showing;
+                // reading a text layer is not.
+                if (usedOcr || total > 8) buildStage('read', `${verb} ${file.name} — page ${page} of ${total}`);
+            };
             try {
-                ({ text, structure } = await readUpload(file, (page, total) => {
-                    // A long document takes tens of seconds to read. Without a
-                    // moving count that is indistinguishable from a hung tab.
-                    // A real count, because this one is genuinely known.
-                    if (total > 8) buildStage('read', `Reading ${file.name} — page ${page} of ${total}`);
+                ({ text, structure } = await readUpload(file, onProgress, async (pageCount, ocrPages) => {
+                    hideMessage();
+                    const ok = await uiConfirm('This looks like a scan', scanNoticeBody(pageCount, ocrPages),
+                        { confirmText: 'Read it anyway', cancelText: 'Cancel' });
+                    if (!ok) { declinedOcr = true; return false; }
+                    usedOcr = true;
+                    buildStage('read', `Reading the scan of ${file.name}`);
+                    return true;
                 }));
             } catch (err) {
                 console.error('upload read error:', err);
                 hideMessage();
                 if (err.message === 'PDF_READER_UNAVAILABLE') {
                     showError("The PDF reader didn't load. Check your connection and try again, or paste the text instead.");
+                } else if (err.message === 'OCR_UNAVAILABLE') {
+                    showError("The reader for scanned pages didn't load. Check your connection and try again, or paste the text instead.");
                 } else if (err.message === 'BUNDLE_INVALID') {
                     showError("That .json file isn't a document bundle. Run tools/pdf_prep with --bundle to make one, or upload the PDF itself.");
                 } else {
@@ -2064,7 +2277,10 @@ ${languageRule()}`;
             }
             if (!text || text.trim().length < 100) {
                 hideMessage();
-                showError("No text found in that file. It may be a scanned PDF with no text layer — tools/pdf_prep can read one with OCR.");
+                showError(
+                    usedOcr ? "Couldn't make out enough text on those pages. A sharper scan, or one photographed straight on, usually reads better — or paste the text instead."
+                    : declinedOcr ? "That PDF is a scan, so there's no text to read without OCR. Upload it again to run it, or paste the text instead."
+                    : "No text found in that file. It may be a scanned PDF with no text layer — tools/pdf_prep can read one with OCR.");
                 return;
             }
             await processLearningMaterial(text, file.name.replace(/\.[^/.]+$/, ''), requestedCourseName(), structure, worksheetMode);

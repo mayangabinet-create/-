@@ -50,6 +50,13 @@ const names = [
   'function pageItemsToLines',
   'function stripRepeatedFurniture',
   'function linesToParagraphs',
+  'const SCAN_CHARS_PER_PAGE',
+  'const MAX_OCR_PAGES',
+  'const OCR_MIN_CONFIDENCE',
+  'function pagesToText',
+  'function looksScanned',
+  'function ocrLinesToLines',
+  'function scanNoticeBody',
   'const CHUNK_CHARS',
   'const STOPWORDS',
   'function tokenize',
@@ -100,6 +107,7 @@ function setUser(email){ currentUser = email ? { email } : null; }
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
+  pagesToText, looksScanned, ocrLinesToLines, scanNoticeBody, MAX_OCR_PAGES,
   splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
   readBundle, bundleStructure, locateSections,
   canDebugPlan, setUser, DEBUG_PLAN_EMAIL,
@@ -731,6 +739,102 @@ console.log('\n== cacheable course context ==');
   ok('a rebuild from the same source matches', P.buildSourceDigest(doc.slice(0), 24000) === a);
 }
 
+console.log('\n== a scanned PDF ==');
+// Tesseract's page structure, in the shape worker.recognize({blocks:true})
+// returns: blocks of paragraphs of lines, each line a bbox whose y grows
+// *downward* — the opposite of the PDF axis every other function here reads.
+function ocrLine(text, top, height = 20, confidence = 90) {
+  return { text, confidence, bbox: { x0: 40, y0: top, x1: 500, y1: top + height } };
+}
+function ocrPage(lines) {
+  return [{ paragraphs: [{ lines }] }];
+}
+
+{
+  const lines = P.ocrLinesToLines(ocrPage([
+    ocrLine('פרק 2: המיטוכונדריה', 100),
+    ocrLine('המיטוכונדריה הוא אברון בתא.', 140),
+  ]));
+  ok('OCR lines keep their reading order', lines.map(l => l.text).join(' | ')
+     === 'פרק 2: המיטוכונדריה | המיטוכונדריה הוא אברון בתא.',
+     JSON.stringify(lines.map(l => l.text)));
+  // Downstream code reads reading order as *descending* y, because that is what
+  // PDF's upward axis means. If the sign were not flipped the page would come
+  // out bottom-up, and every heading would land under the text it introduces.
+  ok('...on the PDF axis, not Tesseract\'s', lines[0].y > lines[1].y,
+     JSON.stringify(lines.map(l => l.y)));
+  ok('line height survives', lines[0].height === 20, String(lines[0].height));
+}
+{
+  // A Hebrew line arrives from Tesseract already in reading order — it knows
+  // the script it read. Reversing it, the way the text-layer reader must,
+  // would be the bug.
+  const lines = P.ocrLinesToLines(ocrPage([ocrLine('שלום עולם', 100)]));
+  ok('Hebrew is not reversed a second time', lines[0].text === 'שלום עולם', lines[0].text);
+}
+{
+  const lines = P.ocrLinesToLines(ocrPage([
+    ocrLine('a real line of text', 100, 20, 88),
+    ocrLine('|~ ,, ..~', 140, 20, 4),
+  ]));
+  ok('scanner noise is dropped', lines.length === 1 && lines[0].text === 'a real line of text',
+     JSON.stringify(lines.map(l => l.text)));
+}
+{
+  // A line with no confidence reported is kept: absent is not zero.
+  const lines = P.ocrLinesToLines(ocrPage([
+    { text: 'no confidence reported', bbox: { x0: 0, y0: 10, x1: 100, y1: 30 } },
+  ]));
+  ok('a line with no score is kept', lines.length === 1);
+  ok('empty input is empty output', P.ocrLinesToLines(undefined).length === 0);
+  ok('and a page of blank lines too', P.ocrLinesToLines(ocrPage([ocrLine('   ', 10)])).length === 0);
+}
+{
+  // The OCR path ends in pagesToText, the same function the text layer ends in,
+  // so furniture removal works on a scan exactly as it does on a real PDF.
+  const pages = [];
+  for (let i = 1; i <= 6; i++) {
+    pages.push(P.ocrLinesToLines(ocrPage([
+      ocrLine('מבוא לביולוגיה של התא', 40),
+      ocrLine('התא הוא יחידת החיים הבסיסית ביותר בכל יצור חי, והוא מכיל אברונים.', 100),
+      ocrLine(String(i), 700),
+    ])));
+  }
+  const text = P.pagesToText(pages);
+  ok('a running head is stripped from a scan', !text.includes('מבוא לביולוגיה של התא'), text.slice(0, 120));
+  ok('the body survives', text.includes('יחידת החיים'), text.slice(0, 120));
+  ok('and the folios are gone', !/^\s*\d+\s*$/m.test(text), JSON.stringify(text));
+}
+
+console.log('\n== deciding a PDF is a scan ==');
+{
+  // What a scan's text layer actually looks like: nothing, or a few marks.
+  ok('an empty read of 10 pages is a scan', P.looksScanned('', 10));
+  ok('40 characters over 10 pages is a scan', P.looksScanned('x'.repeat(40), 10));
+  // A real page carries hundreds of characters, so a real document is never
+  // mistaken for one — this is the check that decides whether the learner is
+  // asked to wait minutes for OCR they did not need.
+  ok('a real document is not', !P.looksScanned('x'.repeat(4000), 10));
+  ok('a sparse title page alone is not enough to trigger it',
+     !P.looksScanned('Introduction to Cell Biology', 0));
+  // One nearly-empty page is the ambiguous case, and it resolves toward asking:
+  // the cost of asking is a dialog, the cost of not asking is a dead end.
+  ok('one page with 20 characters is a scan', P.looksScanned('x'.repeat(20), 1));
+  ok('one page with a paragraph is not', P.looksScanned('x'.repeat(600), 1) === false);
+}
+{
+  // The notice has to name the limit when there is one — a 90-page scan read as
+  // far as page 40 is a truncation, and being told afterwards is worse than
+  // being told now.
+  const capped = P.scanNoticeBody(90, P.MAX_OCR_PAGES);
+  ok('a long scan is told what will be read', capped.includes('90 pages') && capped.includes(`first ${P.MAX_OCR_PAGES}`), capped);
+  ok('...and where the rest can be read', capped.includes('pdf_prep'), capped);
+  const whole = P.scanNoticeBody(6, 6);
+  ok('a short scan is told all of it is read', whole.includes('All 6 pages'), whole);
+  ok('...with no mention of a limit', !whole.includes('pdf_prep'), whole);
+  ok('one page reads as a page', P.scanNoticeBody(1, 1).includes('All 1 page can'), P.scanNoticeBody(1, 1));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
 
@@ -770,19 +874,35 @@ process.exit(fail ? 1 : 0);
  *
  * The .txt case is a regression guard: .txt was in the picker's accept list but
  * went through the PDF reader, and came back as "make sure it's a valid PDF".
+
+ * That recipe is now automated in `tests/playwright/upload-box.test.mjs`, and
+ * a fourth upload joins it in `tests/playwright/scanned-pdf.test.mjs`:
+ *
+ *   - a PDF with no text layer at all      → "This looks like a scan", then OCR
+ *
+ * That one has to be a browser: the OCR cases here (ocrLinesToLines,
+ * looksScanned) are arithmetic over a page structure this file builds by hand,
+ * and every way the feature really fails — a worker that will not start, a WASM
+ * core the CSP refuses to compile, a language model that never downloads — is
+ * invisible to them. It builds a PDF holding one JPEG of Hebrew text, with no
+ * font object and no text operator in the file, and asserts the sentences come
+ * back out of it with the network cut off.
  *
  * Doing it needs a local copy of the two CDN scripts, because index.html and
  * app.js load supabase-js and pdf.js from CDNs that a sandbox usually blocks —
  * and because file:// refuses cross-directory scripts, it has to be served
  * over http:
  *
- *   npm i @supabase/supabase-js@2 pdfjs-dist@3.11.174
+ *   npm i @supabase/supabase-js@2 pdfjs-dist@3.11.174 tesseract.js@6.0.1
  *   cp index.html app.js -t site/ && cp -r fonts site/
  *   #   supabase-js loads eagerly — point its <script src> tag in
  *   #   site/index.html at the local copy.
  *   #   pdf.js loads lazily, on first upload — point PDFJS_BASE in
  *   #   site/app.js (loadPdfJs()) at the local copy instead, and drop
  *   #   the integrity attribute it sets, which won't match a local file.
+ *   #   Tesseract is the same, four times over: TESSERACT_BASE,
+ *   #   TESSERACT_CORE_BASE and TESSERACT_LANG_BASE, plus its own
+ *   #   integrity attribute. site-setup.mjs does all of this.
  *   (cd site && python3 -m http.server 8731)
  *   # Playwright: goto localhost:8731, setInputFiles('#fileInput', file),
  *   # then assert on #authModal.classList.contains('active') — not on

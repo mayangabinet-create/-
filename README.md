@@ -261,7 +261,8 @@ longer of its two wordings, because that is the prompt a real learner gets.
 ## Reading the PDF
 
 A PDF page is not text — it is a bag of positioned glyph runs — so how the file is read
-decides everything the model can know about it. Three steps:
+decides everything the model can know about it. Three steps, and a fourth for the
+pages that have no glyph runs at all.
 
 **Extraction.** Every page is read (the reader used to stop at page 20). Runs are grouped
 into lines by baseline, ordered by position, and joined using the gap between them so
@@ -275,6 +276,49 @@ does. Words hyphenated across a line-wrap are rejoined. Running heads and page-n
 footers are detected by repetition across pages and dropped, with headings exempt from
 the digit-insensitive form of that match, since "Chapter 1", "Chapter 2" and "Chapter 3"
 otherwise look like one line repeating and the whole outline gets deleted.
+
+**Reading a scan.** A photographed chapter, a departmental scan, a summary somebody's
+phone turned into a PDF: the words are part of the picture and the file has no text
+layer at all. That is not an edge case for this app's material — it is most of what an
+Israeli student actually has — and until recently it was the one upload refused
+outright, with a message pointing at a Python tool nobody was going to run.
+
+Now the reader notices. Under `SCAN_CHARS_PER_PAGE` (80) characters per page there is
+no text layer worth having, and rather than fail, the upload box says so and offers to
+read the pages as images: **Tesseract**, in the browser, in Hebrew and English at once
+(`OCR_LANGS = 'heb+eng'`). Nothing is downloaded until a scan actually arrives — the
+WASM core and the language models are megabytes, and the great majority of uploads
+never need them — and the browser keeps the language data in IndexedDB afterwards, so
+the second scan pays only for the core.
+
+It is offered rather than done, because OCR is seconds per page of the learner's own
+battery and the dialog is the only honest place to say so. The ceiling is
+`MAX_OCR_PAGES` (40), which is a chapter or a lecture's slides; a scanned 300-page book
+is still a job for `tools/pdf_prep`, and the dialog says which case it is looking at
+before anything starts.
+
+What comes back joins the pipeline above rather than bypassing it. Tesseract's blocks →
+paragraphs → lines are flattened to the same `{ text, y, height }` lines the text layer
+produces, so furniture removal, paragraph reconstruction, the digest and TF-IDF all work
+on a scan exactly as they do on a born-digital PDF. Two things differ, and both are in
+`ocrLinesToLines`: Tesseract's y grows downward where PDF's grows upward, so the sign is
+flipped — get that wrong and every page comes out bottom-up, with each heading beneath
+the text it introduces. And a Hebrew line needs **no** reordering here, unlike the text
+layer: Tesseract knows which script it read and returns the line in reading order
+already, so the reversal that fixes `פרק 2: המיטוכונדריה` above would break it here.
+Lines Tesseract scores below `OCR_MIN_CONFIDENCE` are dropped — that is not weak text,
+it is the scanner's noise read as letters, and it costs twice, once in the digest and
+again in TF-IDF, where a nonsense token is rare and therefore scores well.
+
+Whichever read found more text is the one kept, so a bad OCR run cannot leave an upload
+worse off than not running it would have.
+
+This is the one part of the pipeline whose failures are all in the browser — a worker, a
+WASM core, and a CSP strict enough to refuse any of it silently — so it is covered
+there: `tests/playwright/scanned-pdf.test.mjs` builds a PDF containing nothing but a
+JPEG of Hebrew text, with no font object and no text operator in the file, and asserts
+the sentences come back out of it with the network cut off. A CSP missing
+`'wasm-unsafe-eval'` fails exactly there and nowhere else.
 
 **Condensing.** The planning call cannot hold a textbook, so it gets a digest rather than
 the first N characters. Taking the first N is the worst available choice: the opening
@@ -880,9 +924,10 @@ python3 -m tools.pdf_prep book.pdf -o out/ --bundle   # → out/document.bundle.
 
 The course is then planned from that outline — real headings, real page numbers
 — rather than from one the browser re-derived out of the text, and the outline
-is stored on the course in `courses.structure`. It is also the only way a
-**scanned** PDF gets in at all: the browser's reader has no OCR, so a scan
-uploaded directly still gives it nothing.
+is stored on the course in `courses.structure`. For a **scanned** PDF it is
+now the better of two ways in rather than the only one: the browser will OCR a
+scan itself (see *Reading a scan*, above), but it is capped at 40 pages and has
+no page numbers to give, where this tool has neither limit.
 
 The handoff is a file rather than a call on purpose. `ai-proxy` is a Deno Edge
 Function and cannot run Python, so a live call would mean deploying a Python
@@ -1082,8 +1127,8 @@ the button is drawn, which is why the address is duplicated in both places —
   3. In `index.html`, add the provider's widget script/div near the auth form (Turnstile:
      `<div class="cf-turnstile" data-sitekey="…"></div>` plus its script tag — both need
      an entry in the CSP's `script-src`/`connect-src`/`frame-src`, which is currently
-     locked to `'self'` and one CDN, so the exact origin the provider's docs list has to
-     be added there too, not guessed).
+     locked to `'self'`, jsdelivr and the Tesseract language data host, so the exact
+     origin the provider's docs list has to be added there too, not guessed).
   4. In `app.js`, the two calls this gates are at line ~9866 — `signUp({ email, password })`
      and `signInWithPassword({ email, password })` — each needs `options: { captchaToken }`
      added, reading the token the widget produced. Do steps 3–4 in the same change as

@@ -370,26 +370,6 @@ function prepareLessonBlocks(blocks, plan, model) {
 }
 
 /**
- * Streaming.
- *
- * A lesson is up to 6,000 output tokens and a Max course plan is 4,000 of
- * Opus's, and output tokens are generated one at a time: that is minutes of
- * wall clock no amount of clamping removes. Held as one request/response the
- * caller sees nothing at all until the last token lands — and past a certain
- * length nothing is what it sees, because a non-streamed request is also the
- * one that hits a gateway's idle timeout.
- *
- * So the proxy streams. The bytes go to the browser as they arrive, which
- * moves the wait from "a spinner for two minutes" to "text appearing", and
- * removes the timeout with it.
- *
- * The client asks for it (`stream: true`) rather than getting it whichever way
- * the function was last deployed: a browser that predates this still sends
- * nothing and still gets one JSON body back. Old client, new function; new
- * client, old function — both work, which is what lets the two be deployed in
- * either order.
- */
-/**
  * Turn a refusal from Anthropic into this app's own error shape.
  *
  * Anthropic answers a refused request with `{type:"error", error:{type,
@@ -433,6 +413,26 @@ function safeJson(value) {
   }
 }
 
+/**
+ * Streaming.
+ *
+ * A lesson is up to 6,000 output tokens and a Max course plan is 4,000 of
+ * Opus's, and output tokens are generated one at a time: that is minutes of
+ * wall clock no amount of clamping removes. Held as one request/response the
+ * caller sees nothing at all until the last token lands — and past a certain
+ * length nothing is what it sees, because a non-streamed request is also the
+ * one that hits a gateway's idle timeout.
+ *
+ * So the proxy streams. The bytes go to the browser as they arrive, which
+ * moves the wait from "a spinner for two minutes" to "text appearing", and
+ * removes the timeout with it.
+ *
+ * The client asks for it (`stream: true`) rather than getting it whichever way
+ * the function was last deployed: a browser that predates this still sends
+ * nothing and still gets one JSON body back. Old client, new function; new
+ * client, old function — both work, which is what lets the two be deployed in
+ * either order.
+ */
 export function wantsStream(body) {
   return body?.stream === true;
 }

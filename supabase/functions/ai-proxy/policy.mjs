@@ -386,6 +386,16 @@ function prepareLessonBlocks(blocks, plan, model) {
  * act on. Anything else is a bug in what was sent, and the upstream text is
  * the most useful thing anyone — them, reporting it, or whoever reads the
  * logs — can be handed, so it goes in the message rather than being swallowed.
+ *
+ * One refusal is neither, and it is the one that actually happened: an
+ * exhausted API credit balance, which Anthropic returns as a 400 whose
+ * message names the account and where to top it up. That text is addressed
+ * to whoever runs this app, not to the learner reading it — it tells them to
+ * go and pay a bill that is not theirs, on an account they cannot see. So
+ * this case gets a neutral sentence and a code of its own, and the upstream
+ * wording goes to `detail`, which only the logs read. Everything a learner is
+ * shown should be either something they can act on or something honest about
+ * the app being at fault; this is the second kind.
  */
 export function upstreamError(status, body) {
   const detail =
@@ -394,6 +404,16 @@ export function upstreamError(status, body) {
     : safeJson(body);
   const type = typeof body?.error?.type === "string" ? body.error.type : "upstream_error";
   const transient = status === 429 || status >= 500;
+
+  if (!transient && BILLING_RE.test(detail)) {
+    return {
+      error: type,
+      code: "upstream_billing",
+      message: "Lessons are temporarily unavailable. This one is on us, not on you — please try again a bit later.",
+      detail,
+    };
+  }
+
   return {
     error: type,
     code: "upstream_error",
@@ -403,6 +423,15 @@ export function upstreamError(status, body) {
     detail,
   };
 }
+
+/**
+ * Matched against the upstream message, because the error *type* does not
+ * distinguish this from any other bad request — a spent balance and a
+ * malformed block both arrive as `invalid_request_error`. Wording is a weak
+ * signal and this deliberately fails safe: a miss shows the upstream text,
+ * which is the old behaviour, not a broken lesson.
+ */
+const BILLING_RE = /credit balance|plans\s*&\s*billing|billing|insufficient (?:funds|credit)/i;
 
 function safeJson(value) {
   try {

@@ -306,6 +306,31 @@ console.log("\n== a refusal from upstream ==");
     ok(`and a ${status} still records what upstream said`, busy.detail === "Overloaded");
   }
 
+  // The refusal that actually happened, on 2026-08-25: a spent credit
+  // balance. Anthropic returns it as a 400 whose message tells the reader to
+  // go and pay a bill — addressed to whoever runs this app, on an account a
+  // learner cannot see and is not responsible for.
+  const spent = upstreamError(400, {
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+    },
+  });
+  ok("a spent credit balance is not billed to the learner in words",
+     !/credit balance|billing/i.test(spent.message), spent.message);
+  ok("it says the app is at fault rather than blaming the request",
+     /on us, not on you/.test(spent.message), spent.message);
+  ok("and it is separable from other refusals in the logs",
+     spent.code === "upstream_billing");
+  ok("while the upstream wording is still recorded",
+     /Plans & Billing/.test(spent.detail));
+  // Wording is a weak signal, so a miss has to fail towards the old
+  // behaviour rather than towards a broken lesson.
+  const other = upstreamError(400, { type: "error", error: { type: "invalid_request_error", message: "text content blocks must be non-empty" } });
+  ok("an unrelated 400 is untouched by the billing case",
+     other.code === "upstream_error" && other.message.includes("non-empty"));
+
   const empty = upstreamError(400, {});
   ok("a body with nothing in it still produces a string message",
      typeof empty.message === "string" && empty.message.length > 0);

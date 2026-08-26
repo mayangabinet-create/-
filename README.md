@@ -605,7 +605,11 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   sentence naming what the model objected to (a rate limit or an outage reads as
   transient instead, since the upstream wording is not something a learner can act on),
   and `index.ts` logs the same detail, so a refusal now leaves a record on both sides
-  of the wire rather than on neither. The client no longer trusts any of this blindly
+  of the wire rather than on neither. One refusal gets a message of its own: an
+  exhausted API credit balance — the refusal that produced the dialog above — arrives
+  as a 400 whose text tells the reader to go and pay a bill on an account no learner
+  can see, so it reads as "temporarily unavailable, this one is on us" and carries
+  `code: "upstream_billing"` for the logs. The client no longer trusts any of this blindly
   either: `asMessage()` in `app.js` coerces whatever reaches a dialog into text, and
   `errorText()` reads a message out of all three shapes — this app's, Anthropic's, and
   a bare code — because a browser served from GitHub Pages and a function deployed

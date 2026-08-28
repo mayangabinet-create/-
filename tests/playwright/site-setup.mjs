@@ -19,6 +19,17 @@ export function buildSite() {
 
   cpSync(path.join(repoRoot, "fonts"), path.join(siteDir, "fonts"), { recursive: true });
 
+  // index.html links a favicon, an apple-touch icon and a manifest. None of
+  // them affect what this suite asserts, but leaving them out turns every run
+  // into a page that fetches four files and 404s on all of them — noise that
+  // makes a real missing-asset regression impossible to spot in the log.
+  for (const asset of [
+    "favicon.svg", "favicon-32.png", "apple-touch-icon.png",
+    "icon-192.png", "icon-512.png", "site.webmanifest",
+  ]) {
+    cpSync(path.join(repoRoot, asset), path.join(siteDir, asset));
+  }
+
   cpSync(
     path.join(here, "node_modules/@supabase/supabase-js/dist/umd/supabase.js"),
     path.join(siteDir, "vendor/supabase.js"),

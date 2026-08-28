@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Only indexable pages belong in a sitemap. privacy.html, terms.html,
+     thanks.html and 404.html are all noindex by their own meta tag, so
+     listing them here would just ask Google to crawl URLs it has been told
+     to drop. The app is a single page; every screen inside it is app state,
+     not a separate URL. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://mayangabinet-create.github.io/-/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

@@ -593,6 +593,31 @@ shows a skeleton it doesn't need to. The account tab's `field()` helper — a sh
 swapped in for exactly the numbers still loading, real labels and layout around it
 the whole time — was the pattern worth generalising *from*; these three now match it.
 
+### The dot
+
+The app's one character: a small green circle. No face, no name, no eyes, and no
+shading — a **flat disc of a single colour** (`--dot`, brand green; the brighter green
+in dark mode). It briefly had a radial gradient with a highlight and a shadow edge,
+which made it read as a lit 3D ball; that was wrong beside every other flat surface
+here, and it is gone. The one ring it still carries — white, then a faint halo — is a
+cutout that keeps it legible while it moves over cards and the dashed path line, not
+shading.
+
+It never changes shape, only how it moves: `is-idle` rests, `is-thinking` breathes
+faster and spins a halo, `is-pop` is a one-shot landing. Four places, and only four:
+
+| Where | State |
+| --- | --- |
+| Beside the app name in the header | Still. This is identity, not reaction — the same mark as `favicon.svg` and the home-screen icon, so tab, installed icon and header read as one thing. |
+| An empty library | `is-idle` |
+| Over the whole screen while a course or lesson is being written | `is-thinking` — the longest wait the app ever asks for, minutes of it on the bigger plans |
+| Travelling to the next lesson on the path | `is-thinking`, then `is-pop` on landing (`travelDotToNode`; skipped entirely under `prefers-reduced-motion`) |
+
+That third row was a plain grey spinner until recently, which meant the character was
+absent from the one screen it had the most time on. If you add a fifth place, it should
+be a real moment — the point is that it shows up when something is actually happening,
+not that it follows anyone around.
+
 The reasoning behind these choices, compared against sites held up as UI/UX best and
 worst practice, is in [`docs/ui-ux-research.md`](docs/ui-ux-research.md) — including a
 checklist to run before merging a new UI feature.
@@ -646,6 +671,26 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   Edge Functions** — turn a plan choice into a real, self-renewing subscription and
   keep `subscriptions` in sync. See *Payments*, below.
 - New signups get a 3-day trial automatically via a trigger on `auth.users`.
+
+### The pages around the app
+
+`index.html` is the app, but it is not the only file GitHub Pages serves. The rest are
+plain HTML with their own inline styles and no JavaScript at all:
+
+| File | What it is |
+| --- | --- |
+| `privacy.html`, `terms.html` | The legal pages. `noindex` — they exist for the person reading them, not for search. |
+| `thanks.html` | Where Grow returns someone after a successful payment. Its button carries `?checkout=success` back into the app, which is what makes the plan refresh (see *Payments*). |
+| `404.html` | GitHub Pages serves this for any unknown path. Links onward rather than dead-ending. |
+| `robots.txt`, `sitemap.xml` | Only the home page is in the sitemap; every other page is `noindex`, and asking Google to crawl a URL it has been told to drop is a contradiction. On a *project* site crawlers only read `robots.txt` from the domain root, so this one becomes the live one when a custom domain is pointed here — the file says so itself. |
+| `site.webmanifest`, `favicon.svg`, `favicon-32.png`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png` | Install and tab icons. The PNGs are generated from the app's own brand tokens by `tools/icons/make_icons.py` — edit the colours in `index.html`, re-run it, don't hand-edit the PNGs. |
+
+Signed out, the home screen also carries a short pitch, an FAQ, a support promise and a
+site footer; `setScreen()` in `app.js` hides all of it the moment someone signs in.
+The FAQ is duplicated as `FAQPage` JSON-LD in `index.html`'s `<head>` — Google requires
+the two to match word for word, and `tests/site-metadata.js` fails if they drift. That
+suite also re-derives the CSP hash of every inline script, which is the only thing that
+catches a reindented `<script>` silently no longer running.
 
 ## Why the bigger plans felt slower, and what was done about it
 
@@ -993,11 +1038,26 @@ all four functions and by `tests/grow-policy.mjs` — the same split
 button once `subscriptions.grow_token` is set. Grow has no hosted portal to
 open, so that button is a confirm dialog (`manageBilling`) that calls
 `grow-cancel` directly — it reads "Resume subscription" instead once
-`cancel_at_period_end` is already true. Returning from checkout lands on
-`index.html?checkout=success` or `?checkout=cancel`; the init block strips
-that query param immediately and, on success, re-reads `subscriptions` a
-couple of seconds later — long enough for the webhook to have landed —
-rather than trusting the redirect itself as proof of payment.
+`cancel_at_period_end` is already true.
+
+Returning from checkout lands on `thanks.html` (success) or
+`index.html?checkout=cancel`. `thanks.html`'s button carries
+`?checkout=success` back into the app, so the flow the init block handles is
+unchanged: it strips that query param immediately and, on success, re-reads
+`subscriptions` a couple of seconds later — long enough for the webhook to
+have landed — rather than trusting the redirect itself as proof of payment.
+The thank-you page says the same thing in words, because Grow's redirect
+routinely beats its own webhook back and an unexplained "still on your old
+plan" reads as a failed charge.
+
+The return address is the app's **base URL**, not its origin. `startCheckout`
+used to send `window.location.origin`, which drops the `/-/` this app is
+served from — so `${origin}/?checkout=success` sent a payer to
+`https://mayangabinet-create.github.io/`, the account's user site rather than
+this app. `appBaseUrl()` in `app.js` now sends origin *plus* directory, still
+under the wire key `origin` so an older deployment of `grow-checkout` builds
+the right URL too. If `GROW_ALLOWED_ORIGIN` is ever set, it must be that same
+base URL — `https://mayangabinet-create.github.io/-`, no trailing slash.
 
 **How the API details here were found.** `grow-il.readme.io`'s own docs
 pages weren't reachable while building this — the request/response shapes
@@ -1108,6 +1168,15 @@ the button is drawn, which is why the address is duplicated in both places —
   things SQL can't: that a client sending 120,000 chars on Basic is clamped server-side,
   and that each tier really returns 10/12/15 concepts. Run it before enabling payments —
   it spends real API budget (~$0.75 for the Max run), so it isn't run automatically.
+- **Analytics: deliberately deferred, not forgotten.** There is none — no cookies,
+  no tracking, no third-party script — and `privacy.html` says so in those words.
+  Adding Google Analytics is not a one-line change from here: it needs a real GA4
+  measurement ID (nothing in this repo can invent one), `script-src` and
+  `connect-src` widened to `googletagmanager.com` in `index.html`'s CSP, a consent
+  banner to stay lawful under GDPR and Israeli law, and that sentence in the privacy
+  policy rewritten. A cookieless counter (Plausible, Umami) would skip the banner and
+  most of the policy rewrite. **Decide which before wiring anything** — shipping GA
+  while the privacy policy denies it is worse than having no analytics at all.
 - **Leaked password protection is off.** Supabase Auth can reject a password found in
   a known breach (checked against HaveIBeenPwned) and it is not turned on for this
   project. It is a toggle in the dashboard — Authentication → Providers → Email — not

@@ -20,11 +20,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: app.js suites (lift-and-compile from the shipping source)
+      - name: app.js suites (lift-and-compile from the shipping source) + static site checks
         run: |
           set -e
           for f in tests/lesson-flow.js tests/onboarding.js tests/pdf-pipeline.js \
-                   tests/lesson-visuals.js tests/learning-state.js; do
+                   tests/lesson-visuals.js tests/learning-state.js tests/site-metadata.js; do
             echo "== $f =="
             node "$f"
           done

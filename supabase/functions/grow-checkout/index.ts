@@ -19,6 +19,10 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // a forged one buys is sending the caller's own browser to a page of their
 // own choosing, since every call still only ever acts on the caller's own
 // account.
+// When it *is* set, it must be the app's full base URL and not just the
+// scheme and host — the value it is compared against now carries the
+// directory too (see returnBase below). For this deployment that is
+// https://mayangabinet-create.github.io/-  — no trailing slash.
 const ALLOWED_ORIGIN = Deno.env.get("GROW_ALLOWED_ORIGIN") || null;
 
 const PRICE_MAP = priceMapFromEnv((k) => Deno.env.get(k));
@@ -75,8 +79,22 @@ Deno.serve(async (req: Request) => {
     }, 500);
   }
 
-  const origin = typeof body?.origin === "string" ? body.origin : req.headers.get("origin");
-  if (!origin || !/^https:\/\//.test(origin) || (ALLOWED_ORIGIN && origin !== ALLOWED_ORIGIN)) {
+  // Named `origin` on the wire for compatibility, but what the browser now
+  // sends is the app's *base URL* — origin plus the directory it is served
+  // from, no trailing slash. That distinction is the whole point: this app is
+  // served from /-/ on GitHub Pages, so a bare origin sent the payer back to
+  // the domain root, which is a different site entirely.
+  //
+  // The header fallback is still a bare origin (that is all the browser puts
+  // there), so it stays correct only for a root-hosted deployment. Anything
+  // with a query or fragment is refused outright: the return URLs are built by
+  // concatenation below, and a "base" carrying a `?` would silently swallow
+  // the checkout parameter appended after it.
+  const returnBase = typeof body?.origin === "string" ? body.origin : req.headers.get("origin");
+  if (
+    !returnBase || !/^https:\/\//.test(returnBase) || /[?#]/.test(returnBase) ||
+    (ALLOWED_ORIGIN && returnBase !== ALLOWED_ORIGIN)
+  ) {
     return json({ error: "invalid_origin" }, 400);
   }
 
@@ -88,8 +106,14 @@ Deno.serve(async (req: Request) => {
       amount,
       pageCode: GROW_PAGE_CODE,
       userId: GROW_USER_ID,
-      successUrl: `${origin}/?checkout=success`,
-      cancelUrl: `${origin}/?checkout=cancel`,
+      // A page of its own rather than a toast on the app screen: it is the
+      // one moment a payer wants a receipt-shaped confirmation, it says why
+      // the plan may take a few seconds to change (Grow's redirect routinely
+      // beats its own webhook back), and it is a URL that can be linked to.
+      // Its CTA carries ?checkout=success onward, so the app still refreshes
+      // the entitlement and toasts exactly as it did before.
+      successUrl: `${returnBase}/thanks.html`,
+      cancelUrl: `${returnBase}/?checkout=cancel`,
       webhookUrl: `${SUPABASE_URL}/functions/v1/grow-webhook`,
     });
 

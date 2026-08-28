@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Terms of Service — AI Learning Path</title>
-<meta name="robots" content="noindex">
+<meta name="description" content="The terms you agree to when using AI Learning Path — plans and payment, cancellation, acceptable use, and liability.">
+<meta name="robots" content="noindex, follow">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#F4F5F7">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <style>
     :root { color-scheme: light dark; }
@@ -27,9 +32,28 @@
     a { color: #3E8523; }
     ul { padding-left: 22px; }
     .back { display: inline-block; margin-top: 48px; }
+    /* Breadcrumb: where this page sits relative to the app. aria-current marks
+       the last item, and it is plain text rather than a link — a link to the
+       page you are already on is a dead end for anyone tabbing through. */
+    .crumbs { font-size: 0.85rem; color: #6E7681; margin-bottom: 24px; }
+    .crumbs ol { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .crumbs li { display: flex; align-items: center; gap: 8px; }
+    .crumbs li + li::before { content: "/"; color: #9AA1AB; }
+    .page-footer {
+        margin-top: 56px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,0.25);
+        font-size: 0.85rem; color: #6E7681;
+    }
+    .page-footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 10px; }
 </style>
 </head>
 <body>
+
+<nav class="crumbs" aria-label="Breadcrumb">
+    <ol>
+        <li><a href="index.html">AI Learning Path</a></li>
+        <li><span aria-current="page">Terms of Service</span></li>
+    </ol>
+</nav>
 
 <div class="notice">
     <strong>This is a working draft, not legal advice.</strong> It was written from
@@ -131,6 +155,17 @@ to its conflict-of-law provisions.</p>
 <p>mayangabinet@gmail.com</p>
 
 <a class="back" href="index.html">← Back to the app</a>
+
+<div class="page-footer">
+    <nav aria-label="Site">
+        <a href="index.html">Home</a>
+        <a href="index.html#faq">FAQ</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <span aria-current="page">Terms of Service</span>
+        <a href="mailto:mayangabinet@gmail.com">Contact</a>
+    </nav>
+    <p>Questions? Email <a href="mailto:mayangabinet@gmail.com">mayangabinet@gmail.com</a> — we answer within one business day.</p>
+</div>
 
 </body>
 </html>

@@ -134,6 +134,7 @@ code += `
 module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, fitPoints,
   esc, escAttr,
   vertexAngles, regularPolygon, gematriaValue, gematriaBreakdown, sliderSpec, validVisual,
+  GEMATRIA_METHOD_NAMES,
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
@@ -306,6 +307,25 @@ console.log('\n== gematria ==');
      P.gematriaBreakdown('שָׁלוֹם!').total === P.gematriaBreakdown('שלום').total);
   ok('a word with no Hebrew in it has nothing to add up',
      P.gematriaBreakdown('hello').letters.length === 0);
+
+  // The method caption is app chrome, and this app's chrome is English —
+  // applyContentDirection()'s rule is that only the model's output follows the
+  // course language. These four labels were Hebrew ("מספר הכרחי" and the rest),
+  // which put Hebrew UI text into an otherwise English interface. The Hebrew
+  // *letters* are the subject and stay; the caption naming the rule does not.
+  {
+    const HEBREW = /[\u0590-\u05FF]/;
+    const labels = Object.entries(P.GEMATRIA_METHOD_NAMES);
+    ok('every gematria method has a caption', labels.length === 4);
+    for (const [method, label] of labels) {
+      ok(`the ${method} caption is English chrome, not Hebrew`,
+         !HEBREW.test(label), JSON.stringify(label));
+    }
+    // Each caption is the only thing on screen saying why the same letter is
+    // worth 600 in one lesson and 40 in another, so it has to name the rule.
+    ok('gadol says what makes it large', /500/.test(P.GEMATRIA_METHOD_NAMES.gadol));
+    ok('katan says what gets dropped', /drop/i.test(P.GEMATRIA_METHOD_NAMES.katan));
+  }
 
   // The whole point of computing rather than quoting: the model's own sum is
   // never shown, so a lesson cannot teach 442.

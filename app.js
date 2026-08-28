@@ -4661,9 +4661,25 @@ ${languageRule()}`;
             return { letters, total };
         }
 
+        // Chrome, not content — so English, by the same rule
+        // applyContentDirection() states above: the app's own text stays put and
+        // only the model's output follows the course's language. These were the
+        // Hebrew method names (מספר הכרחי and the rest), the one hard-coded
+        // string in the app that didn't follow it; the "Try a word" label a few
+        // lines below, in this very component, was already English.
+        //
+        // The Hebrew letters themselves stay Hebrew, obviously — they are the
+        // subject rather than the chrome, and the tile row keeps its dir="rtl".
+        //
+        // Each label names the rule it applies rather than only the method,
+        // because this caption is the only thing on screen explaining why ם is
+        // worth 600 in one lesson and 40 in another. Wording follows
+        // gematriaValue() above, exactly.
         const GEMATRIA_METHOD_NAMES = {
-            standard: 'מספר הכרחי', gadol: 'מספר גדול',
-            ordinal: 'מספר סידורי', katan: 'מספר קטן',
+            standard: 'Standard values',
+            gadol:    'Large values — final letters count 500 to 900',
+            ordinal:  'Ordinal values — each letter’s place in the alphabet',
+            katan:    'Reduced values — trailing zeros dropped',
         };
 
         function gematriaTiles(word, method) {

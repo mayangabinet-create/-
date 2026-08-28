@@ -18,11 +18,14 @@ import struct
 import zlib
 from pathlib import Path
 
-# Straight from :root in index.html — --dot-light, --dot, --dot-deep and
-# --surface. Change them there and re-run this; don't hand-edit the PNGs.
-DOT_LIGHT = (0x6F, 0xBF, 0x47)
+# Straight from :root in index.html — --dot and --surface. Change them there
+# and re-run this; don't hand-edit the PNGs.
+#
+# Two colours, because the dot is flat. An earlier version of this script drew
+# a radial gradient from a highlight to a shadow edge, which made every icon a
+# lit 3D ball — the wrong character for a flat, drawn interface, and not what
+# .dot renders in the app.
 DOT = (0x3E, 0x85, 0x23)
-DOT_DEEP = (0x2F, 0x6B, 0x18)
 SURFACE = (0xFF, 0xFF, 0xFF)
 
 # Supersampling factor. The circle edge and the gradient are both smooth
@@ -31,20 +34,8 @@ SURFACE = (0xFF, 0xFF, 0xFF)
 SS = 4
 
 
-def _lerp(a, b, t):
-    return tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-
-def _dot_colour(t):
-    """The .dot radial-gradient, sampled at normalised radius t (0 at the
-    highlight, 1 at the rim): --dot-light 0%, --dot 55%, --dot-deep 100%."""
-    if t <= 0.55:
-        return _lerp(DOT_LIGHT, DOT, t / 0.55)
-    return _lerp(DOT, DOT_DEEP, (t - 0.55) / 0.45)
-
-
 def render(size, dot_fraction):
-    """One icon: the dot centred on an opaque --surface ground.
+    """One icon: a flat --dot disc centred on an opaque --surface ground.
 
     dot_fraction is the dot's diameter as a share of the canvas. Opaque
     because iOS composites a transparent home-screen icon onto black, and a
@@ -53,33 +44,26 @@ def render(size, dot_fraction):
     n = size * SS
     radius = n * dot_fraction / 2.0
     cx = cy = n / 2.0
-    # The highlight sits at 32%/26% of the *circle's* box, matching the
-    # `circle at 32% 26%` in the CSS, not the centre of the canvas.
-    hx = cx + (0.32 - 0.5) * radius * 2
-    hy = cy + (0.26 - 0.5) * radius * 2
-    # Farthest-corner, as CSS radial-gradient defaults to: the ramp has to
-    # be normalised against the distance from the off-centre highlight to
-    # the far edge of the circle, or the rim colour is never reached.
-    span = ((cx - hx) ** 2 + (cy - hy) ** 2) ** 0.5 + radius
+    r2 = radius * radius
 
     rows = []
     for y in range(size):
         row = bytearray()
         for x in range(size):
-            r = g = b = 0
+            # Supersampling is the only thing doing any work now that the fill
+            # is flat: each output pixel is the share of its SSxSS samples that
+            # land inside the circle, which is what antialiases the rim.
+            covered = 0
             for sy in range(SS):
-                py = y * SS + sy + 0.5
+                dy = y * SS + sy + 0.5 - cy
+                dy2 = dy * dy
                 for sx in range(SS):
-                    px = x * SS + sx + 0.5
-                    inside = (px - cx) ** 2 + (py - cy) ** 2 <= radius * radius
-                    if inside:
-                        t = (((px - hx) ** 2 + (py - hy) ** 2) ** 0.5) / span
-                        c = _dot_colour(min(t, 1.0))
-                    else:
-                        c = SURFACE
-                    r += c[0]; g += c[1]; b += c[2]
+                    dx = x * SS + sx + 0.5 - cx
+                    if dx * dx + dy2 <= r2:
+                        covered += 1
             k = SS * SS
-            row += bytes((r // k, g // k, b // k))
+            row += bytes(round(SURFACE[i] + (DOT[i] - SURFACE[i]) * covered / k)
+                         for i in range(3))
         rows.append(bytes(row))
     return rows
 

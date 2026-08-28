@@ -362,16 +362,18 @@
 
             /* The dot: a small circular mark with no other job on screen, so
                it borrows brand green rather than adding a seventh hue. In
-               light mode it's brand as-is; in dark mode the roles swap
-               (see the dark block below) so it stays vivid against a dark
-               background instead of reading as the muddy tone brand is
-               tuned to sit under white button text. --dot-light has no
-               existing equivalent in either theme — it's the one genuinely
-               new value, the gradient highlight that makes the fill read as
-               a lit sphere instead of a flat circle. */
+               light mode it's brand as-is; in dark mode it swaps to the
+               brighter green (see the dark blocks below) so it stays vivid
+               against a dark background instead of reading as the muddy tone
+               brand is tuned to sit under white button text.
+
+               Two tokens, not four. There used to be a --dot-light highlight
+               and a --dot-deep shadow edge feeding a radial-gradient, which
+               made the mark read as a lit 3D sphere — the wrong character
+               beside every other flat surface in this file. The fill is one
+               solid colour now. --dot-ring stays: it is the halo the thinking
+               state spins, which is motion, not shading. */
             --dot:        var(--brand);
-            --dot-deep:   var(--brand-strong);
-            --dot-light:  #6FBF47;
             --dot-ring:   rgba(62, 133, 35, 0.25);
 
             --accent:             #7C3FBF;   /* the analogy box */
@@ -495,14 +497,10 @@
 
                 --gold-strong:        #F5C04A;
 
-                /* The two roles swap here: the bright value becomes the
-                   dot's own fill, and plain --brand (unchanged, still
-                   #3E8523) becomes its shadow edge. --dot-light needs a
-                   value brighter than --brand-strong for the highlight to
-                   read as a highlight at all, which nothing existing is. */
+                /* --brand-strong is the bright green in this theme, so that
+                   is the dot's fill here; plain --brand is too dark to read
+                   against a dark background. */
                 --dot:        var(--brand-strong);
-                --dot-deep:   var(--brand);
-                --dot-light:  #A9EB84;
                 --dot-ring:   rgba(126, 217, 87, 0.30);
 
                 --accent-strong:      #B98AEE;
@@ -546,8 +544,6 @@
             --gold-strong:        #F5C04A;
 
             --dot:        var(--brand-strong);
-            --dot-deep:   var(--brand);
-            --dot-light:  #A9EB84;
             --dot-ring:   rgba(126, 217, 87, 0.30);
 
             --accent-strong:      #B98AEE;
@@ -672,6 +668,7 @@
             letter-spacing: -0.01em;
             color: var(--text);
         }
+        .app-title { display: flex; align-items: center; gap: var(--sp-2); }
         .subtitle {
             color: var(--text-muted);
             font-size: var(--fs-sm);
@@ -1121,7 +1118,6 @@
             border-top-color: var(--info);
             animation: spin 0.8s linear infinite;
         }
-        .spinner-lg { width: 32px; height: 32px; border-width: 3px; }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ========================== Skeletons ==========================
@@ -1448,17 +1444,22 @@
             stroke-dasharray: 2 14;
         }
 
-        /* ---- The dot: one small circular mark, no face, no name. It never sits
-           anywhere as a companion — only around three real moments (an empty
-           library, a course being written, moving to the next lesson) — and it
+        /* ---- The dot: one small circular mark, no face, no name, and no
+           shading — a flat disc of one colour, not a lit ball. It never sits
+           anywhere as a companion, only around three real moments (an empty
+           library, a course being written, moving to the next lesson), and it
            never changes shape, only how it moves: resting (is-idle), working
-           (is-thinking), or just landed (is-pop, one-shot). ---- */
+           (is-thinking), or just landed (is-pop, one-shot).
+
+           The white/halo double ring below is not shading either — it is a
+           cutout that keeps the mark legible on any background it lands on,
+           including mid-flight over the dashed path line. ---- */
         .dot {
             --size: 32px;
             width: var(--size); height: var(--size); border-radius: 50%;
             position: relative;
             flex: none;
-            background: radial-gradient(circle at 32% 26%, var(--dot-light) 0%, var(--dot) 55%, var(--dot-deep) 100%);
+            background: var(--dot);
             /* Ring widths scale with --size so one rule reads right whether
                this instance is 24px riding the path or 40px in an empty state. */
             box-shadow: 0 0 0 calc(var(--size) * 0.07) var(--surface),
@@ -1474,12 +1475,23 @@
         .dot.is-thinking::before { opacity: 1; animation: dotSpin 1.3s linear infinite; }
         .dot.is-pop      { animation: dotPop 720ms var(--ease-bounce) 1; }
 
+        /* The header mark. Small, still, and without the cutout ring the other
+           instances carry — that ring exists to keep the mark legible while it
+           travels across the path and over cards, and this one sits on one flat
+           header and never moves. Must stay below .dot: both are single-class
+           selectors, so source order is the only thing deciding which --size
+           and which box-shadow win. */
+        .app-title-dot { --size: 16px; box-shadow: none; }
+
         @keyframes dotBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
         @keyframes dotSpin    { to { transform: rotate(360deg); } }
+        /* Scale only. The 45% frame used to add filter: brightness(1.12),
+           which read as light catching a curved surface — the same 3D idea the
+           gradient carried, just in motion. A flat mark grows and settles. */
         @keyframes dotPop {
             0%   { transform: scale(1); }
-            45%  { transform: scale(1.32); filter: brightness(1.12); }
-            100% { transform: scale(1); filter: brightness(1); }
+            45%  { transform: scale(1.32); }
+            100% { transform: scale(1); }
         }
 
         /* The dot in transit between two lesson nodes — see travelDotToNode()
@@ -1915,6 +1927,12 @@
             color: var(--text); font-weight: 700; text-align: center;
             padding: 0 var(--sp-6); max-width: 32ch;
         }
+        /* Bigger than the 32px default: this is the one screen where the dot is
+           the subject rather than a mark beside something else. Its cutout ring
+           is --surface and the veil behind it is --bg at 88%, which are within a
+           shade of each other in both themes — so the ring disappears into the
+           backdrop here and what is left is the dot and its spinning halo. */
+        #loadingDot { --size: 40px; }
 
         /* Lesson preview */
         .preview-num {
@@ -3182,7 +3200,17 @@
              once you're signed in and past the upload screen. -->
         <header class="app-header">
             <div class="app-header-row">
-                <h1><span id="t_title">AI Learning Path</span></h1>
+                <!-- The dot as the app's mark, beside its name. This is the
+                     one place it is identity rather than reaction: it does not
+                     breathe, spin or pop here, it just sits, and it is the same
+                     shape as the favicon and the home-screen icon so the tab,
+                     the installed icon and the header all read as one thing.
+                     aria-hidden because the <h1> next to it already says the
+                     app's name — a mark that repeats the heading is noise. -->
+                <h1 class="app-title">
+                    <span class="dot app-title-dot" aria-hidden="true"></span>
+                    <span id="t_title">AI Learning Path</span>
+                </h1>
                 <div class="app-header-actions">
                     <div class="duo-hud" id="duoHud">
                         <div class="hud-stat hud-streak">
@@ -3549,7 +3577,14 @@
     <!-- Loading overlay: works regardless of which screen is showing -->
     <div id="loadingOverlay" class="loading-overlay" aria-hidden="true">
         <div class="loading-card" role="status" aria-live="polite">
-            <div class="spinner spinner-lg" aria-hidden="true"></div>
+            <!-- The dot, not a spinner. The comment on .dot names "a course
+                 being written" as one of the three moments it exists for, and
+                 this overlay *is* that moment — the single longest thing the
+                 app ever asks anyone to sit through, minutes of it on the
+                 bigger plans. It was showing a generic grey spinner instead,
+                 so the one place the character had the most time on screen was
+                 the one place it never appeared. -->
+            <div class="dot is-thinking" id="loadingDot" aria-hidden="true"></div>
             <div id="loadingText"></div>
             <!-- What the model is writing at this moment, read off the stream.
                  On the tiers that run the larger models a lesson is minutes of

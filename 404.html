@@ -34,11 +34,14 @@
         text-decoration: none; font-weight: 700;
     }
     .cta:hover, .cta:focus-visible { background: #46952A; }
-    /* The dot is decoration, not information — the heading below already says
-       what happened, so it is hidden from screen readers rather than given an
-       alt text that would just repeat it. */
+    /* Decoration only — the <h1> underneath carries the message, so this is
+       hidden from assistive tech rather than given an alt that repeats it.
+       Flat fill, matching --dot in the app: one solid colour, not a lit ball.
+       Hard-coded because these pages carry no design tokens; the light and dark
+       values are :root's --brand and the dark theme's --brand-strong. */
     .dot { width: 44px; height: 44px; border-radius: 50%; margin-bottom: 20px;
-           background: radial-gradient(circle at 32% 26%, #6FBF47 0%, #3E8523 55%, #2F6B18 100%); }
+           background: #3E8523; }
+    @media (prefers-color-scheme: dark) { .dot { background: #7ED957; } }
     .back { display: inline-block; margin-top: 48px; }
     /* Breadcrumb: where this page sits relative to the app. aria-current marks
        the last item, and it is plain text rather than a link — a link to the

@@ -197,6 +197,44 @@ console.log('\n== CSP still allow-lists every inline script ==');
     }
 }
 
+console.log('\n== the dot stays flat, and stays where it belongs ==');
+{
+    const html = read('index.html');
+    // It shipped as a radial-gradient sphere once. Flat is the decision; this
+    // is what stops a gradient creeping back in via any of the four files that
+    // draw the mark.
+    const dotRule = (html.match(/\n        \.dot \{[\s\S]*?\n        \}/) || [''])[0];
+    ok('index.html fills .dot with a single colour, not a gradient',
+       /background:\s*var\(--dot\);/.test(dotRule) && !/gradient/.test(dotRule));
+    ok('no lit-sphere tokens survive', !/--dot-light|--dot-deep/.test(
+        html.replace(/\/\*[\s\S]*?\*\//g, '')), 'a highlight/shadow token is back');
+    ok('the pop animation does not flash brightness',
+       !/dotPop[\s\S]{0,200}?filter:\s*brightness/.test(html));
+    for (const f of ['404.html', 'thanks.html']) {
+        if (!exists(f)) continue;
+        ok(`${f}'s dot is flat too`, !/radial-gradient/.test(read(f)));
+    }
+    ok('favicon.svg is a flat circle', !/radial-gradient|<radialGradient/i.test(read('favicon.svg')));
+    ok('the icon generator draws a flat disc',
+       !/DOT_LIGHT|DOT_DEEP/.test(read('tools/icons/make_icons.py')));
+
+    // The four places the README commits to. The loading overlay is the one
+    // that was missing — it showed a generic spinner while the comment on .dot
+    // claimed the character appeared there.
+    ok('the app header carries the dot as its mark', /class="dot app-title-dot"/.test(html));
+    ok('the empty library still has its dot', /class="dot is-idle" id="libraryEmptyIcon"/.test(html));
+    ok('the loading overlay shows the dot, not a spinner',
+       /class="dot is-thinking" id="loadingDot"/.test(html) &&
+       !/class="spinner spinner-lg"/.test(html));
+    ok('travelDotToNode still puts one on the path',
+       /dot dot-transit is-thinking/.test(read('app.js')));
+    // .app-title-dot and .dot are both single-class selectors, so the smaller
+    // size only applies because it is declared later. Reordering silently
+    // returns the header mark to 32px with a cutout ring.
+    ok('.app-title-dot is declared after .dot, or its size would lose',
+       html.indexOf('.app-title-dot {') > html.indexOf('\n        .dot {'));
+}
+
 console.log('\n== the post-checkout return path ==');
 {
     // This was a real bug: the browser sent window.location.origin, which drops

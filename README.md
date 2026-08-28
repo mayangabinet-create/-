@@ -593,6 +593,31 @@ shows a skeleton it doesn't need to. The account tab's `field()` helper — a sh
 swapped in for exactly the numbers still loading, real labels and layout around it
 the whole time — was the pattern worth generalising *from*; these three now match it.
 
+### The dot
+
+The app's one character: a small green circle. No face, no name, no eyes, and no
+shading — a **flat disc of a single colour** (`--dot`, brand green; the brighter green
+in dark mode). It briefly had a radial gradient with a highlight and a shadow edge,
+which made it read as a lit 3D ball; that was wrong beside every other flat surface
+here, and it is gone. The one ring it still carries — white, then a faint halo — is a
+cutout that keeps it legible while it moves over cards and the dashed path line, not
+shading.
+
+It never changes shape, only how it moves: `is-idle` rests, `is-thinking` breathes
+faster and spins a halo, `is-pop` is a one-shot landing. Four places, and only four:
+
+| Where | State |
+| --- | --- |
+| Beside the app name in the header | Still. This is identity, not reaction — the same mark as `favicon.svg` and the home-screen icon, so tab, installed icon and header read as one thing. |
+| An empty library | `is-idle` |
+| Over the whole screen while a course or lesson is being written | `is-thinking` — the longest wait the app ever asks for, minutes of it on the bigger plans |
+| Travelling to the next lesson on the path | `is-thinking`, then `is-pop` on landing (`travelDotToNode`; skipped entirely under `prefers-reduced-motion`) |
+
+That third row was a plain grey spinner until recently, which meant the character was
+absent from the one screen it had the most time on. If you add a fifth place, it should
+be a real moment — the point is that it shows up when something is actually happening,
+not that it follows anyone around.
+
 The reasoning behind these choices, compared against sites held up as UI/UX best and
 worst practice, is in [`docs/ui-ux-research.md`](docs/ui-ux-research.md) — including a
 checklist to run before merging a new UI feature.

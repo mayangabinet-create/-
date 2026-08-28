@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Thank you — your plan is active — AI Learning Path</title>
+<meta name="description" content="Your payment went through. Here's what happens next and how to reach us if anything looks wrong.">
+<!-- Deliberately noindex: this page is the end of a paid funnel, not content.
+     Indexed, it both leaks the conversion path and outranks nothing useful.
+     `follow` so the links onward from here still pass through. -->
+<meta name="robots" content="noindex, follow">
+<meta name="theme-color" content="#F4F5F7">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<style>
+    :root { color-scheme: light dark; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        max-width: 720px; margin: 0 auto; padding: 48px 24px 96px;
+        line-height: 1.6; color: #23272E; background: #F4F5F7;
+    }
+    @media (prefers-color-scheme: dark) { body { color: #ECEEF3; background: #14171C; } }
+    h1 { font-size: 1.75rem; margin-bottom: 4px; }
+    h2 { font-size: 1.2rem; margin-top: 40px; }
+    a { color: #3E8523; }
+    @media (prefers-color-scheme: dark) { a { color: #7ED957; } }
+    ul, ol { padding-left: 22px; }
+    li { margin-bottom: 8px; }
+    .cta {
+        display: inline-block; margin-top: 8px; padding: 12px 22px;
+        background: #3E8523; color: #fff; border-radius: 10px;
+        text-decoration: none; font-weight: 700;
+    }
+    .cta:hover, .cta:focus-visible { background: #46952A; }
+    .note {
+        background: #EDF6E5; border: 1px solid #B9DBA1; border-radius: 10px;
+        padding: 16px; margin: 24px 0; font-size: 0.95rem;
+    }
+    @media (prefers-color-scheme: dark) {
+        .note { background: #1B2A14; border-color: #35502A; }
+    }
+    /* Decoration only — the <h1> underneath carries the message, so this is
+       hidden from assistive tech rather than given an alt that repeats it. */
+    .dot { width: 44px; height: 44px; border-radius: 50%; margin-bottom: 20px;
+           background: radial-gradient(circle at 32% 26%, #6FBF47 0%, #3E8523 55%, #2F6B18 100%); }
+    .back { display: inline-block; margin-top: 48px; }
+    /* Breadcrumb: where this page sits relative to the app. aria-current marks
+       the last item, and it is plain text rather than a link — a link to the
+       page you are already on is a dead end for anyone tabbing through. */
+    .crumbs { font-size: 0.85rem; color: #6E7681; margin-bottom: 24px; }
+    .crumbs ol { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+    .crumbs li { display: flex; align-items: center; gap: 8px; }
+    .crumbs li + li::before { content: "/"; color: #9AA1AB; }
+    .page-footer {
+        margin-top: 56px; padding-top: 20px; border-top: 1px solid rgba(128,128,128,0.25);
+        font-size: 0.85rem; color: #6E7681;
+    }
+    .page-footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<nav class="crumbs" aria-label="Breadcrumb">
+    <ol>
+        <li><a href="index.html">AI Learning Path</a></li>
+        <li><span aria-current="page">Thank you</span></li>
+    </ol>
+</nav>
+
+<div class="dot" aria-hidden="true"></div>
+
+<h1>Thank you — your payment went through</h1>
+<p>Your subscription is set up. Nothing else is needed from you.</p>
+
+<!-- Grow's redirect beats its own webhook back here often enough that saying
+     so up front is what stops someone opening Account, seeing the old plan,
+     and mailing us about a charge that worked fine. -->
+<div class="note">
+    <strong>Your plan can take a few seconds to appear.</strong> The payment
+    confirmation reaches us separately from this page, so if Account still shows
+    your old plan, give it a moment and reload.
+</div>
+
+<a class="cta" href="index.html?checkout=success">Back to the app</a>
+
+<h2>What happens now</h2>
+<ol>
+    <li>Your new limits are live as soon as the confirmation lands — usually within seconds.</li>
+    <li>A receipt for this payment comes from Grow, our payment provider, to the email address you entered at checkout.</li>
+    <li>The subscription renews on its own. You can cancel any time from <strong>Account → Manage billing</strong>, and you keep the plan until the period you've paid for runs out.</li>
+</ol>
+
+<h2>If something looks wrong</h2>
+<p>Email <a href="mailto:mayangabinet@gmail.com">mayangabinet@gmail.com</a> —
+we answer within one business day. Include the email address you paid with, so
+the charge can be found without a back-and-forth.</p>
+
+<h2>Also worth knowing</h2>
+<ul>
+    <li><a href="index.html#faq">Frequently asked questions</a></li>
+    <li><a href="terms.html">Terms of Service</a> — including how refunds and cancellations work</li>
+    <li><a href="privacy.html">Privacy Policy</a> — card details never touch this app; Grow handles them</li>
+</ul>
+
+<a class="back" href="index.html?checkout=success">← Back to the app</a>
+
+<div class="page-footer">
+    <nav aria-label="Site">
+        <a href="index.html">Home</a>
+        <a href="index.html#faq">FAQ</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="terms.html">Terms of Service</a>
+        <a href="mailto:mayangabinet@gmail.com">Contact</a>
+    </nav>
+    <p>Questions? Email <a href="mailto:mayangabinet@gmail.com">mayangabinet@gmail.com</a> — we answer within one business day.</p>
+</div>
+
+</body>
+</html>

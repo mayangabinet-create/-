@@ -14,8 +14,9 @@
          deliberately does not name blob:. None of it loads until a scan is
          actually uploaded. No inline event handlers
          remain (see the two addEventListener calls that replaced onclick=
-         attributes) and the two inline script elements further down this
-         file are allow-listed by hash rather than by 'unsafe-inline' — an
+         attributes) and the inline script elements further down this
+         file — the two real ones, plus the JSON-LD data block — are
+         allow-listed by hash rather than by 'unsafe-inline' — an
          attacker-injected handler or script element, the shape of the
          stored-XSS bug this app already had once, gets a hash CSP was never
          told about and doesn't run.
@@ -25,7 +26,7 @@
          X-Frame-Options aren't here on purpose — both are HTTP-header-only
          per spec, silently ignored in a meta tag, and GitHub Pages doesn't
          let this app set custom response headers. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-Vp3obw53+nP1R4z6yk8MT/szzrbQpMEtirtN/U1AT2c=' 'sha256-pCIcK7tGiEuFLlwGrhhG8kDwX6WLhIWGlEIsvAsSSaA=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://kgkdkkqoebnpahvetwzk.supabase.co https://cdn.jsdelivr.net https://tessdata.projectnaptha.com; worker-src 'self' https://cdn.jsdelivr.net; child-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-oQnHnQvKi7y1+dB+f25NSz3D9afdzpOU/HN5bd2O2i0=' 'sha256-pCIcK7tGiEuFLlwGrhhG8kDwX6WLhIWGlEIsvAsSSaA=' 'sha256-00kaYpfwXz1wCBpEWYholZg4m5P33lp2BrBidA0wrD8=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://kgkdkkqoebnpahvetwzk.supabase.co https://cdn.jsdelivr.net https://tessdata.projectnaptha.com; worker-src 'self' https://cdn.jsdelivr.net; child-src 'self' https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Learning Path</title>
     <meta name="description" content="Turn a PDF or your own notes into an interactive, spaced-repetition learning path.">
@@ -49,20 +50,190 @@
     <meta name="twitter:title" content="AI Learning Path">
     <meta name="twitter:description" content="Turn a PDF or your own notes into an interactive, spaced-repetition learning path.">
     <meta name="twitter:image" content="https://mayangabinet-create.github.io/-/og-image.png">
+    <!-- The share image is a picture with content in it, so it gets described
+         the same way any other image would. Crawlers that render a card use
+         this as the img alt; twitter:image:alt is the same string because the
+         two networks read different keys for one idea. -->
+    <meta name="twitter:image:alt" content="AI Learning Path — turn any PDF into a course you'll actually remember">
+
+    <!-- Canonical: the app answers on / and on /index.html, and any campaign
+         or checkout parameter makes a third and fourth URL of the same page.
+         Naming one absolute address collapses all of them into a single
+         entry, and it is the URL og:url already claims. -->
+    <link rel="canonical" href="https://mayangabinet-create.github.io/-/">
+
+    <!-- Icons. The SVG is the one every current browser prefers — it stays
+         sharp at any tab density and is a tenth the size of the PNGs. The
+         PNGs are for what can't take an SVG: iOS home screens
+         (apple-touch-icon, which iOS rounds and masks itself), the manifest's
+         install icons, and older Safari. All four are generated from the
+         app's own brand tokens by tools/icons/make_icons.py. -->
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
 
     <meta name="theme-color" content="#F4F5F7" id="metaThemeColor">
     <meta name="color-scheme" content="light dark" id="metaColorScheme">
     <meta name="referrer" content="strict-origin-when-cross-origin">
 
+    <!-- Structured data. Not LocalBusiness: there is no premises, no opening
+         hours and no service area to describe, and a LocalBusiness block with
+         an invented address is exactly the kind of thing that earns a manual
+         action. What this actually is — a web app, published by someone, with
+         a FAQ on the page — is what's described here instead.
+
+         Two rules for editing this. (1) Every FAQ answer below must still be
+         the answer visible in #faq further down; Google requires the text to
+         match the page, and a rich result quoting copy that isn't there is a
+         policy violation, not just a bug. (2) There is deliberately no `offers`
+         with a price: the plan prices live in Grow's dashboard and in the edge
+         function's env vars, never in this repo, so any number written here
+         would be a guess — and a wrong price in a rich result is worse than
+         no price at all.
+
+         The hash of this block is in the CSP above. JSON-LD is a data block
+         rather than executable script, so browsers don't run it through
+         script-src at all — the hash is there because every other inline
+         script in this file is allow-listed the same way, and an extra hash
+         costs nothing. Reformat this block and the hash must be recomputed. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://mayangabinet-create.github.io/-/#website",
+          "url": "https://mayangabinet-create.github.io/-/",
+          "name": "AI Learning Path",
+          "description": "Turn a PDF or your own notes into an interactive, spaced-repetition learning path.",
+          "inLanguage": "en",
+          "publisher": { "@id": "https://mayangabinet-create.github.io/-/#publisher" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://mayangabinet-create.github.io/-/#publisher",
+          "name": "AI Learning Path",
+          "url": "https://mayangabinet-create.github.io/-/",
+          "logo": "https://mayangabinet-create.github.io/-/icon-512.png",
+          "email": "mayangabinet@gmail.com",
+          "contactPoint": [{
+            "@type": "ContactPoint",
+            "contactType": "customer support",
+            "email": "mayangabinet@gmail.com",
+            "availableLanguage": ["English", "Hebrew"]
+          }]
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://mayangabinet-create.github.io/-/#app",
+          "name": "AI Learning Path",
+          "url": "https://mayangabinet-create.github.io/-/",
+          "applicationCategory": "EducationalApplication",
+          "operatingSystem": "Any browser",
+          "browserRequirements": "Requires JavaScript",
+          "description": "Upload a PDF, a chapter or your own notes and get a path of short lessons written from that material, with quizzes and a spaced-repetition review schedule. Scanned PDFs are read in the browser, in Hebrew and English.",
+          "inLanguage": "en",
+          "image": "https://mayangabinet-create.github.io/-/og-image.png",
+          "publisher": { "@id": "https://mayangabinet-create.github.io/-/#publisher" },
+          "featureList": [
+            "Builds a course from a PDF, plain text or pasted notes",
+            "Reads scanned PDFs in the browser, in Hebrew and English",
+            "Short lessons with a comprehension check at the end of each",
+            "Spaced-repetition review scheduling",
+            "Free trial course with no card required"
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://mayangabinet-create.github.io/-/#faq",
+          "isPartOf": { "@id": "https://mayangabinet-create.github.io/-/#website" },
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What do I actually get from one upload?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "A course: a path of short lessons built from your document, each one explaining a single idea and ending in a question that checks you got it. How many lessons depends on your plan — between 10 and 15 per course — and the app schedules reviews so ideas come back before they fade rather than all at once the night before."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What kinds of files can I upload?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "PDF or plain text, up to roughly 50 pages. You can also paste text straight in if what you want to study isn't in a file. Scanned PDFs work too — the text is read off the page images by software running inside your own browser, in Hebrew and English. The images never leave your device. For a long book, the tools/pdf_prep script in this project prepares a bundle the app reads whole."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What happens to my document?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "It's stored on your account so your course keeps working, on Supabase's infrastructure in the EU. Excerpts of it are sent from our server to Anthropic's Claude models to write the lessons — excerpts of your own material, never the whole document, and never directly from your browser. There are no cookies, no ads, and no analytics or tracking of any kind. Nothing is sold or shared for advertising. The Privacy Policy lists every service that touches your data and why."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is it free to try?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. A new account gets a free trial course straight away, with no card. You only choose a plan if you want to keep building courses after it."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do payment and cancelling work?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Paying opens Grow's own secure payment page — your card details go to Grow and never reach us. Your plan updates within a few seconds of paying. Cancel any time from Account → Manage billing. You keep the plan until the period you've already paid for runs out, and everything you've built keeps working either way: you can open any course, replay any lesson, and run reviews as often as you like without it counting against a limit."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I delete my data?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, yourself, without emailing anyone. Delete a single course from your library, or your whole account — every course, all progress, and the account itself — from the Account screen. Deletion is immediate and can't be undone."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+
     <!-- Runs before the stylesheet paints anything, so a learner who chose
          Dark in Account settings never sees a flash of the light theme on
          load. app.js re-derives the same value later and keeps it in sync
-         with system-preference changes; this is only the first paint. -->
+         with system-preference changes; this is only the first paint.
+
+         The second half does the same trick for the signed-out marketing
+         block. That block ships *visible* in the markup on purpose: it holds
+         the FAQ that the FAQPage JSON-LD above claims is on the page, and a
+         crawler that doesn't run scripts — or runs them and gives up early —
+         would otherwise index an empty shell. The cost of that default is a
+         returning learner seeing a flash of the pitch before auth resolves,
+         which is what this removes: supabase-js keeps its session in
+         localStorage under sb-<project>-auth-token, so the mere presence of
+         that key is a good enough guess at "signed in" to suppress the block
+         for one paint. It is only a guess — an expired token looks the same —
+         and setScreen() in app.js corrects it either way the moment the real
+         session resolves. -->
     <script>
         (function () {
             try {
                 var pref = localStorage.getItem('theme_pref');
                 if (pref === 'light' || pref === 'dark') document.documentElement.setAttribute('data-theme', pref);
+            } catch (_) {}
+            try {
+                for (var i = 0; i < localStorage.length; i++) {
+                    var k = localStorage.key(i);
+                    if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') > 0) {
+                        document.documentElement.setAttribute('data-returning', '');
+                        break;
+                    }
+                }
             } catch (_) {}
         })();
     </script>
@@ -2855,6 +3026,140 @@
             .screen-head, .library-head { flex-direction: column; align-items: stretch; gap: var(--sp-3); }
         }
 
+        /* ======================= Signed-out marketing =======================
+           Everything in this section is for the visitor who has never signed in:
+           the hero above the upload box, the FAQ under it, the site footer, and
+           the sticky CTA that follows a phone down the page. app.js toggles the
+           two wrappers (#introHero, #publicBelow) on sign-in and sign-out — a
+           returning learner sees the app, not the pitch.
+
+           None of it is position:fixed. .container is a flex column with
+           .main-content as the only scroller, so a `position: sticky; bottom: 0`
+           element inside it pins to the bottom of the scroll viewport and lands
+           *above* the bottom nav on its own, without a hard-coded offset that
+           would break the moment the nav's height changed. */
+        /* Set by the pre-paint script in <head> when localStorage still holds a
+           Supabase session: hides the pitch for one paint so a returning
+           learner doesn't see it flash past. app.js overrides all three with
+           [hidden] the moment the real session resolves, in either direction. */
+        :root[data-returning] .intro-hero,
+        :root[data-returning] .public-below,
+        :root[data-returning] .sticky-cta { display: none; }
+
+        .intro-hero {
+            display: flex; flex-direction: column; gap: var(--sp-3);
+            margin-bottom: var(--sp-5);
+        }
+        .intro-hero-title {
+            font-size: var(--fs-h2); font-weight: 800; letter-spacing: -0.01em;
+            line-height: var(--lh-snug); color: var(--text);
+        }
+        .intro-hero-sub {
+            color: var(--text-muted); font-size: var(--fs-lg); line-height: var(--lh-snug);
+            max-width: 52ch;
+        }
+        .intro-hero-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+        /* The trust line answers the two objections that stop a first upload —
+           "will this cost me before I've seen it" and "what happens to my file" —
+           at the moment the CTA is asking for the click. */
+        .intro-trust {
+            display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3);
+            color: var(--text-subtle); font-size: var(--fs-xs);
+        }
+        .intro-trust span { display: inline-flex; align-items: center; gap: 6px; }
+        .intro-trust span::before {
+            content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%;
+            background: var(--brand);
+        }
+
+        .public-below { margin-top: var(--sp-8); }
+        .public-section + .public-section { margin-top: var(--sp-8); }
+        .public-section-title {
+            font-size: var(--fs-h3); font-weight: 800; color: var(--text);
+            margin-bottom: var(--sp-3);
+        }
+
+        /* <details> rather than a JS accordion: it opens with the keyboard, is
+           announced correctly, survives app.js failing to load, and — the reason
+           that matters for this page — a browser's in-page find opens a closed
+           <details> to reveal a match, which a display:none panel never does. */
+        .faq-item {
+            border: 1px solid var(--border); border-radius: var(--r-md);
+            background: var(--surface); margin-bottom: var(--sp-2);
+        }
+        .faq-item > summary {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: var(--sp-3);
+            padding: var(--sp-3) var(--sp-4);
+            min-height: var(--tap);
+            font-weight: 700; color: var(--text); cursor: pointer;
+            list-style: none;
+        }
+        .faq-item > summary::-webkit-details-marker { display: none; }
+        .faq-item > summary::after {
+            content: "+"; flex: none; font-weight: 400; font-size: 1.4em;
+            line-height: 1; color: var(--text-muted);
+            transition: transform var(--dur-2) var(--ease);
+        }
+        .faq-item[open] > summary::after { content: "−"; }
+        .faq-item > summary:hover { background: var(--surface-sunken); border-radius: var(--r-md); }
+        .faq-item > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+        .faq-answer {
+            padding: 0 var(--sp-4) var(--sp-4);
+            color: var(--text-muted); line-height: var(--lh-body);
+        }
+        .faq-answer p + p { margin-top: var(--sp-2); }
+        .faq-answer a { color: var(--brand-strong); }
+
+        /* The response-time promise. Stated once, in the place someone looks
+           when they are about to give up on the app and email instead. */
+        .support-promise {
+            display: flex; flex-direction: column; gap: var(--sp-1);
+            border: 1px solid var(--brand-border); background: var(--brand-tint);
+            border-radius: var(--r-md); padding: var(--sp-4);
+        }
+        .support-promise strong { color: var(--text); }
+        .support-promise span { color: var(--text-muted); font-size: var(--fs-sm); }
+        .support-promise a { color: var(--brand-strong); font-weight: 700; }
+
+        .site-footer {
+            margin-top: var(--sp-8); padding-top: var(--sp-5);
+            border-top: 1px solid var(--border);
+            display: flex; flex-direction: column; gap: var(--sp-2);
+            color: var(--text-subtle); font-size: var(--fs-xs);
+        }
+        .site-footer-links { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
+        .site-footer-links a { color: var(--text-muted); font-weight: 700; }
+        .site-footer-links a:hover, .site-footer-links a:focus-visible { color: var(--brand-strong); }
+
+        /* Phones only. On a wide screen the hero button and the upload box are
+           both in view at once, so a permanent bar would be advertising
+           something already on screen and charging height to do it.
+           `flex: none` because .container is a flex column: without it the bar
+           gets squeezed by the scroller above rather than keeping its height. */
+        .sticky-cta { display: none; }
+        @media (max-width: 899px) {
+            .sticky-cta {
+                display: block;
+                flex: none;
+                margin: 0 calc(-1 * var(--sp-4));
+                padding: var(--sp-3) var(--sp-4);
+                background: var(--surface);
+                border-top: 1px solid var(--border);
+                /* The lift is what separates it from the content scrolling away
+                   above it; without the shadow the bar and the page read as one
+                   block. No bottom safe-area inset — the nav right below owns
+                   that, and paying it twice leaves a white gutter on a notched
+                   phone. */
+                box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.06);
+            }
+            .sticky-cta .button { width: 100%; }
+            .sticky-cta-note {
+                display: block; margin-top: 6px; text-align: center;
+                color: var(--text-subtle); font-size: var(--fs-xs);
+            }
+        }
+
         /* ========================== Reduced motion ========================== */
         @media (prefers-reduced-motion: reduce) {
             .lesson-node.current .lesson-circle,
@@ -2898,6 +3203,36 @@
         </header>
 
         <div class="main-content">
+            <!-- The pitch, for the visitor who has never signed in. It sits above
+                 the upload box rather than replacing it: the primary CTA is one
+                 tap from the thing it promises, and the box itself is still the
+                 first interactive element a returning learner meets.
+                 app.js (setScreen) shows this only when signed out and on Home —
+                 nobody who already has courses needs to be sold the app again. -->
+            <section class="intro-hero" id="introHero" aria-labelledby="introHeroTitle">
+                <h2 class="intro-hero-title" id="introHeroTitle">
+                    Turn any PDF into a course you'll actually remember
+                </h2>
+                <p class="intro-hero-sub">
+                    Upload a chapter, a set of notes, or a scanned handout. You get a
+                    path of short lessons written from your own material, with quizzes
+                    and a review schedule that brings each idea back just before you'd
+                    forget it.
+                </p>
+                <!-- Deliberately one button. The demo banner directly below this
+                     hero already offers the 2-minute example, in more words and
+                     to signed-in learners too; a second "see an example" here
+                     just split the one decision this section exists to ask. -->
+                <div class="intro-hero-actions">
+                    <button type="button" class="button" id="heroPrimaryCta">Build my first course — free</button>
+                </div>
+                <p class="intro-trust">
+                    <span>Free trial, no card</span>
+                    <span>Your files aren't sold or shared</span>
+                    <span>Delete everything yourself, any time</span>
+                </p>
+            </section>
+
             <!-- Library: all courses live here -->
             <div id="libraryScreen" hidden>
                 <div class="library-head">
@@ -3051,6 +3386,126 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Everything below the upload box that only a signed-out visitor
+                 needs: the questions that stop a first upload, how to reach a
+                 human, and the links out to the legal pages. Shown by app.js
+                 under the same condition as the hero above. Every answer here
+                 is also in the FAQPage JSON-LD in <head> — if you edit one,
+                 edit the other, or the rich result will quote text that is no
+                 longer on the page. -->
+            <div class="public-below" id="publicBelow">
+                <section class="public-section" id="faq" aria-labelledby="faqTitle">
+                    <h2 class="public-section-title" id="faqTitle">Questions people ask first</h2>
+
+                    <details class="faq-item">
+                        <summary>What do I actually get from one upload?</summary>
+                        <div class="faq-answer">
+                            <p>A course: a path of short lessons built from your document,
+                            each one explaining a single idea and ending in a question that
+                            checks you got it. How many lessons depends on your plan — between
+                            10 and 15 per course — and the app schedules reviews so ideas come
+                            back before they fade rather than all at once the night before.</p>
+                        </div>
+                    </details>
+
+                    <details class="faq-item">
+                        <summary>What kinds of files can I upload?</summary>
+                        <div class="faq-answer">
+                            <p>PDF or plain text, up to roughly 50 pages. You can also paste
+                            text straight in if what you want to study isn't in a file.</p>
+                            <p>Scanned PDFs work too — the text is read off the page images by
+                            software running inside your own browser, in Hebrew and English.
+                            The images never leave your device. For a long book, the
+                            <code>tools/pdf_prep</code> script in this project prepares a
+                            bundle the app reads whole.</p>
+                        </div>
+                    </details>
+
+                    <details class="faq-item">
+                        <summary>What happens to my document?</summary>
+                        <div class="faq-answer">
+                            <p>It's stored on your account so your course keeps working, on
+                            Supabase's infrastructure in the EU. Excerpts of it are sent from
+                            our server to Anthropic's Claude models to write the lessons —
+                            excerpts of your own material, never the whole document, and never
+                            directly from your browser.</p>
+                            <p>There are no cookies, no ads, and no analytics or tracking of
+                            any kind. Nothing is sold or shared for advertising. The
+                            <a href="privacy.html">Privacy Policy</a> lists every service that
+                            touches your data and why.</p>
+                        </div>
+                    </details>
+
+                    <details class="faq-item">
+                        <summary>Is it free to try?</summary>
+                        <div class="faq-answer">
+                            <p>Yes. A new account gets a free trial course straight away, with
+                            no card. You only choose a plan if you want to keep building
+                            courses after it.</p>
+                        </div>
+                    </details>
+
+                    <details class="faq-item">
+                        <summary>How do payment and cancelling work?</summary>
+                        <div class="faq-answer">
+                            <p>Paying opens Grow's own secure payment page — your card details
+                            go to Grow and never reach us. Your plan updates within a few
+                            seconds of paying.</p>
+                            <p>Cancel any time from <strong>Account → Manage billing</strong>.
+                            You keep the plan until the period you've already paid for runs
+                            out, and everything you've built keeps working either way: you can
+                            open any course, replay any lesson, and run reviews as often as you
+                            like without it counting against a limit.</p>
+                        </div>
+                    </details>
+
+                    <details class="faq-item">
+                        <summary>Can I delete my data?</summary>
+                        <div class="faq-answer">
+                            <p>Yes, yourself, without emailing anyone. Delete a single course
+                            from your library, or your whole account — every course, all
+                            progress, and the account itself — from the Account screen.
+                            Deletion is immediate and can't be undone.</p>
+                        </div>
+                    </details>
+                </section>
+
+                <section class="public-section" aria-labelledby="supportTitle">
+                    <h2 class="public-section-title" id="supportTitle">Still have a question?</h2>
+                    <div class="support-promise">
+                        <strong>We answer within one business day.</strong>
+                        <span>Email <a href="mailto:mayangabinet@gmail.com">mayangabinet@gmail.com</a>
+                        — a real person reads it. If it's about a charge, include the email
+                        address you paid with so it can be found without a back-and-forth.</span>
+                    </div>
+                </section>
+
+                <footer class="site-footer">
+                    <nav class="site-footer-links" aria-label="Site">
+                        <a href="index.html">Home</a>
+                        <a href="#faq">FAQ</a>
+                        <a href="privacy.html">Privacy Policy</a>
+                        <a href="terms.html">Terms of Service</a>
+                        <a href="mailto:mayangabinet@gmail.com">Contact</a>
+                    </nav>
+                    <p>AI Learning Path — study material in, a course you'll remember out.</p>
+                </footer>
+            </div>
+
+        </div>
+
+        <!-- A sibling of .main-content, not a child of it. It was a
+             `position: sticky` last child first, and that buried the site
+             footer: .main-content is a flex column, the pinned bar kept its own
+             flow slot at the very end, and at full scroll the footer sat
+             underneath it with nothing left to scroll — the links this bar is
+             meant to sit alongside became unreachable. As a sibling inside
+             .container's flex column it takes its own row above the nav, so
+             nothing can end up hidden behind it. -->
+        <div class="sticky-cta" id="stickyCta" hidden>
+            <button type="button" class="button" id="stickyCtaBtn">Build my first course — free</button>
+            <span class="sticky-cta-note">Free trial, no card needed</span>
         </div>
 
         <!-- One nav, two shapes: a thumb-reachable tab bar on phones, a left rail on
@@ -3113,9 +3568,12 @@
     <div id="lessonScreen" class="lesson-screen" aria-hidden="true">
         <header class="lesson-topbar">
             <button class="back-btn" id="backBtn" aria-label="Close">
+                <!-- aria-hidden like every other icon in a labelled button here:
+                     the button's own aria-label is the accessible name, and an
+                     unnamed graphic inside it is only noise to walk past. -->
                 <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
                      stroke="currentColor" stroke-width="3"
-                     stroke-linecap="round" stroke-linejoin="round">
+                     stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <path d="M6 6l12 12M18 6L6 18"/>
                 </svg>
             </button>

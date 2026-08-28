@@ -95,10 +95,17 @@
         // ============= Icons =============
         // Plain line/fill SVGs, matching the close button's existing style
         // (viewBox 0 0 24 24, currentColor) — no emoji anywhere in the UI.
+        // aria-hidden on every one of them. Each icon here is a glyph beside
+        // text, or the inside of a button that carries its own aria-label —
+        // never the thing being named. An SVG with no <title> has no accessible
+        // name to lose, so hiding it removes an announced-but-empty graphic and
+        // takes nothing away. Most call sites already wrap the icon in an
+        // aria-hidden span; putting it on the icon itself covers the few that
+        // drop it straight into a labelled button (#courseRenameBtn was one).
         function svgIcon(inner, { fill } = {}) {
             return fill
-                ? `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor">${inner}</svg>`
-                : `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+                ? `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">${inner}</svg>`
+                : `<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
         }
         const ICONS = {
             flame: svgIcon('<path d="M12 2c1 3-3 4.5-3 8.5a3 3 0 006 0c0-1-.6-1.8-.6-1.8 2 1.2 3.6 3.4 3.6 6a6 6 0 01-12 0C6 10 9.5 7 12 2z"/>', { fill: true }),
@@ -2809,6 +2816,9 @@ ${languageRule()}`;
 
             // Update stats
             document.getElementById('courseTitle').textContent = courseData.courseName || 'Learning Path';
+            // setScreen('path') above has no title of its own to set — the course
+            // is the specific thing on screen, so name the tab after it.
+            setPageTitle('path', courseData.courseName || 'Learning Path');
             document.getElementById('courseRenameBtn').disabled = false;
             document.getElementById('totalLessons').textContent = courseData.concepts.length;
             updateProgress();
@@ -6793,6 +6803,8 @@ ${languageRule()}`;
             if (isActive) {
                 courseData.courseName = title;
                 if (titleEl) titleEl.textContent = title;
+                // The tab is named after this course; a rename has to reach it too.
+                setPageTitle('path', title);
             }
             renderLibrary();
 
@@ -8834,6 +8846,58 @@ ${languageRule()}`;
         // ============= Event Listeners =============
         document.getElementById('tryDemoLessonBtn').addEventListener('click', startDemoLesson);
 
+        // Both signed-out CTAs — the one in the hero and the sticky one that
+        // rides down a phone screen — do the same thing: put the upload box in
+        // front of you and hand it the focus ring. Deliberately *not* a direct
+        // fileInput.click(): a marketing button that fires the OS file dialog
+        // with no warning is startling, and on iOS a picker opened from a
+        // synthetic click this far from the user's tap is unreliable anyway.
+        function jumpToUploadBox() {
+            const box = document.getElementById('uploadSection');
+            if (!box) return;
+            // Paste-text may be the open tab from a previous visit; the CTA
+            // promises the upload box, so make sure that's the one showing.
+            const fileTab = document.getElementById('tabFile');
+            if (fileTab && !fileTab.classList.contains('active')) fileTab.click();
+            box.scrollIntoView({ behavior: prefersReducedMotion() ? 'auto' : 'smooth', block: 'center' });
+            box.focus({ preventScroll: true });
+        }
+        document.getElementById('heroPrimaryCta').addEventListener('click', jumpToUploadBox);
+        document.getElementById('stickyCtaBtn').addEventListener('click', jumpToUploadBox);
+
+        // The sticky bar is the hero's CTA again, for after you've scrolled past
+        // it. Showing both at once — which is what a plain "signed out means
+        // sticky" rule does — puts two identical green buttons on one phone
+        // screen and makes the page look like it's nagging. So it appears only
+        // once the real one has left the scrollport, and goes away again when
+        // you scroll back up to it.
+        //
+        // The observer's root is .main-content, not the viewport: .container is
+        // 100dvh with overflow:hidden and .main-content is the only thing that
+        // scrolls, so a viewport-rooted observer would consider the hero button
+        // permanently visible and the bar would never appear.
+        let heroCtaOnScreen = true;
+        let publicViewActive = false;
+        function syncStickyCta() {
+            const el = document.getElementById('stickyCta');
+            if (el) el.hidden = !(publicViewActive && !heroCtaOnScreen);
+        }
+        (function observeHeroCta() {
+            const cta = document.getElementById('heroPrimaryCta');
+            const root = document.querySelector('.main-content');
+            if (!cta || !root || typeof IntersectionObserver !== 'function') {
+                // No observer to tell us when the hero button leaves: fall back
+                // to always-on rather than never-on, since a duplicated CTA is a
+                // smaller failure than a CTA that can't be reached.
+                heroCtaOnScreen = false;
+                return;
+            }
+            new IntersectionObserver((entries) => {
+                heroCtaOnScreen = entries[entries.length - 1].isIntersecting;
+                syncStickyCta();
+            }, { root }).observe(cta);
+        })();
+
         document.getElementById('uploadSection').addEventListener('click', () => {
             document.getElementById('fileInput').click();
         });
@@ -8902,6 +8966,28 @@ ${languageRule()}`;
             account: 'accountScreen',
         };
 
+        // One HTML file serves every screen, so <title> can't do its job from
+        // markup alone: without this, a learner with the app open in four tabs
+        // sees "AI Learning Path" four times, and so does their history. The
+        // signed-out Home title is the only one that search engines ever see —
+        // it's the one indexable state — so that one carries the pitch, and the
+        // rest just name where you are.
+        const SITE_NAME = 'AI Learning Path';
+        const SCREEN_TITLES = {
+            home:    'Turn any PDF into a course you\'ll remember',
+            courses: 'Your courses',
+            review:  'Review',
+            account: 'Account',
+        };
+
+        function setPageTitle(screen, courseName) {
+            // A course is the most specific thing on screen when one is open,
+            // so it wins over the screen name — that's what makes the tab
+            // findable when three courses are open at once.
+            const lead = courseName || SCREEN_TITLES[screen];
+            document.title = lead ? `${lead} — ${SITE_NAME}` : SITE_NAME;
+        }
+
         function setScreen(name) {
             Object.entries(SCREENS).forEach(([key, id]) => {
                 const el = document.getElementById(id);
@@ -8916,8 +9002,30 @@ ${languageRule()}`;
             // The tagline is onboarding copy — it explains the app to someone who
             // has never used it. Once you're signed in and past the upload screen
             // it is just chrome eating the top third of a phone.
+            // The pitch, the FAQ, the footer and the sticky CTA are all one
+            // audience: someone who has never signed in, looking at Home. A
+            // signed-in learner gets none of it — and on any other screen it
+            // would be a wall of marketing under their account settings.
+            const publicView = !currentUser && name === 'home';
+            ['introHero', 'publicBelow'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.hidden = !publicView;
+            });
+            publicViewActive = publicView;
+            syncStickyCta();
+
             const tagline = document.getElementById('t_subtitle');
-            if (tagline) tagline.hidden = !!currentUser && name !== 'home';
+            // The hero says the same thing at length and two lines lower, so
+            // while it's up the tagline is the sentence read twice.
+            if (tagline) tagline.hidden = publicView || (!!currentUser && name !== 'home');
+            // The pre-paint script in index.html guesses "signed in" from a
+            // leftover Supabase key in localStorage and hides the block in CSS.
+            // We now know the truth, and [hidden] above is the only switch that
+            // should still be deciding — drop the guess, or a signed-out visitor
+            // holding an expired token would never see the page.
+            document.documentElement.removeAttribute('data-returning');
+
+            setPageTitle(name);
 
             // The HUD hides itself when it has nothing to say, so it has to be
             // re-evaluated on every screen change and not only when the path renders.
@@ -9808,9 +9916,30 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         // one steered toward as well.
         const RECOMMENDED_PLAN = 'pro';
 
+        // Where this app actually lives, as an absolute URL with no trailing
+        // slash — origin *plus* the directory it is served from.
+        //
+        // This used to send window.location.origin, which was wrong everywhere
+        // the app isn't at the domain root, and it is not: on GitHub Pages it
+        // is served from /-/, so a returning payer was sent to
+        // https://mayangabinet-create.github.io/?checkout=success — the
+        // account's user site, not this app. They paid and landed on someone
+        // else's page. The directory has to come along.
+        //
+        // Sent under the key `origin` deliberately, even though it is no longer
+        // one: an older deployment of grow-checkout still appends
+        // "/?checkout=success" to whatever it receives, and with a base URL
+        // that now produces the right page too. Renaming the field would fix
+        // the bug only after the function is redeployed.
+        function appBaseUrl() {
+            const dir = window.location.pathname.replace(/[^/]*$/, '');   // drop index.html, keep the folder
+            return (window.location.origin + dir).replace(/\/$/, '');
+        }
+
         // Opens Grow's hosted payment page for the given plan and sends the
-        // browser there. On success or cancel, Grow returns to this same
-        // page (see the init block below), never to a page of its own.
+        // browser there. On success Grow returns to thanks.html, which links
+        // back into the app with ?checkout=success; on cancel it comes
+        // straight back here. Never to a page of Grow's own.
         async function startCheckout(planKey, button) {
             setButtonBusy(button, true);
             try {
@@ -9823,7 +9952,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                         'authorization': `Bearer ${session.access_token}`,
                         'apikey': SUPABASE_ANON_KEY,
                     },
-                    body: JSON.stringify({ plan: planKey, origin: window.location.origin }),
+                    body: JSON.stringify({ plan: planKey, origin: appBaseUrl() }),
                 });
                 const data = await res.json().catch(() => ({}));
                 if (!res.ok || !data.url) throw new Error(data.message || data.error || `Checkout failed (${res.status})`);

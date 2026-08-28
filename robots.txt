@@ -1,0 +1,19 @@
+# AI Learning Path — https://mayangabinet-create.github.io/-/
+#
+# Everything is open to crawlers. The pages that shouldn't be indexed
+# (privacy, terms, the thank-you page, the 404) say so with their own
+# <meta name="robots" content="noindex">, which is the directive that
+# actually removes a page from an index — Disallow here would only stop
+# the crawl, leaving an already-known URL listed with no snippet.
+#
+# One caveat while this lives on a GitHub Pages *project* site: crawlers
+# only ever read robots.txt from the domain root, so the file they honour
+# is https://mayangabinet-create.github.io/robots.txt — which belongs to
+# the account's user site, not to this repo. This file becomes the live
+# one the moment a custom domain is pointed here. Until then it is
+# correct but not consulted; nothing above depends on it being read.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://mayangabinet-create.github.io/-/sitemap.xml

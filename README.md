@@ -558,6 +558,25 @@ or a duration — if a literal would appear twice, it becomes a token instead.
   screen still comes out to the same pixel. Nunito has no Hebrew or Arabic glyphs,
   so RTL course content falls to a system face; pairing a Hebrew companion with it
   is an open decision.
+- **The stand-in used to adjust Hebrew by a number measured on Latin.** Every Nunito
+  face declares a `unicode-range`, so Nunito covers Latin, Cyrillic and Vietnamese
+  and nothing else. `Nunito Fallback` declared none — which meant it covered
+  everything Nunito does *not*, Hebrew included. So Hebrew course content resolved
+  to it, to local Arial, wearing three overrides derived from a font with no Hebrew
+  glyphs at all: 100.9% width and a 100/34.7 line box in place of Arial's own. The
+  overrides exist to stop the layout jumping when Nunito lands, and for Latin they
+  do exactly that; on Hebrew they were a guess, applied silently, to the one script
+  this app is most likely to be read in. Measured in Chromium against the same
+  string rendered in the same face unadjusted, Hebrew came out **1.0085× too wide** —
+  the `size-adjust`, landing where nothing had measured it. The face now carries the
+  union of the five Nunito ranges, so Hebrew and Arabic fall past it to the stack
+  below and render at their own metrics (1.0000× on the same measurement, with Latin
+  unchanged to the pixel). `--font` gained `Arial Hebrew` and `Noto Sans Hebrew`
+  ahead of the generic tail, so RTL text lands on a chosen face per platform rather
+  than on whatever `sans-serif` means there. Erring wide in that range costs
+  nothing — a codepoint listed but absent from Arial still falls through
+  per-character — where erring narrow would put a Latin character back on an
+  unadjusted font and bring the jump back.
 - **Space** is a 4-based scale with no values in between. **Radius** is five steps:
   6 for bars, 10 for inner boxes, 12 for buttons and inputs, 16 for cards, 20 for
   modals.
@@ -592,6 +611,59 @@ real fetch landed. `renderReviewSkeleton()` now covers that gap, gated on `dueOv
 shows a skeleton it doesn't need to. The account tab's `field()` helper — a shimmer
 swapped in for exactly the numbers still loading, real labels and layout around it
 the whole time — was the pattern worth generalising *from*; these three now match it.
+
+### What a screen reader gets
+
+Most of the eighteen figure types are already plain text under the styling — `flow`
+is numbered labels, `compare` is two `<ul>`s, `table` and `grid` are real tables,
+`formula` is a `<dl>`, `equation` is an `<ol>`, `reveal` is real buttons carrying
+`aria-expanded`, `slider` is a real `<input type="range">` with a `<label>`. The
+gaps were the five types that draw into SVG, and two widgets whose whole point is
+that they change.
+
+- **`role="img"` makes an element a leaf.** Every `<text>` inside those five SVGs —
+  the side lengths on a triangle, the tick values on a number line, the bounds on a
+  plot's axes — is dropped, and the `aria-label` becomes the entire figure. Those
+  labels read `v.caption || 'diagram'`, so an uncaptioned figure announced itself as
+  "diagram", "plot" or "proportions" and stopped. The information was never missing:
+  the app computed all of it in order to draw the picture. `visualDescription()` now
+  builds the label from the same spec — *"Right triangle, sides 3, 4, 5"*, *"Number
+  line from 0 to 10; shaded 2 to 4 (safe); marked at 7 (here)"*. How much each type
+  says depends on what survives outside its own `<svg>`: `pie` and `venn` print a
+  real legend and region list beside the drawing, which a screen reader reaches on
+  its own, so they name the figure and its parts rather than reading every value
+  twice. `shape`, `numberline` and `plot` keep every number inside the SVG, so for
+  those three the label is the only copy. Long lists are capped with "and 4 more"
+  rather than cut, because a sentence that stops mid-way is a bug the listener
+  cannot see, and a description that throws is caught: the drawing is still right,
+  and a generic label beats a lost lesson.
+- **The gematria tiles read as a heap of numbers.** The `+` and `=` between them are
+  `aria-hidden` decoration, so `אמת` came out "א 1 מ 40 ת 400 441" — every number
+  present, the arithmetic joining them gone, and the total indistinguishable from
+  one more letter value. One `role="img"` over the row says the sum in the order it
+  is written instead.
+- **The slider announced the handle and nothing it moved.** The recomputed outputs
+  are the entire point of dragging it, and they were silent; they now sit in an
+  `aria-live="polite"` region, polite precisely because it coalesces — dragging
+  fires `input` continuously, and a queue that waits for a pause in speech reports
+  where the handle landed rather than every value it passed on the way. The handle
+  itself gained `aria-valuetext`, so it speaks "5 cm" like the readout rather than
+  the bare "5" a range input announces by default.
+- **A skip link, and one real `main` landmark.** The header carries the app name,
+  the streak and XP counters and a sign-in button before the content starts, which
+  on a lesson screen is a run of controls to tab past every time. `.main-content`
+  became `<main id="mainContent" tabindex="-1">` and the first thing in the tab
+  order is a link to it — off-screen until focused, styled as the primary button
+  because at the moment it appears that is what it is.
+- **Captions are `<figcaption>`.** A group of figures is a `<figure>` per item
+  nested in the `<figure>` for the exhibit, which is what it always was
+  structurally. The universal reset zeroes the browser's figure margin, so this is
+  semantics only: measured in Chromium, the old markup and the new one come out at
+  the same height, the same margins and the same divider.
+
+`tests/lesson-visuals.js` covers all of it — every SVG renderer is asserted to
+label itself with something a listener can use, which is the part that is easy to
+add once and then forget on the next type that draws into an `<svg>`.
 
 ### The dot
 

@@ -4011,7 +4011,136 @@ ${languageRule()}`;
         function drawSpec(v, opts) {
             const inner = VISUALS[v.type].draw(v, opts);
             if (!inner) return '';
-            return inner + (v.caption ? `<div class="vis-caption">${esc(v.caption)}</div>` : '');
+            return inner + (v.caption ? `<figcaption class="vis-caption">${esc(v.caption)}</figcaption>` : '');
+        }
+
+        // The label a screen reader is given for a figure drawn as SVG.
+        //
+        // Five of the eighteen types draw into `<svg role="img">`, and role="img"
+        // makes that element a leaf: every `<text>` inside it — the side lengths
+        // on a triangle, the tick values on a number line, the bounds on a plot's
+        // axes — is dropped, and the aria-label becomes the whole figure. Those
+        // labels read `v.caption || 'diagram'`, so a figure the model gave no
+        // caption announced itself as "diagram", "plot" or "proportions" and
+        // stopped. The information was never missing: the app computed all of it
+        // in order to draw the picture. It simply was not being said.
+        //
+        // How much each type says here depends on what survives *outside* its
+        // own `<svg>`. `pie` and `venn` print a real HTML legend and region list
+        // beside the drawing, which a screen reader reaches on its own, so their
+        // labels name the figure and its parts and stop rather than reading every
+        // value twice. `shape`, `numberline` and `plot` keep every number inside
+        // the SVG, where role="img" swallows it, so those three carry the numbers
+        // themselves — for them this string is the only copy.
+        //
+        // Long lists are capped rather than truncated: "and 4 more" is a fact,
+        // where a sentence that stops mid-way is a bug the listener cannot see.
+        function visualDescription(v) {
+            const cap = 8;
+            const list = items => {
+                const kept = (items || []).filter(s => s !== null && s !== undefined && String(s).trim() !== '')
+                    .map(s => String(s).trim());
+                return kept.length <= cap
+                    ? kept.join(', ')
+                    : `${kept.slice(0, cap).join(', ')}, and ${kept.length - cap} more`;
+            };
+
+            let detail = '';
+            try {
+                switch (v.type) {
+                    case 'shape': {
+                        const kind = String(v.shape || 'triangle').toLowerCase().replace(/\s+/g, '-');
+                        if (kind === 'circle') {
+                            const r = v.radiusLabel || (v.sideLabels || [])[0] || '';
+                            detail = r ? `Circle, radius ${r}` : 'Circle';
+                            break;
+                        }
+                        let name = { 'right-triangle': 'Right triangle', triangle: 'Triangle',
+                                     square: 'Square', rectangle: 'Rectangle' }[kind] || 'Shape';
+                        if (kind === 'polygon') {
+                            const n = Math.min(12, Math.max(3,
+                                Math.round(num(v.n, (v.vertices || []).length || 5))));
+                            name = `Regular ${n}-sided polygon`;
+                        }
+                        const sides = Array.isArray(v.sideLabels) ? v.sideLabels
+                            : (Array.isArray(v.sides) ? v.sides.map(String) : []);
+                        const bits = [];
+                        if (list(sides)) bits.push(`sides ${list(sides)}`);
+                        if (list(v.angles)) bits.push(`angles ${list(v.angles)}`);
+                        if (list(v.vertices)) bits.push(`vertices ${list(v.vertices)}`);
+                        detail = bits.length ? `${name}, ${bits.join('; ')}` : name;
+                        break;
+                    }
+                    case 'numberline': {
+                        const min = num(v.min, 0), max = num(v.max, 10);
+                        const bits = [`Number line from ${fmtNum(min, 2)} to ${fmtNum(max, 2)}`];
+                        const ranges = (v.ranges || [])
+                            .filter(r => r && isFinite(num(r.from, NaN)) && isFinite(num(r.to, NaN)))
+                            .map(r => {
+                                const a = fmtNum(Math.min(num(r.from), num(r.to)), 2);
+                                const b = fmtNum(Math.max(num(r.from), num(r.to)), 2);
+                                return r.label ? `${a} to ${b} (${r.label})` : `${a} to ${b}`;
+                            });
+                        if (ranges.length) bits.push(`shaded ${list(ranges)}`);
+                        const points = (v.points || [])
+                            .filter(p => p && isFinite(num(p.value, NaN)))
+                            .map(p => p.label
+                                ? `${fmtNum(num(p.value), 2)} (${p.label})`
+                                : fmtNum(num(p.value), 2));
+                        if (points.length) bits.push(`marked at ${list(points)}`);
+                        detail = bits.join('; ');
+                        break;
+                    }
+                    case 'plot': {
+                        // Same two-series slice and the same zero-anchored y axis
+                        // visPlot draws, so the label describes the picture that is
+                        // actually on screen rather than the spec behind it.
+                        const series = (v.series || []).filter(s => s && plotPoints(s).length >= 2).slice(0, 2);
+                        if (!series.length) break;
+                        const all = series.flatMap(plotPoints);
+                        const xs = all.map(p => p[0]), ys = all.map(p => p[1]);
+                        const bits = [series.length > 1 ? `Line graph, ${series.length} series` : 'Line graph'];
+                        bits.push(`${v.xLabel || 'x'} from ${fmtNum(Math.min(...xs), 2)} to ${fmtNum(Math.max(...xs), 2)}`);
+                        bits.push(`${v.yLabel || 'y'} from ${fmtNum(Math.min(0, ...ys), 2)} to ${fmtNum(Math.max(...ys), 2)}`);
+                        const named = series.map(s => s.label).filter(Boolean);
+                        if (named.length) bits.push(list(named));
+                        detail = bits.join('; ');
+                        break;
+                    }
+                    case 'pie': {
+                        const slices = (v.slices || []).filter(s => s && num(s.value, -1) > 0).slice(0, 6);
+                        if (slices.length < 2) break;
+                        const named = slices.map(s => s.label).filter(Boolean);
+                        detail = named.length
+                            ? `Pie chart, ${slices.length} slices: ${list(named)}`
+                            : `Pie chart, ${slices.length} slices`;
+                        break;
+                    }
+                    case 'venn': {
+                        const l = String(v.left?.title || '').trim();
+                        const r = String(v.right?.title || '').trim();
+                        const both = String(v.overlap?.title || '').trim();
+                        detail = (!l && !r)
+                            ? 'Two overlapping sets'
+                            : `Two overlapping sets, ${l || 'left'} and ${r || 'right'}`
+                              + (both ? `, overlapping in ${both}` : '');
+                        break;
+                    }
+                }
+            } catch (err) {
+                // A description that throws must never take the figure down with
+                // it: the drawing is still correct, and a generic label is worse
+                // than a specific one but far better than no lesson.
+                console.warn('Visual description failed:', v && v.type, err);
+                detail = '';
+            }
+
+            // The caption is the model's own sentence about the figure, and it is
+            // where a template puts the number it computed, so it leads. Its
+            // trailing stop is dropped because one is added when the two are
+            // joined, and "6 cm.. Right triangle" is a stutter a listener hears.
+            const caption = String(v.caption || '').replace(/\s+/g, ' ').trim().replace(/[.!?]$/, '');
+            return [caption, detail].filter(Boolean).join('. ') || 'Diagram';
         }
 
         // Interactive visuals are drawn as strings like every other one, so they
@@ -4414,7 +4543,7 @@ ${languageRule()}`;
             }
 
             return `<svg class="vis-shape" viewBox="0 0 ${SHAPE_W} ${SHAPE_H}" role="img"
-                         aria-label="${escAttr(v.caption || v.shape || 'diagram')}">${body}</svg>
+                         aria-label="${escAttr(visualDescription(v))}">${body}</svg>
 `;
         }
 
@@ -4470,7 +4599,7 @@ ${languageRule()}`;
                         ${p.label ? `<text class="nl-point-label" x="${x.toFixed(1)}" y="${AXIS - 16}">${esc(p.label)}</text>` : ''}`;
             }).join('');
 
-            return `<svg class="vis-numberline" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(v.caption || 'number line')}">
+            return `<svg class="vis-numberline" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(visualDescription(v))}">
                 <line class="nl-axis" x1="${PAD}" y1="${AXIS}" x2="${W - PAD}" y2="${AXIS}"></line>
                 ${rangeSvg}
                 ${ticks.map(t => `<g><line class="nl-tick" x1="${at(t).toFixed(1)}" y1="${AXIS - 5}" x2="${at(t).toFixed(1)}" y2="${AXIS + 5}"></line>
@@ -4507,7 +4636,7 @@ ${languageRule()}`;
                     `<span class="plot-key"><span class="plot-swatch plot-swatch-${i}"></span>${esc(s.label || `Series ${i + 1}`)}</span>`).join('')}</div>`
                 : '';
 
-            return `<svg class="vis-plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(v.caption || 'plot')}">
+            return `<svg class="vis-plot" viewBox="0 0 ${W} ${H}" role="img" aria-label="${escAttr(visualDescription(v))}">
                 <line class="plot-axis" x1="${L}" y1="${T}" x2="${L}" y2="${H - B}"></line>
                 <line class="plot-axis" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"></line>
                 <text class="plot-tick" x="${L - 6}" y="${H - B + 4}" text-anchor="end">${esc(fmtNum(minY, 1))}</text>
@@ -4549,7 +4678,7 @@ ${languageRule()}`;
                 ? `${esc(fmtNum(num(s.value), 1))}%`
                 : `${esc(fmtNum(num(s.value), 1))}${esc(v.unit || '')} · ${Math.round((num(s.value) / total) * 100)}%`;
             return `<div class="vis-pie">
-                <svg viewBox="0 0 ${C * 2} ${C * 2}" role="img" aria-label="${escAttr(v.caption || 'proportions')}">${paths}</svg>
+                <svg viewBox="0 0 ${C * 2} ${C * 2}" role="img" aria-label="${escAttr(visualDescription(v))}">${paths}</svg>
                 <ul class="pie-legend">${slices.map((s, i) => `
                     <li><span class="pie-swatch pie-slice-${i}"></span>
                         <span class="pie-key">${esc(s.label || '')}</span>
@@ -4570,7 +4699,7 @@ ${languageRule()}`;
                 </div>`;
             };
             return `<div class="vis-venn">
-                <svg viewBox="0 0 300 150" role="img" aria-label="${escAttr(v.caption || 'overlapping sets')}">
+                <svg viewBox="0 0 300 150" role="img" aria-label="${escAttr(visualDescription(v))}">
                     <circle class="venn-circle" cx="115" cy="75" r="62"></circle>
                     <circle class="venn-circle" cx="185" cy="75" r="62"></circle>
                     <text class="venn-label" x="78" y="80">${esc((v.left.title || '').slice(0, 14))}</text>
@@ -4685,7 +4814,14 @@ ${languageRule()}`;
         function gematriaTiles(word, method) {
             const { letters, total } = gematriaBreakdown(word, method);
             if (!letters.length) return '';
-            return `<div class="gem-row" dir="rtl">
+            // The tiles are a sum laid out as a picture: each letter above its
+            // value, with `+` and `=` drawn between them and hidden from assistive
+            // tech as decoration. Read as a tree that came out "א 1 ב 2 ג 3 6" —
+            // every number present, the arithmetic joining them gone, and the
+            // total indistinguishable from one more letter value. One role="img"
+            // over the row says the sum instead, in the order it is written.
+            const spoken = `${word}: ${letters.map(l => `${l.letter} ${l.value}`).join(' + ')} = ${total}`;
+            return `<div class="gem-row" dir="rtl" role="img" aria-label="${escAttr(spoken)}">
                 ${letters.map(l => `<span class="gem-tile"><span class="gem-letter">${esc(l.letter)}</span><span class="gem-value">${l.value}</span></span>`).join('<span class="gem-plus" aria-hidden="true">+</span>')}
                 <span class="gem-equals" aria-hidden="true">=</span>
                 <span class="gem-total">${total}</span>
@@ -4774,6 +4910,13 @@ ${languageRule()}`;
                      unit: v.unit ? String(v.unit) : '', constants, outputs, note: v.note ? String(v.note) : '' };
         }
 
+        // The recomputed outputs carry an aria-live region, because they are the
+        // entire point of dragging the handle and nothing announced them: a screen
+        // reader heard the slider's own number move and never learned what
+        // depended on it. "polite" is the right politeness precisely because it
+        // coalesces — dragging fires `input` continuously, and a queue that waits
+        // for a pause in speech reports where the handle landed rather than every
+        // value it passed on the way.
         function visSlider(v) {
             const spec = sliderSpec(v);
             if (!spec) return '';
@@ -4785,7 +4928,7 @@ ${languageRule()}`;
                 </div>
                 <input class="slider-input" id="${id}" type="range"
                        min="${spec.min}" max="${spec.max}" step="${spec.step}" value="${spec.value}">
-                <div class="slider-outputs">${spec.outputs.map((o, i) => `
+                <div class="slider-outputs" aria-live="polite">${spec.outputs.map((o, i) => `
                     <div class="slider-out">
                         <span class="slider-out-label">${esc(o.label)}</span>
                         <span class="slider-out-value" data-out="${i}"></span>
@@ -4802,7 +4945,13 @@ ${languageRule()}`;
 
             const update = () => {
                 const value = Number(input.value);
-                if (readout) readout.textContent = fmtNum(value, 2) + spec.unit;
+                const shown = fmtNum(value, 2) + spec.unit;
+                if (readout) readout.textContent = shown;
+                // A range input announces its raw `value` — "5" — where the whole
+                // point of this widget is that the number carries a unit. The
+                // string is already built for the readout; saying it here too is
+                // what makes the spoken value match the printed one.
+                input.setAttribute('aria-valuetext', shown);
                 spec.outputs.forEach((o, i) => {
                     const cell = el.querySelector(`[data-out="${i}"]`);
                     if (!cell) return;
@@ -4938,9 +5087,20 @@ ${languageRule()}`;
                 spec: '{"type":"group","items":[]}',
                 check: v => Array.isArray(v.items)
                             && v.items.filter(i => i && i.type !== 'group' && VISUALS[i.type]).length >= 1,
+                // A figure element, not a div: each item carries its own caption,
+                // and a figcaption is only valid as a child of a figure. A nested
+                // figure is allowed, and is what this actually is — one exhibit
+                // made of several, each captioned in its own right. The universal
+                // reset in index.html zeroes the browser default figure margin, so
+                // the box this draws is the same box the div drew.
+                //
+                // Apostrophes and backticks are avoided in this comment on
+                // purpose: tests/lesson-visuals.js lifts VISUALS out of this file
+                // by matching brackets, and it treats both as string delimiters,
+                // so one of either here silently swallows the rest of the object.
                 draw: (v, opts) => (v.items || [])
                     .filter(i => i && i.type !== 'group' && VISUALS[i.type])
-                    .map(i => `<div class="vis-group-item">${drawSpec(i, opts)}</div>`)
+                    .map(i => `<figure class="vis-group-item">${drawSpec(i, opts)}</figure>`)
                     .join(''),
             },
         };
@@ -9872,8 +10032,16 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             document.getElementById('authTabIn').setAttribute('aria-pressed', String(!isUp));
             document.getElementById('authTabUp').setAttribute('aria-pressed', String(isUp));
             document.getElementById('authTitle').textContent = isUp ? 'Create your account' : 'Welcome back';
+            // The trial length is set by the signup trigger in
+            // `supabase/migrations/20260823120000_trial_length_3_days.sql`, which
+            // is the only thing that decides it — this sentence is a promise made
+            // at the exact moment someone signs up, so it has to track that
+            // migration. It said "Fourteen days" for a while after the trial was
+            // shortened to three, which is the worst place in the app to be wrong.
+            // The landing page says the same thing at index.html's FAQ; if the
+            // migration ever changes again, both move together.
             document.getElementById('authSubtitle').textContent = isUp
-                ? 'Fourteen days free, no card. Your courses sync to every device you sign in on.'
+                ? 'Three days free, no card. Your courses sync to every device you sign in on.'
                 : 'Your courses, progress and review schedule live on your account.';
             document.getElementById('authSubmitBtn').textContent = isUp ? 'Sign up' : 'Sign in';
             const err = document.getElementById('authError');

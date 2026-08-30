@@ -100,7 +100,8 @@ const names = [
   'const withUnit', 'function polynomial', 'function samplePoints', 'function evalBool',
   'const TEMPLATES', 'function expandTemplate', 'function templateCatalogue',
   // the registries and what reads them
-  'const VISUALS', 'function drawSpec', 'function validVisual', 'function visualCatalogue',
+  'const VISUALS', 'function drawSpec', 'function visualDescription',
+  'function validVisual', 'function visualCatalogue',
   'const QUESTION_TYPES', 'function questionCatalogue', 'const KIND_PLAYBOOK',
   'function normaliseQuestion',
   // the prompt
@@ -136,6 +137,7 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   vertexAngles, regularPolygon, gematriaValue, gematriaBreakdown, sliderSpec, validVisual,
   GEMATRIA_METHOD_NAMES,
   normaliseQuestion, visShape, visSlider, visGematria, visPie, visNumberline, visEquation,
+  visPlot, visVenn, gematriaTiles, visualDescription,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
   buildLessonPrompt, normaliseLesson, calibrationNote,
@@ -331,6 +333,104 @@ console.log('\n== gematria ==');
   // never shown, so a lesson cannot teach 442.
   const html = P.visGematria({ words: [{ word: 'אמת', note: 'truth', total: 999 }] });
   ok('the app shows its own total, not the model\'s', html.includes('>441<') && !html.includes('999'));
+
+  // The `+` and `=` between the tiles are aria-hidden decoration, so without a
+  // label of its own the row reads as a bare run of numbers with the total
+  // indistinguishable from one more letter value.
+  const tiles = P.gematriaTiles('אמת', 'standard');
+  ok('the tile row is one labelled image, not a heap of spans',
+     /role="img"/.test(tiles) && /aria-label="[^"]+"/.test(tiles));
+  ok('and its label spells the sum out',
+     /aria-label="[^"]*א 1 \+ מ 40 \+ ת 400 = 441/.test(tiles), tiles.slice(0, 220));
+}
+
+// ------------------------------------------------- what a screen reader hears
+//
+// role="img" makes an element a leaf: every <text> inside these five SVGs is
+// dropped, and the aria-label becomes the entire figure. So for `shape`,
+// `numberline` and `plot` this string is the only copy of numbers the app went
+// to the trouble of computing — a label that says "diagram" throws all of it
+// away silently, which is exactly the kind of wrong answer this file exists to
+// catch.
+console.log('\n== accessible descriptions ==');
+{
+  const d = P.visualDescription;
+
+  ok('an uncaptioned figure never falls back to "diagram"',
+     d({ type: 'shape', shape: 'right-triangle', sides: [3, 4, 5] }) !== 'Diagram');
+
+  const tri = d({ type: 'shape', shape: 'right-triangle', sides: [3, 4, 5] });
+  ok('a right triangle says it is one, with its sides',
+     /Right triangle/.test(tri) && /3, 4, 5/.test(tri), tri);
+
+  const circle = d({ type: 'shape', shape: 'circle', radiusLabel: 'r = 5 cm' });
+  ok('a circle names its radius', /Circle, radius r = 5 cm/.test(circle), circle);
+
+  const hexagon = d({ type: 'shape', shape: 'polygon', n: 6 });
+  ok('a regular polygon says how many sides it has',
+     /Regular 6-sided polygon/.test(hexagon), hexagon);
+
+  const nl = d({
+    type: 'numberline', min: 0, max: 10,
+    ranges: [{ from: 2, to: 4, label: 'safe' }],
+    points: [{ value: 7, label: 'here' }],
+  });
+  ok('a number line carries its bounds, shading and marks',
+     /from 0 to 10/.test(nl) && /2 to 4 \(safe\)/.test(nl) && /7 \(here\)/.test(nl), nl);
+
+  const plot = d({
+    type: 'plot', xLabel: 'Years', yLabel: 'Balance',
+    series: [{ label: 'Compound', points: [[0, 100], [10, 200]] }],
+  });
+  ok('a plot carries both axes and their ranges',
+     /Years from 0 to 10/.test(plot) && /Balance from 0 to 200/.test(plot), plot);
+  ok('and names the series', /Compound/.test(plot), plot);
+
+  // pie and venn print a real HTML legend and region list beside the drawing,
+  // which a screen reader reaches on its own. Repeating every value inside the
+  // label would say the whole figure twice.
+  const pie = d({ type: 'pie', unit: '%', slices: [{ label: 'Yes', value: 60 }, { label: 'No', value: 40 }] });
+  ok('a pie names its slices', /Pie chart, 2 slices: Yes, No/.test(pie), pie);
+  ok('but does not read the legend out a second time', !/60/.test(pie) && !/40/.test(pie), pie);
+
+  const venn = d({
+    type: 'venn',
+    left: { title: 'Mammals' }, right: { title: 'Swimmers' }, overlap: { title: 'Whales' },
+  });
+  ok('a venn names both sets and the overlap',
+     /Mammals and Swimmers, overlapping in Whales/.test(venn), venn);
+
+  // The caption is the model's own sentence and usually carries the number a
+  // template computed, so it leads — but it must not collide with the detail.
+  const captioned = d({ type: 'shape', shape: 'square', sides: [4], caption: 'Area is 16 cm².' });
+  ok('the caption leads and its trailing stop is not doubled',
+     captioned.startsWith('Area is 16 cm². Square') && !/\.\./.test(captioned), captioned);
+
+  // Long lists are capped rather than cut: a sentence that stops mid-way is a
+  // bug the listener has no way to see.
+  const many = d({ type: 'shape', shape: 'polygon', n: 12,
+                   sideLabels: Array.from({ length: 12 }, (_, i) => `s${i}`) });
+  ok('a long list says how many it left out', /and 4 more/.test(many), many);
+
+  // A description is an enhancement; a figure that draws correctly must never be
+  // lost because describing it threw.
+  ok('a spec that breaks the describer still gets a label',
+     typeof d({ type: 'plot', series: [{ points: null }] }) === 'string');
+
+  // Every SVG renderer has to actually use it — the label is easy to add once
+  // and then forget on the next type that draws into an <svg>.
+  for (const [name, fn, spec] of [
+    ['shape', P.visShape, { shape: 'right-triangle', sides: [3, 4, 5] }],
+    ['numberline', P.visNumberline, { min: 0, max: 10 }],
+    ['plot', P.visPlot, { series: [{ points: [[0, 1], [1, 2]] }] }],
+    ['pie', P.visPie, { slices: [{ label: 'A', value: 1 }, { label: 'B', value: 1 }] }],
+    ['venn', P.visVenn, { left: { title: 'A' }, right: { title: 'B' } }],
+  ]) {
+    const out = fn({ type: name, ...spec });
+    const label = (out.match(/aria-label="([^"]*)"/) || [])[1] || '';
+    ok(`${name} labels its svg with something a listener can use`,
+       /role="img"/.test(out) && label.length > 4 && label !== 'Diagram', JSON.stringify(label));
+  }
 }
 
 // ---------------------------------------------------------------- validation

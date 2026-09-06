@@ -1319,3 +1319,13 @@ there from whatever a model made of an uploaded document — everything else
 interpolated into an attribute anywhere in `app.js` turned out to be a number, a
 boolean, an index, or one of the app's own fixed constant ids, none of which can
 carry a quote character at all.
+
+## Building something else from this
+
+[`docs/homework-app-handoff.md`](docs/homework-app-handoff.md) is written for an agent
+starting a *separate* app — a homework tool for students — that reuses this one's PDF
+pipeline and engineering patterns. It names what to copy (with the symbols to grep for),
+the invariants worth keeping, the traps this project actually hit and what each cost, and
+the three decisions the user has to make before any code is written. It is a handoff
+document, not documentation of this app; when something here changes that it relies on,
+that file is stale until someone says otherwise.

@@ -32,6 +32,8 @@ jobs:
         run: node tests/ai-proxy-policy.mjs
       - name: grow policy suite
         run: node tests/grow-policy.mjs
+      - name: password recovery suite
+        run: node tests/password-reset.mjs
 
   python:
     runs-on: ubuntu-latest

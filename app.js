@@ -28,6 +28,8 @@
             document.getElementById('cdnFailureRetry').addEventListener('click', () => location.reload());
             throw new Error('supabase-js failed to load from CDN');
         }
+        // Recovery must not resume a queued course build or open onboarding.
+        let passwordRecoveryInProgress = new URLSearchParams(window.location.hash.slice(1)).get('type') === 'recovery';
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const ACTIVE_STORAGE = 'active_course_id';  // just "last opened", fine to keep per-device
@@ -3860,9 +3862,15 @@ ${languageRule()}`;
             wireAppearanceRow();
 
             document.getElementById('acctPassword').onclick = async () => {
-                const { error } = await supabaseClient.auth.resetPasswordForEmail(currentUser.email);
-                if (error) showError(error.message);
-                else toast(`Reset link sent to ${currentUser.email}`);
+                const button = document.getElementById('acctPassword');
+                setButtonBusy(button, true);
+                try {
+                    const { error } = await sendPasswordReset(currentUser.email);
+                    if (error) showError(error.message);
+                    else toast('If that account exists, a reset link is on its way.');
+                } catch (_) {
+                    showError('Could not send the reset email. Check your connection and try again.');
+                } finally { setButtonBusy(button, false); }
             };
 
             document.getElementById('acctSignOut').onclick = async () => {
@@ -10120,6 +10128,14 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
             return (window.location.origin + dir).replace(/\/$/, '');
         }
 
+        function passwordResetUrl() {
+            return appBaseUrl() + '/reset-password.html';
+        }
+
+        function sendPasswordReset(email) {
+            return supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: passwordResetUrl() });
+        }
+
         // Opens Grow's hosted payment page for the given plan and sends the
         // browser there. On success Grow returns to thanks.html, which links
         // back into the app with ?checkout=success; on cancel it comes
@@ -10266,6 +10282,7 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
         }
 
         async function onSignedIn(user) {
+            if (passwordRecoveryInProgress) return;
             currentUser = user;
             document.getElementById('signInPromptBtn').hidden = true;
             hideAuthModal();
@@ -10472,16 +10489,31 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                 err.hidden = false;
                 return;
             }
-            const { error } = await supabaseClient.auth.resetPasswordForEmail(email);
-            err.className = 'info-message';
-            err.textContent = error
-                ? error.message
-                : `If an account exists for ${email}, a reset link is on its way.`;
-            err.hidden = false;
+            const button = document.getElementById('authForgotBtn');
+            setButtonBusy(button, true);
+            try {
+                const { error } = await sendPasswordReset(email);
+                err.className = error ? 'error-message' : 'info-message';
+                err.textContent = error ? error.message : 'If that account exists, a reset link is on its way. Open the newest email.';
+            } catch (_) {
+                err.className = 'error-message';
+                err.textContent = 'Could not send the reset email. Check your connection and try again.';
+            } finally {
+                err.hidden = false;
+                setButtonBusy(button, false);
+            }
         });
 
         supabaseClient.auth.onAuthStateChange((event) => {
             if (event === 'SIGNED_OUT') onSignedOut();
+            if (event === 'PASSWORD_RECOVERY') {
+                passwordRecoveryInProgress = true;
+                pendingAction = null;
+                try { sessionStorage.removeItem('pending_action'); } catch (_) {}
+                // The SDK has persisted the recovery session. Do not copy tokens
+                // into another URL or await an auth call inside this callback.
+                window.location.replace(passwordResetUrl());
+            }
         });
 
         // Initialize
@@ -10514,6 +10546,10 @@ Cover its core ideas, the terms someone needs, how it shows up in everyday life,
                 }
 
                 const { data: { session } } = await supabaseClient.auth.getSession();
+                if (passwordRecoveryInProgress) {
+                    window.location.replace(passwordResetUrl());
+                    return;
+                }
                 if (session?.user) {
                     try {
                         const raw = sessionStorage.getItem('pending_action');

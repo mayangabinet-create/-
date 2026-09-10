@@ -277,37 +277,49 @@
          * event: a token at a time would re-render the overlay a thousand
          * times for one lesson.
          */
-        async function readAIStream(res, onProgress, onChunk) {
+        async function readAIStream(res, onProgress, onChunk, { idleMs = 45000, totalMs = 120000 } = {}) {
             const reader = res.body.getReader();
             const decoder = new TextDecoder();
             const scan = sseScanner();
-            let text = '';
-            let stopReason = null;
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-                // A connection that died without a clean close never rejects
-                // on its own — the socket just goes quiet — so the caller's
-                // idle watchdog has to hear about every chunk that does
-                // arrive to know the stream is still alive.
-                if (onChunk) onChunk();
-                // `stream: true` on the decoder: a Hebrew character split
-                // across two network chunks is two bytes that only mean
-                // something together, and decoding each half alone yields two
-                // replacement characters in the middle of a word.
-                for (const event of scan(decoder.decode(value, { stream: true }))) {
-                    if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                        text += event.delta.text;
-                    } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
-                        stopReason = event.delta.stop_reason;
-                    } else if (event.type === 'error') {
-                        throw new Error(event.error?.message || 'The model stopped mid-answer.');
+            let text = '', stopReason = null;
+            const started = Date.now();
+            let lastText = started;
+            try {
+                while (true) {
+                    const remaining = Math.min(idleMs - (Date.now() - lastText), totalMs - (Date.now() - started));
+                    if (remaining <= 0) throw new Error('AI_STREAM_TIMEOUT');
+                    let timer;
+                    let chunk;
+                    try {
+                        chunk = await Promise.race([
+                            reader.read(),
+                            new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('AI_STREAM_TIMEOUT')), remaining); }),
+                        ]);
+                    } finally { clearTimeout(timer); }
+                    const { value, done } = chunk;
+                    if (done) throw new Error('AI_STREAM_INCOMPLETE');
+                    if (onChunk) onChunk();
+                    let changed = false;
+                    for (const event of scan(decoder.decode(value, { stream: true }))) {
+                        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
+                            text += event.delta.text;
+                            lastText = Date.now();
+                            changed = true;
+                        } else if (event.type === 'message_delta' && event.delta?.stop_reason) {
+                            stopReason = event.delta.stop_reason;
+                        } else if (event.type === 'message_stop') {
+                            if (changed && onProgress) onProgress(text);
+                            return { text, stopReason };
+                        } else if (event.type === 'error') {
+                            throw new Error(event.error?.message || 'The model stopped mid-answer.');
+                        }
                     }
+                    if (changed && onProgress) onProgress(text);
                 }
-                if (onProgress) onProgress(text);
+            } finally {
+                // Do not wait for HTTP EOF (the proxy may still be recording usage).
+                reader.releaseLock();
             }
-            return { text, stopReason };
         }
 
         // Every generation call goes through the ai-proxy Edge Function instead of
@@ -337,7 +349,7 @@
             }
 
             const {
-                retries = 2, maxTokens = 1000, task = null,
+                retries = opts.stream ? 0 : 2, maxTokens = 1000, task = null,
                 stream = false, onProgress = null,
                 // Work the learner did not ask for — a prefetch — reports its
                 // failures to the console and nowhere else. An error toast for
@@ -456,6 +468,7 @@
 
                 } catch (error) {
                     clearTimeout(idleTimer);
+                    controller.abort();
                     console.error('Network error:', error);
                     // A stream that broke after the model had already written
                     // half a lesson is not worth restarting from nothing on a
@@ -466,7 +479,9 @@
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
-                    fail("Connection problem. Check your internet and try again.");
+                    fail(error.message === 'AI_STREAM_TIMEOUT'
+                        ? "Lesson generation took too long. Please try again."
+                        : "Connection problem. Check your internet and try again.");
                     return null;
                 }
             }
@@ -1462,7 +1477,7 @@ ${languageRule()}`;
             // blank line — courseContext() is left untouched since it is memoized
             // and reused as-is.
             const message = cached
-                ? [lessonToolkitGlobal() + '\n\n', courseContext() + '\n\n', lessonDomainToolkit(domain) + '\n\n', prompt]
+                ? [lessonToolkitGlobal() + '\n\n', courseContext() + '\n\n', (lessonDomainToolkit(domain) || 'No domain-specific templates. Use the general toolkit.') + '\n\n', prompt]
                 : [courseContext(), prompt];
 
             // Watch the stream for the moment the opening is complete enough to

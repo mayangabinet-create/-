@@ -2763,7 +2763,9 @@ ${languageRule()}`;
                 // path for the first time, same as before.
                 displayLearningPath();
             } finally {
-                hideMessage();
+                // The learner may already be waiting for a lesson while the
+                // course finishes saving. Do not hide that lesson's spinner.
+                if (!lessonLoading) hideMessage();
             }
         }
 
@@ -8248,7 +8250,8 @@ ${languageRule()}`;
 
             try {
                 currentLessonIndex = index;
-                const concept = courseData.concepts[index];
+                const concept = courseData?.concepts?.[index];
+                if (!concept) throw new Error("Lesson concept is unavailable");
 
                 showMessage("Preparing lesson...");
 
@@ -8365,6 +8368,13 @@ ${languageRule()}`;
                 displayLearningPath();
                 openLessonScreen();
                 renderStep();
+            } catch (error) {
+                // A prompt/rendering exception must not become an unhandled
+                // rejection after the preview has already closed.
+                console.error('Could not open lesson:', error);
+                closeLessonScreen();
+                lessonState = null;
+                showError("Couldn't open this lesson. Please try again. If it keeps happening, reload the course.");
             } finally {
                 lessonLoading = false;
                 watchingIndex = null;

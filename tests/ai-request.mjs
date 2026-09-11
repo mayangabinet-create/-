@@ -13,6 +13,7 @@ function setup() {
   let requests = 0;
   const ctx = vm.createContext({
     setTimeout, clearTimeout, AbortController, IDLE_TIMEOUT_MS: 10,
+    LESSON_IDLE_TIMEOUT_MS: 60, LESSON_TOTAL_TIMEOUT_MS: 150,
     currentUser: { id: 'fixture' }, AI_ENDPOINT: '/fixture', SUPABASE_ANON_KEY: 'fixture',
     supabaseClient: { auth: {
       getSession: async () => ({ data: { session: { access_token: 'fixture' } } }),
@@ -64,3 +65,26 @@ for (const ok of [true, false]) {
   assert.match(errors[0], /Couldn't check your sign-in/);
 }
 console.log('PASS: stalled session, late result, recovery, stalled JSON bodies, stalled sign-out, auth errors');
+
+// A slow but healthy lesson must survive the shorter general-request limit.
+{
+  const { ctx, errors } = setup();
+  ctx.fetch = async (_, { signal }) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => resolve({ ok: true, headers: new Headers(),
+      json: async () => ({ content: [{ type: 'text', text: 'slow lesson' }] }) }), 25);
+    signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+  });
+  assert.equal(await ctx.callAI('fixture', '', { stream: true, task: 'lesson' }), 'slow lesson');
+  assert.equal(errors.length, 0);
+  assert.equal(await ctx.callAI('fixture', '', { stream: true, task: 'path' }), null);
+  assert.match(errors[0], /too long/);
+}
+{
+  const { ctx, errors } = setup();
+  ctx.fetch = async (_, { signal }) => new Promise((_, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+  assert.equal(await ctx.callAI('fixture', '', { stream: true, task: 'lesson' }), null);
+  assert.match(errors[0], /too long/);
+}
+console.log('PASS: slow healthy lesson, unchanged short path timeout, bounded stalled lesson');

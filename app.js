@@ -340,6 +340,11 @@
         // connection fails fast into the retry this function already has,
         // instead of hanging past the point anyone is still waiting.
         const IDLE_TIMEOUT_MS = 30000;
+        // Lesson generation can take longer to produce its first bytes than
+        // the small course outline. Keep auth short but allow the lesson model
+        // a bounded 90-second quiet period and four minutes of streamed work.
+        const LESSON_IDLE_TIMEOUT_MS = 90000;
+        const LESSON_TOTAL_TIMEOUT_MS = 240000;
 
         // Auth may wait on a refresh/SDK lock before fetch even starts. Response
         // bodies can also stall after headers arrive. Bound those waits as well
@@ -388,13 +393,14 @@
             if (systemPrompt) body.system = systemPrompt;
             if (task) body.task = task;
             if (stream) body.stream = true;
+            const responseIdleMs = task === 'lesson' ? LESSON_IDLE_TIMEOUT_MS : IDLE_TIMEOUT_MS;
 
             for (let attempt = 0; attempt <= retries; attempt++) {
                 const controller = new AbortController();
                 let idleTimer = null;
                 const resetIdle = () => {
                     clearTimeout(idleTimer);
-                    idleTimer = setTimeout(() => controller.abort(), IDLE_TIMEOUT_MS);
+                    idleTimer = setTimeout(() => controller.abort(new Error('AI_RESPONSE_TIMEOUT')), responseIdleMs);
                 };
                 try {
                     // Read the session on every attempt rather than once: a long
@@ -440,9 +446,10 @@
                             // lesson genuinely taking its full minute or two
                             // is never mistaken for a dead connection — only
                             // silence this long is.
-                            ({ text, stopReason } = await readAIStream(res, onProgress, resetIdle));
+                            ({ text, stopReason } = await readAIStream(res, onProgress, resetIdle,
+                                task === 'lesson' ? { idleMs: responseIdleMs, totalMs: LESSON_TOTAL_TIMEOUT_MS } : {}));
                         } else {
-                            const data = await withAIWaitLimit(res.json(), 'AI_RESPONSE_TIMEOUT');
+                            const data = await withAIWaitLimit(res.json(), 'AI_RESPONSE_TIMEOUT', responseIdleMs);
                             stopReason = data.stop_reason;
                             text = (data.content || [])
                                 .filter(p => p.type === 'text').map(p => p.text).join('');

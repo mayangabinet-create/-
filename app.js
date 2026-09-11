@@ -341,6 +341,23 @@
         // instead of hanging past the point anyone is still waiting.
         const IDLE_TIMEOUT_MS = 30000;
 
+        // Auth may wait on a refresh/SDK lock before fetch even starts. Response
+        // bodies can also stall after headers arrive. Bound those waits as well
+        // as the network stream, and never use a late result after timing out.
+        async function withAIWaitLimit(promise, code, ms = IDLE_TIMEOUT_MS) {
+            let timer;
+            try {
+                return await Promise.race([
+                    promise,
+                    new Promise((_, reject) => {
+                        timer = setTimeout(() => reject(new Error(code)), ms);
+                    }),
+                ]);
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
         async function callAI(userMessage, systemPrompt = '', opts = {}) {
             lastCallTruncated = false;
             if (!currentUser) {
@@ -383,7 +400,13 @@
                     // Read the session on every attempt rather than once: a long
                     // generation can outlive an access token, and the retry
                     // that follows a 401 must not carry the same dead one.
-                    const { data: { session } } = await supabaseClient.auth.getSession();
+                    const sessionResult = await withAIWaitLimit(
+                        supabaseClient.auth.getSession(), 'AI_AUTH_TIMEOUT');
+                    if (sessionResult.error) {
+                        fail("Couldn't check your sign-in. Reload the page and try again.");
+                        return null;
+                    }
+                    const session = sessionResult.data?.session;
                     if (!session) {
                         showAuthModal('signin');
                         return null;
@@ -419,7 +442,7 @@
                             // silence this long is.
                             ({ text, stopReason } = await readAIStream(res, onProgress, resetIdle));
                         } else {
-                            const data = await res.json();
+                            const data = await withAIWaitLimit(res.json(), 'AI_RESPONSE_TIMEOUT');
                             stopReason = data.stop_reason;
                             text = (data.content || [])
                                 .filter(p => p.type === 'text').map(p => p.text).join('');
@@ -435,10 +458,14 @@
                         return text || '';
                     }
 
-                    clearTimeout(idleTimer);
                     const status = res.status;
                     let payload = {};
-                    try { payload = await res.json(); } catch (_) {}
+                    try {
+                        payload = await withAIWaitLimit(res.json(), 'AI_RESPONSE_TIMEOUT');
+                    } catch (error) {
+                        if (error.message === 'AI_RESPONSE_TIMEOUT' || error.name === 'AbortError') throw error;
+                    }
+                    clearTimeout(idleTimer);
                     console.error('ai-proxy error:', status, payload);
 
                     // Rate limited or overloaded — back off and retry
@@ -449,7 +476,7 @@
 
                     if (status === 401) {
                         fail("Your session expired. Please sign in again.");
-                        await supabaseClient.auth.signOut();
+                        await withAIWaitLimit(supabaseClient.auth.signOut(), 'AI_AUTH_TIMEOUT');
                         showAuthModal('signin');
                         return null;
                     }
@@ -470,6 +497,10 @@
                     clearTimeout(idleTimer);
                     controller.abort();
                     console.error('Network error:', error);
+                    if (error.message === 'AI_AUTH_TIMEOUT') {
+                        fail("Checking your sign-in took too long. Reload the page and try again.");
+                        return null;
+                    }
                     // A stream that broke after the model had already written
                     // half a lesson is not worth restarting from nothing on a
                     // tier where that half took a minute — but a stream that
@@ -479,7 +510,7 @@
                         await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
                         continue;
                     }
-                    fail(error.message === 'AI_STREAM_TIMEOUT'
+                    fail(['AI_STREAM_TIMEOUT', 'AI_RESPONSE_TIMEOUT'].includes(error.message)
                         ? "Lesson generation took too long. Please try again."
                         : "Connection problem. Check your internet and try again.");
                     return null;

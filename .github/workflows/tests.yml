@@ -34,6 +34,8 @@ jobs:
         run: node tests/grow-policy.mjs
       - name: AI stream suite
         run: node tests/ai-stream.mjs
+      - name: AI request timeout suite
+        run: node tests/ai-request.mjs
       - name: lesson entry suite
         run: node tests/lesson-entry.mjs
       - name: password recovery suite

@@ -107,6 +107,7 @@ const names = [
   // the prompt
   'const RTL_LANGUAGES', 'function courseLanguage', 'function languageRule',
   'function calibrationNote',
+  'const LEARNER_LEVEL_NOTES', 'const LEARNER_EXAM_NOTES', 'const GOAL_NOTES', 'function learnerNote',
   'function lessonPrinciplesAndVisuals', 'function lessonQuestionTypes',
   'function lessonDomainToolkit', 'function lessonToolkitGlobal',
   'function buildLessonPrompt',
@@ -140,7 +141,9 @@ module.exports = { evalExpr, tryExpr, fmtNum, triangleFromSides, shapeGeometry, 
   visPlot, visVenn, gematriaTiles, visualDescription,
   VISUALS, QUESTION_TYPES, KIND_PLAYBOOK, visualCatalogue, questionCatalogue,
   TEMPLATES, expandTemplate, templateCatalogue, evalBool, tNum, tList, drawSpec,
-  buildLessonPrompt, normaliseLesson, calibrationNote,
+  buildLessonPrompt, normaliseLesson, calibrationNote, learnerNote,
+  LEARNER_LEVEL_NOTES, LEARNER_EXAM_NOTES,
+  setLearner: learner => { courseData = { language: 'English', learner }; },
   lessonPrinciplesAndVisuals, lessonQuestionTypes, lessonDomainToolkit, lessonToolkitGlobal,
   setLanguage: l => { courseData = { language: l }; },
   // A course history to calibrate against: n lessons all finished at the same
@@ -830,14 +833,28 @@ console.log('\n== the lesson prompt ==');
   ok('and the note reaches the prompt',
      (P.setHistory(3, 45), P.buildLessonPrompt(concept, 'S').includes('Go slower')));
 
+  P.setLearner(null);
+  ok('a course that says nothing about its learner adds nothing', P.learnerNote() === '');
+  P.setLearner({ level: 'professional', exam: 'choice' });
+  ok('who the course is for reaches the prompt',
+     /WHO THIS IS FOR: The learner is an adult preparing for a professional exam/.test(P.buildLessonPrompt(concept, 'S')));
+  ok('and so does how they will be tested', /multiple choice/.test(P.learnerNote()));
+  P.setLearner({ exam: 'open' });
+  ok('either answer works without the other', /answer in writing/.test(P.learnerNote()) && !/The learner is/.test(P.learnerNote()));
+  P.setLearner(null);
+
   // The prompt a real learner gets carries the note, so the size guarded below
   // has to be the size with the longest of them in it.
+  // ...and the longest description of who the course is for, too.
+  const longest = notes => Object.keys(notes).sort((a, b) => notes[b].length - notes[a].length)[0];
+  P.setLearner({ level: longest(P.LEARNER_LEVEL_NOTES), exam: longest(P.LEARNER_EXAM_NOTES) });
   const widest = domains.flatMap(d =>
     [[0, 0], [3, 96], [3, 45]].map(([n, acc]) => {
       P.setHistory(n, acc);
       return { d, n: P.buildLessonPrompt({ ...concept, domain: d }, '').length };
     })).sort((a, b) => b.n - a.n)[0];
   P.setHistory(0, 0);
+  P.setLearner(null);
 
   // The prompt and the retrieved passage share one block, and the server
   // clamps that block. Overrun it and the tail is cut — which is the JSON

@@ -125,7 +125,9 @@ function grab(decl) {
 const names = [
   'function scheduleReview', 'function isDueForReview',
   'function getDueLessons', 'function getPracticeLessons',
-  'const PLAN_LIMITS', 'function totalXp', 'const PRICE_IN', 'const PRICE_OUT', 'function totalCost',
+  'const PLAN_LIMITS', 'function totalXp', 'const PLAN_PRICES',
+  'const CACHE_WRITE_RATE', 'const CACHE_READ_RATE', 'function totalCost',
+  'function asMessage', 'function errorText',
   'function extractJSON', 'function firstPlannedConcept', 'function parseLearnerNumber',
   'const REPORT_QUEUE', 'function queueReport', 'function sendReports', 'function flushReports',
   'function reportMisjudged',
@@ -144,7 +146,7 @@ let activeStructure = null;
 let entitlement = null;
 let library = [];
 let xpByCourse = {};
-let usage = { inputTokens: 0, outputTokens: 0 };
+let usage = { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
 const MAX_COURSES = 8;
 
 const store = new Map();
@@ -168,7 +170,7 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
   scheduleReview, isDueForReview, getDueLessons, getPracticeLessons,
-  totalXp, totalCost, extractJSON, firstPlannedConcept, parseLearnerNumber,
+  totalXp, totalCost, asMessage, errorText, extractJSON, firstPlannedConcept, parseLearnerNumber,
   queueReport, sendReports, flushReports, reportMisjudged,
   courseProgressPct, unitNumber, maxCourses, planReadChars, contextBudget, excerptBudget,
   reset: (state = {}) => {
@@ -180,7 +182,7 @@ module.exports = {
     entitlement = 'entitlement' in state ? state.entitlement : null;
     library = state.library ?? [];
     xpByCourse = state.xpByCourse ?? {};
-    usage = state.usage ?? { inputTokens: 0, outputTokens: 0 };
+    usage = state.usage ?? { inputTokens: 0, outputTokens: 0, cacheWriteTokens: 0, cacheReadTokens: 0 };
     store.clear();
     for (const [k, v] of Object.entries(state.storage ?? {})) store.set(k, v);
     reportInserts = [];
@@ -312,9 +314,69 @@ console.log('\n== xp and cost ==');
      P.totalXp() === 40 + 10 + 5 + 7);
 
   P.reset({ usage: { inputTokens: 2_000_000, outputTokens: 100_000 } });
-  // $1/M input, $5/M output: 2M in + 100k out = $2.00 + $0.50.
+  // No entitlement read yet, so the smallest tier's rates: $0.10/M input,
+  // $0.50/M output. 2M in + 100k out = $0.20 + $0.05.
   ok('cost combines input and output tokens at their own per-token rates',
-     Math.abs(P.totalCost() - 2.5) < 1e-9, String(P.totalCost()));
+     Math.abs(P.totalCost() - 0.25) < 1e-9, String(P.totalCost()));
+
+  P.reset({
+    entitlement: { planKey: 'pro' },
+    usage: { inputTokens: 2_000_000, outputTokens: 100_000 },
+  });
+  // The same tokens on a tier that writes its lessons on a costlier model:
+  // $2/M input, $10/M output. Priced at Haiku's rates this read $0.25.
+  ok('a bigger tier prices the same tokens at its own rates',
+     Math.abs(P.totalCost() - 5) < 1e-9, String(P.totalCost()));
+
+  P.reset({
+    usage: { inputTokens: 0, outputTokens: 0,
+             cacheWriteTokens: 1_000_000, cacheReadTokens: 1_000_000 },
+  });
+  // A write bills at 1.25x input and a read at 0.1x, and neither shows up in
+  // `input_tokens` — pricing those two columns at zero is what made a cached
+  // account look almost free.
+  ok('cache writes and reads are priced at their own multiples of input',
+     Math.abs(P.totalCost() - 0.135) < 1e-9, String(P.totalCost()));
+}
+
+// -------------------------------------------------------------- error messages
+console.log('\n== turning whatever failed into something readable ==');
+{
+  const FALLBACK = 'Something went wrong. Please try again.';
+
+  ok('a string is its own message', P.asMessage('Disk is full') === 'Disk is full');
+  ok('an Error is read for its message',
+     P.asMessage(new Error('network down')) === 'network down');
+  ok('a Supabase-style row is read the same way',
+     P.asMessage({ message: 'duplicate key', code: '23505' }) === 'duplicate key');
+  ok('a bare code is used when there is nothing better',
+     P.asMessage({ error: 'invalid_content' }) === 'invalid_content');
+  // The dialog sets textContent, so an object used to render as
+  // "[object Object]" — the failure this whole function exists to prevent.
+  const nested = P.asMessage({ error: { type: 'invalid_request_error' } });
+  ok('an object with no readable message never renders as [object Object]',
+     !nested.includes('[object Object]'), nested);
+  ok('and keeps the shape visible so it can be reported',
+     nested.startsWith(FALLBACK) && nested.includes('invalid_request_error'), nested);
+  ok('empty and missing values fall back rather than showing nothing',
+     P.asMessage('') === FALLBACK && P.asMessage(null) === FALLBACK
+     && P.asMessage(undefined) === FALLBACK);
+  const circular = {}; circular.self = circular;
+  ok('something that will not serialise still produces a sentence',
+     P.asMessage(circular) === FALLBACK);
+
+  ok("this app's own message wins when there is one",
+     P.errorText({ error: 'course_quota', message: 'You have used all 5 courses.' }, 429)
+       === 'You have used all 5 courses.');
+  // The shape a version of ai-proxy from before the refusal fix forwards.
+  ok("an upstream envelope is read for its nested message",
+     P.errorText({ type: 'error', error: { type: 'invalid_request_error', message: 'text content blocks must be non-empty' } }, 400)
+       === 'text content blocks must be non-empty');
+  ok('a bare error code is still better than a status line',
+     P.errorText({ error: 'invalid_content' }, 400) === 'invalid_content');
+  ok('an empty body falls back to the status', P.errorText({}, 503) === 'HTTP 503');
+  ok('and to a word when there is not even a status',
+     P.errorText(undefined, 0) === 'HTTP error');
 }
 
 // ---------------------------------------------------------------- extractJSON

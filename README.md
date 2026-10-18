@@ -249,7 +249,7 @@ One constraint worth knowing before adding to either catalogue: the lesson promp
 retrieved passage share one content block, and `ai-proxy` clamps that block to
 `excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
 which is where its own JSON schema lives. The widest prompt (a maths concept, whose shelf
-is the largest) is currently about 11,600 of the 13,000 characters allowed, and the test
+is the largest) is currently about 14,000 of the 14,500 characters allowed (with the longest `WHO THIS IS FOR` line in it), and the test
 fails if an addition leaves under 500 spare. Raising the ceiling means raising
 `TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function — which is what
 was done when the calibration line was added and the margin fell to 350. It is a ceiling,
@@ -355,6 +355,14 @@ account's tier — and now narrowed by the plan. Each concept records the outlin
 came from, and retrieval searches that section first, falling back to the whole document
 when the heading does not match or the section is too thin. Told the chapter, retrieval no
 longer has to distinguish the chapter that *teaches* a term from the four that mention it.
+Text that fits the budget whole (the concept's section, or the whole document) is sent
+whole rather than cut down to its best-scoring chunks.
+
+Hebrew glues prepositions, articles and conjunctions onto the front of a word, so
+"הפירוק" and "פירוק" used to be two different terms and a concept named bare never met
+the passage that taught it. `retrievalTokens()` counts every Hebrew word also as itself
+with one and two of ו/ה/ב/ל/מ/ש/כ taken off the front, on both the query and the
+document. The digest's density score keeps plain `tokenize()`.
 
 `tests/pdf-pipeline.js` covers all of this and needs nothing but `node`.
 
@@ -739,6 +747,22 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
+  A *refusal* is the one thing it does not forward as it arrives: Anthropic's error
+  envelope nests `{type, message}` under `error`, where this app's own errors put a
+  string, so passing it through handed the client an object — which the dialog, being
+  `textContent`, rendered as **"[object Object]"**. `upstreamError()` turns it into a
+  sentence naming what the model objected to (a rate limit or an outage reads as
+  transient instead, since the upstream wording is not something a learner can act on),
+  and `index.ts` logs the same detail, so a refusal now leaves a record on both sides
+  of the wire rather than on neither. One refusal gets a message of its own: an
+  exhausted API credit balance — the refusal that produced the dialog above — arrives
+  as a 400 whose text tells the reader to go and pay a bill on an account no learner
+  can see, so it reads as "temporarily unavailable, this one is on us" and carries
+  `code: "upstream_billing"` for the logs. The client no longer trusts any of this blindly
+  either: `asMessage()` in `app.js` coerces whatever reaches a dialog into text, and
+  `errorText()` reads a message out of all three shapes — this app's, Anthropic's, and
+  a bare code — because a browser served from GitHub Pages and a function deployed
+  from here are versioned separately.
 - **`grow-checkout`, `grow-webhook`, `grow-cancel`, `grow-billing-cron`
   Edge Functions** — turn a plan choice into a real, self-renewing subscription and
   keep `subscriptions` in sync. See *Payments*, below.
@@ -910,8 +934,8 @@ unrecognised value falls back to `basic` rather than the largest tier.
 
 | | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | shared context (cached) | model |
 |---|---|---|---|---|---|---|
-| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
-| basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
+| trial | 1 (lifetime) | 10 | 20,000 | 6,000 | 16,000 | Haiku |
+| basic | 3 | 10 | 20,000 | 6,000 | 16,000 | Haiku |
 | pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Haiku plans, Sonnet writes |
 | max | 8 | 15 | 120,000 | 16,000 | 48,000 | Sonnet plans, Sonnet writes |
 
@@ -921,11 +945,13 @@ premium of 1.25x, the rest read it back at about a tenth of input price. It is w
 lets a lesson see the document it came from rather than only its own retrieved
 passage.
 
-It is blank on the Haiku tiers on purpose. Haiku will not cache a prefix under 4,096
-tokens, and below that the API accepts the request, caches nothing, and charges the
-premium anyway. Turning it on there means first raising the budget past ~16,000
-characters, which costs real money per course — a decision worth making against the
-hit rate the paid tiers are about to start reporting rather than against a guess.
+It used to be blank on the Haiku tiers, when Haiku meant Haiku 4.5: a 4,096-token
+cache minimum and ten times today's price made a shared context cost more than it
+saved, and Trial read 2,400 characters of a document per lesson and nothing else.
+Haiku 5.5 caches from a far smaller prefix at a tenth of the price, so Trial and Basic
+now get a 16,000-character shared context and a 6,000-character excerpt. The trial is
+the first lesson anyone sees from this app; it was also the one built from the least
+of the document.
 
 On Pro and Max, the shared context is one of three cached blocks sent ahead of the
 concept itself, least specific first. `lessonToolkitGlobal()` — Principles, every
@@ -974,14 +1000,138 @@ Grow's own checkout page is where the actual amount is shown and can change
 without a deploy — the redesign is about reading the difference between tiers at a
 glance, not about repeating a number that lives elsewhere.
 
+## Who the course is for
+
+The same document is a different course for a high-school student before a school
+exam, a university student, and an adult before a licensing exam: different
+vocabulary, different depth, and above all a different kind of question. The lesson
+used to know none of this. The first run already asked *what are you learning for*
+(an exam, work, curiosity, teaching), stored the answer, showed it on the Account
+screen, and never sent it anywhere.
+
+The upload screen now asks two optional questions: **who is this for** (high school,
+university, a professional exam or work, out of interest) and **how will you be
+tested** (multiple choice, written answers, problems to solve, not tested). They are
+saved on the course as `courses.learner` (`{level, exam}`, migration
+`20261018120000_courses_learner.sql`) and remembered in the browser for the next
+upload. `learnerNote()` turns them into a `WHO THIS IS FOR` line in every lesson
+prompt. When a course says nothing, the first-run goal stands in. The exam line
+matters most: a licensing exam's multiple choice wants options that differ in one
+condition, a written exam wants explain-compare-apply questions, a problem set wants
+problems.
+
+The prompt's tone moved with it. It used to ask for "a lesson in the style of
+Duolingo and Brilliant" that opened on "a surprising fact"; most people who upload
+their own document have a deadline, not a whim. Now: write like a tutor talking to an
+adult, direct and exact, with no exclamation marks, no praise and no cartoon
+analogies. The hook is *why this matters*, the prediction is a real question asked
+before the explanation (the pretesting effect, which is why it survives), an analogy
+only appears when it clarifies, `explore` is omitted for most concepts, and the
+memory check is an exam-style open question marked by an examiner rather than
+"gently evaluated". The step labels say the same: *Why this matters*, *Before you
+read it*, *In your own words*.
+
+**Where a card comes from.** Each card may carry `source`, words the model says it
+copied from the learner's document. `keepVerbatimSources()` looks the quotation up in
+the stored text, forgiving case, spacing, quote marks, dashes and niqqud and nothing
+else, and drops it if it is not there. A citation that cannot be found is worse than
+none, because it is the one line on a card that claims to need no trust. A card shows
+it as *From your document: "…"*.
+
+**Asking a question mid-lesson.** The question-mark button in the lesson's top bar
+opens a panel that answers one question about the step on screen, grounded in the
+concept's passage. It reads the step off the screen, so it sees exactly what the
+learner saw. On a question that has not been answered yet it explains the idea and
+the first step and does not give the answer: a tutor that hands answers over raises
+practice scores and lowers exam scores (Bastani et al., PNAS 2025). It is `tutor`
+work to the server (free, Haiku, 8,000 characters with the material last, since that
+cap cuts the tail), carries the last two exchanges for a follow-up, and starts fresh
+with every lesson. The demo lesson has no button, because no account is behind it.
+
+## Checking a lesson's answers
+
+A lesson is written in one pass, and nothing in that pass checked its answer key.
+The one real lesson in the database — factoring, Hebrew, on Basic — marked
+`7(x² − 9)` wrong as a factorisation of `7x² − 63`, and its explanation gave a
+sign rule that contradicted the arithmetic printed right above it. The learner
+scored 33%.
+
+`verifyLesson()` now runs a second, short call on every finished lesson: the model
+answers the lesson's own gradable questions (choice, blank, mistake, true/false,
+numeric, plus the practice problem and the challenge) without seeing the key, and
+lists any *other* option a careful teacher would also have to accept. A question it
+answers differently, or finds a second right answer to, is taken out. Two readers
+disagreeing does not say which one is wrong — only that the question is not safe to
+grade. It never empties a quiz (below two questions the lesson is kept as written),
+and it fails open: no reply, junk, or an `ai-proxy` too old to know the `verify`
+label leaves the lesson exactly as it was. `tests/lesson-verify.js` covers it.
+
+The lesson prompt changed alongside it. It no longer demands "at least two visuals
+of two types" and "at least three question types" — quotas the model met with
+decorative figures and filler questions. It now says every question must have
+exactly one defensible answer, that a hook is not the lesson's question restated,
+and that when the source is a set of exercises the lesson is built on those
+exercises rather than on a textbook summary of their topic.
+
+Both models are sent thinking explicitly off (`thinkingFor()` in `policy.mjs`):
+they think by default, and thinking tokens come out of the same 6,000-token
+`max_tokens` a lesson's JSON needs.
+
+**Deploy order:** `ai-proxy` first, then the client. A new client against the old
+function sends Trial and Basic a four-block lesson call that the old function, with
+`contextChars: 0` on those tiers, squeezes into one flat budget — the prompt is
+clamped away and the lesson does not build. The new function with the old client
+works.
+
 ## Cost model
 
-One Haiku lesson ≈ $0.01; the higher tiers cost more per lesson because they run on
-larger models and read more of the document. Lessons are cached after first
-generation, so replaying or exiting and coming back is free. The Account tab shows
-cumulative spend, call count, and this month's course/lesson quota, read from
-`ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
-out is visible before it happens rather than only when a build is refused.
+What a subscription has to cover, computed from the tier table above and the
+current API rates ($0.10/$0.50 per MTok on Haiku 5.5, $2/$10 on Sonnet 5.5), with
+every block at its ceiling and every generation running to its output cap — the
+worst case, not the typical one. Each lesson also carries one answer check
+(`verifyLesson`), free work on Haiku at well under a tenth of a cent:
+
+| | course plan | first lesson | each lesson after | **month at full quota** |
+|---|---|---|---|---|
+| trial | <$0.01 | ~$0.005 | ~$0.005 | ~$0.05 (lifetime, one course) |
+| basic | <$0.01 | ~$0.005 | ~$0.005 | **~$0.20** |
+| pro | <$0.01 | $0.09 | $0.07 | **~$4** |
+| max | $0.10 | $0.11 | $0.08 | **~$10** |
+
+Trial and Basic fell by about five times when they moved from Haiku 4.5 to
+Haiku 5.5, while reading three to four times more of the document. Those two
+rows are estimates from the token arithmetic, not yet from metered usage.
+
+The gap between the first lesson of a course and every one after it is the
+shared context paying for itself: $0.09 → $0.07 on Pro, $0.11 → $0.08 on Max.
+Trial and Basic's gap is too small to show at Haiku 5.5's prices. Real
+usage lands well under these rows — few accounts spend a whole month's quota,
+and a lesson rarely runs to 6,000 output tokens — but a plan priced against the
+typical case is a plan that loses money on the accounts that use it most.
+
+Lessons are cached client-side after first generation, so replaying or exiting
+and coming back costs nothing at all.
+
+**The one path a monthly quota does not bound** is free work — `feedback` after
+a learner writes an explanation, `primer` during onboarding — which is metered
+against a daily call cap instead. That cap is the entire ceiling on what an
+account can spend outside its plan, so both halves of it are sized against
+money rather than generosity: 60 calls a day, 8,000 characters each, pinned to
+Haiku on every tier by `modelFor()` regardless of what the tier writes lessons
+on. Each lesson's answer check (`verify`) is free work too, so a lesson costs two
+of those calls. About $0.03 a day at Haiku 5.5's rates. At the previous 200 calls of 20,000 characters on the
+tier's own lesson model, a single Pro account could have spent ~$4 a day —
+roughly thirty times its subscription — without touching its quota, and a retry
+loop in the client would have reached it as readily as anyone meaning harm.
+
+The Account tab shows cumulative spend, call count, and this month's
+course/lesson quota, read from `ai_usage` and `subscriptions` — the same rows
+`ai-proxy` meters against, so running out is visible before it happens rather
+than only when a build is refused. Spend is priced per tier (`PLAN_PRICES` in
+`app.js`) across all four token columns, cache writes at 1.25x input and reads
+at a tenth: pricing every account at Haiku's rates and ignoring the cache
+columns, as it did, reported roughly half of what a Pro or Max account actually
+costs.
 
 ## Addressing a long PDF by page
 
@@ -1256,7 +1406,8 @@ the button is drawn, which is why the address is duplicated in both places —
 - **No signup abuse protection.** New accounts get a 3-day trial automatically from
   just an email + password, with no CAPTCHA and no email confirmation gate found in the
   auth flow. The trial plan is capped (one course, 10 lessons, lifetime) and the quota
-  is enforced server-side in `consume_ai_quota`, so a single account can't run up an
+  is enforced server-side in `consume_ai_quota`, with unmetered work bounded separately
+  by the daily free-call cap (see *Cost model*), so a single account can't run up an
   unbounded bill — but nothing here stops a script from creating many accounts to stack
   free trials. Worth adding (Supabase Auth supports hCaptcha/Turnstile natively) before
   publicizing the site, not after. Neither piece can be turned on from this repo — both

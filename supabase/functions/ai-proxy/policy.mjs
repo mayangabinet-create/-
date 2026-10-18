@@ -11,8 +11,8 @@
  * file, so the tests exercise the shipping rules rather than a copy.
  */
 
-export const HAIKU = "claude-haiku-4-5";
-export const SONNET = "claude-sonnet-5";
+export const HAIKU = "claude-haiku-5-5";
+export const SONNET = "claude-sonnet-5-5";
 export const OPUS = "claude-opus-5";
 
 /**
@@ -25,13 +25,13 @@ export const OPUS = "claude-opus-5";
  * is unchanged — the passage retrieved for one concept, different every call
  * and therefore never cacheable.
  *
- * Trial and Basic run on Haiku, whose minimum cacheable prefix is 4,096
- * tokens. Their `contextChars` is 0 — not an oversight. Caching only repays
- * its write premium when the same prefix is read again, and a prefix that
- * never reaches the minimum is billed at the premium and never read. Turning
- * this on for Haiku means first raising the budget past ~16,000 characters,
- * which costs real money per course; that decision should be made against the
- * hit rate the paid tiers are about to start reporting, not against a guess.
+ * Trial and Basic used to read 2,400 characters of a document per lesson and
+ * nothing of the rest — on Haiku 4.5, whose 4,096-token cache minimum made a
+ * shared context cost more than it saved. Haiku 5.5 caches from a far smaller
+ * prefix and costs a tenth as much, so the trial — the first lesson anyone
+ * ever sees from this app — now reads a real share of the document: a 15,000
+ * character worksheet is seen nearly whole instead of a sixth of it. The tiers
+ * still differ in how much they read and in which model writes the lesson.
  *
  * `modelCourse` is not `modelLesson`, and on Pro it is deliberately the
  * cheapest, fastest model of the three.
@@ -56,8 +56,8 @@ export const OPUS = "claude-opus-5";
  * speed or cost without the price list becoming wrong.
  */
 export const PLANS = {
-  trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
-  basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
+  trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 20_000, excerptChars: 6_000, contextChars: 16_000, modelCourse: HAIKU, modelLesson: HAIKU },
+  basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 20_000, excerptChars: 6_000, contextChars: 16_000, modelCourse: HAIKU, modelLesson: HAIKU },
   pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: HAIKU, modelLesson: SONNET },
   max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: SONNET, modelLesson: SONNET },
 };
@@ -74,8 +74,12 @@ export const PLANS = {
  * raising it costs whatever the prompt actually grows by, which is a fraction
  * of a cent per lesson, and buys back the margin that catches the next few
  * templates in the test rather than in a lesson that will not open.
+ *
+ * Raised again from 13,000 when the prompt gained its rules on one defensible
+ * answer per question and on building a lesson from the learner's own
+ * exercises, which left the widest prompt 195 characters over.
  */
-export const TEMPLATE_ALLOWANCE = 13_000;
+export const TEMPLATE_ALLOWANCE = 14_500;
 
 /**
  * Ceilings for the two cache-only lesson blocks `prepareLessonBlocks` below
@@ -94,8 +98,34 @@ export const TEMPLATE_ALLOWANCE = 13_000;
 export const GLOBAL_TOOLKIT_ALLOWANCE = 8_000;
 export const DOMAIN_TOOLKIT_ALLOWANCE = 3_000;
 
-export const FREE_CALL_CHARS = 20_000;
-export const FREE_CALLS_PER_DAY = 200;
+/*
+ * The backstop on unmetered work, sized against what it costs rather than
+ * against what felt generous.
+ *
+ * Free work is the only path that does not consume the monthly course/lesson
+ * quota, so these two numbers — and `modelFor` below — are the whole ceiling
+ * on what one account can spend outside its plan. At 20,000 characters and
+ * 200 calls a day, a Pro account could buy roughly $4 of Sonnet a day, every
+ * day, without touching its quota: about thirty times the subscription it
+ * pays for, and reachable by a retry loop as easily as by anyone meaning
+ * harm.
+ *
+ * What actually sends free work is one `feedback` call per lesson (the
+ * learner's own explanation, evaluated in two or three sentences) and one
+ * `primer` during onboarding. 8,000 characters is far more than either
+ * writes, and 60 calls a day covers more lessons than any tier's monthly
+ * quota allows in one sitting. On Haiku — which `modelFor` now pins free work
+ * to — the ceiling is about $0.30 a day rather than $4, and about $0.03 since
+ * Haiku 5.5.
+ *
+ * Each finished lesson also sends one `verify` call (its answer check, see
+ * `verifyLesson` in app.js), so a lesson costs two of the sixty: thirty
+ * lessons a day, still more than any tier's monthly quota allows in a sitting.
+ * The check puts its questions before the material because this budget
+ * clamps from the tail.
+ */
+export const FREE_CALL_CHARS = 8_000;
+export const FREE_CALLS_PER_DAY = 60;
 /**
  * `tutor` is still here although the dock that sent it has been deleted from
  * the client, because the server has to outlive the client it talks to. The
@@ -116,8 +146,13 @@ export const FREE_CALLS_PER_DAY = 200;
  * same way (`classify()` reads `max_tokens`, not `task`) — the only thing it
  * changes is `shouldFixCourseSize` below, which is why it needs its own
  * label rather than reusing `path`.
+ *
+ * `verify` is the check run on a finished lesson (`verifyLesson` in app.js):
+ * the model answers the lesson's own questions without seeing the key, and a
+ * question it answers differently is dropped. A short answer, so it prices as
+ * free work like `feedback`.
  */
-export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer", "worksheet"]);
+export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer", "worksheet", "verify"]);
 
 // A client that sends fifty blocks is not a client we wrote.
 export const MAX_CONTENT_BLOCKS = 8;
@@ -129,10 +164,33 @@ export const MAX_CONTENT_BLOCKS = 8;
  * against.
  */
 export const CACHE_MIN_TOKENS = {
-  [HAIKU]: 4096,
+  // Both are documented at 512. 1,024 is a margin, not a measurement: a
+  // block credited too generously pays the write premium for nothing.
+  [HAIKU]: 1024,
   [SONNET]: 1024,
   [OPUS]: 512,
 };
+
+/**
+ * Thinking, explicitly off.
+ *
+ * Both current models think by default when nothing is said, and thinking
+ * tokens count against `max_tokens`. A lesson is capped at 6,000 output tokens
+ * and every one of them was budgeted for the JSON the learner reads, so a
+ * model that spent a thousand thinking first would be cut off mid-quiz — and
+ * it would also go quiet for that long, which the client's stream watchdog
+ * reads as a dead connection. Correctness is checked by a separate verify call
+ * instead (see `verifyLesson` in app.js), which costs a fraction of a cent.
+ *
+ * The two models spell "off" differently: Haiku 5.5 takes `disabled` (allowed
+ * at its default effort), Sonnet 5.5 rejects `disabled` and takes
+ * `between_tools`, which with no tools in the request means no thinking.
+ */
+export function thinkingFor(model) {
+  if (model === HAIKU) return { type: "disabled" };
+  if (model === SONNET) return { type: "between_tools" };
+  return undefined;
+}
 
 /**
  * Characters per token, assumed low on purpose.
@@ -177,6 +235,27 @@ export function planFor(planName, isTrialing) {
   // largest, so a bad row cannot hand out Max limits.
   const key = planName && PLANS[planName] ? planName : "basic";
   return { key, plan: PLANS[key] };
+}
+
+/**
+ * Which model runs this call.
+ *
+ * A tier buys a bigger model for the two things it meters — planning a course
+ * and writing a lesson. Free work is neither: it is a short evaluation of
+ * something the learner typed, or the primer written for a subject during
+ * onboarding, both capped at 1,000 output tokens. Running those on the tier's
+ * lesson model made the most expensive model in the app reachable on the one
+ * path that no monthly quota limits, at twice Haiku's price per token and for
+ * no gain the learner can read — Trial and Basic have always answered the
+ * same calls on Haiku.
+ *
+ * So free work is pinned to Haiku on every tier. This is the cost ceiling,
+ * not a preference: `FREE_CALLS_PER_DAY` bounds how many of these an account
+ * can make, and this bounds what each one can cost.
+ */
+export function modelFor(kind, plan) {
+  if (kind === "free") return HAIKU;
+  return kind === "course" ? plan.modelCourse : plan.modelLesson;
 }
 
 export const CONCEPT_RE = /Identify\s+(?:exactly\s+)?\d+(?:\s*[-–]\s*\d+)?\s+core concepts/i;
@@ -327,6 +406,79 @@ function prepareLessonBlocks(blocks, plan, model) {
   }
   out.push({ type: "text", text: clampText(blocks[3].text, plan.excerptChars + TEMPLATE_ALLOWANCE) });
   return out;
+}
+
+/**
+ * Turn a refusal from Anthropic into this app's own error shape.
+ *
+ * Anthropic answers a refused request with `{type:"error", error:{type,
+ * message}}`, and this function used to hand that back to the browser
+ * untouched. The client reads `payload.message || payload.error`, so it found
+ * no message, took `error` — an object — and put it straight into a dialog
+ * that sets `textContent`. The learner got "[object Object]", and since
+ * nothing logged the body either, there was no record anywhere of what the
+ * model had actually objected to. Both halves of that are fixed here: a
+ * string message for the dialog, the upstream text kept in `detail`, and a
+ * shape the caller can log.
+ *
+ * A rate limit or an outage is transient and says so in words a learner can
+ * act on. Anything else is a bug in what was sent, and the upstream text is
+ * the most useful thing anyone — them, reporting it, or whoever reads the
+ * logs — can be handed, so it goes in the message rather than being swallowed.
+ *
+ * One refusal is neither, and it is the one that actually happened: an
+ * exhausted API credit balance, which Anthropic returns as a 400 whose
+ * message names the account and where to top it up. That text is addressed
+ * to whoever runs this app, not to the learner reading it — it tells them to
+ * go and pay a bill that is not theirs, on an account they cannot see. So
+ * this case gets a neutral sentence and a code of its own, and the upstream
+ * wording goes to `detail`, which only the logs read. Everything a learner is
+ * shown should be either something they can act on or something honest about
+ * the app being at fault; this is the second kind.
+ */
+export function upstreamError(status, body) {
+  const detail =
+    typeof body?.error?.message === "string" ? body.error.message
+    : typeof body?.message === "string" ? body.message
+    : safeJson(body);
+  const type = typeof body?.error?.type === "string" ? body.error.type : "upstream_error";
+  const transient = status === 429 || status >= 500;
+
+  if (!transient && BILLING_RE.test(detail)) {
+    return {
+      error: type,
+      code: "upstream_billing",
+      message: "Lessons are temporarily unavailable. This one is on us, not on you — please try again a bit later.",
+      detail,
+    };
+  }
+
+  return {
+    error: type,
+    code: "upstream_error",
+    message: transient
+      ? "The service is busy right now. Give it a minute and try again."
+      : `The model refused that request: ${detail}`,
+    detail,
+  };
+}
+
+/**
+ * Matched against the upstream message, because the error *type* does not
+ * distinguish this from any other bad request — a spent balance and a
+ * malformed block both arrive as `invalid_request_error`. Wording is a weak
+ * signal and this deliberately fails safe: a miss shows the upstream text,
+ * which is the old behaviour, not a broken lesson.
+ */
+const BILLING_RE = /credit balance|plans\s*&\s*billing|billing|insufficient (?:funds|credit)/i;
+
+function safeJson(value) {
+  try {
+    const text = JSON.stringify(value);
+    return text && text !== "{}" && text !== "null" ? text.slice(0, 500) : "no details";
+  } catch {
+    return "no details";
+  }
 }
 
 /**

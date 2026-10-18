@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>פירוק לגורמים ומשוואות ריבועיות: דף לימוד ותרגול</title>
+<style>
+  @page { size: A4; margin: 18mm 18mm 20mm 18mm; }
+  body { font-family: "DejaVu Sans", "FreeSans", sans-serif; font-size: 11.5pt; line-height: 1.55; color: #111; }
+  h1 { font-size: 19pt; margin: 0 0 4pt; }
+  .sub { color: #555; margin: 0 0 14pt; font-size: 10.5pt; }
+  h2 { font-size: 14pt; margin: 16pt 0 6pt; border-bottom: 1.5px solid #333; padding-bottom: 2pt; }
+  p { margin: 0 0 7pt; }
+  .m { direction: ltr; unicode-bidi: isolate; white-space: nowrap; }
+  .box { border: 1px solid #999; border-radius: 4pt; padding: 7pt 10pt; margin: 8pt 0; background: #f6f6f6; }
+  .warn { border-color: #b33; background: #fbf1f1; }
+  ol { margin: 0 0 8pt; padding-inline-start: 22pt; }
+  li { margin-bottom: 4pt; }
+  .steps li { margin-bottom: 2pt; }
+  .answers li { margin-bottom: 2pt; }
+  .page-break { break-before: page; }
+</style>
+</head>
+<body>
+
+<h1>פירוק לגורמים ומשוואות ריבועיות</h1>
+<p class="sub">דף לימוד ותרגול לקראת כיתה י'. קראו את ההסברים, עברו על הדוגמאות, ואחר כך פתרו את התרגילים בסוף הדף.</p>
+
+<h2>חלק א: מה זה פירוק לגורמים</h2>
+<p>פירוק לגורמים הוא כתיבה של ביטוי אלגברי כמכפלה של ביטויים פשוטים יותר. זה ההפך מפתיחת סוגריים: בפתיחת סוגריים הופכים מכפלה לסכום, ובפירוק הופכים סכום למכפלה.</p>
+<p>למשל, <span class="m">3(x + 4) = 3x + 12</span> היא פתיחת סוגריים. הכיוון ההפוך, מ־<span class="m">3x + 12</span> אל <span class="m">3(x + 4)</span>, הוא הפירוק.</p>
+<p>למה זה חשוב? כי מכפלה קל לאפס: מכפלה שווה לאפס רק כאשר אחד הגורמים שלה שווה לאפס. על העובדה הזו בנוי הפתרון של משוואות ריבועיות בחלק ה.</p>
+
+<h2>חלק ב: הוצאת גורם משותף</h2>
+<p>השלב הראשון בכל פירוק הוא לחפש גורם שמופיע בכל האיברים, ולהוציא אותו מחוץ לסוגריים. כדאי להוציא את הגורם המשותף הגדול ביותר.</p>
+<div class="box">
+<p>דוגמה 1: <span class="m">6x + 9 = 3(2x + 3)</span>, כי 3 מחלק גם את 6 וגם את 9.</p>
+<p>דוגמה 2: <span class="m">4x² − 8x = 4x(x − 2)</span>. הגורם המשותף כאן הוא <span class="m">4x</span>, ולא רק 4.</p>
+</div>
+<p>בדיקה: פותחים את הסוגריים בחזרה. אם מקבלים את הביטוי המקורי, הפירוק נכון.</p>
+
+<h2>חלק ג: נוסחאות הכפל המקוצר</h2>
+<p>שלוש נוסחאות שימושיות במיוחד בפירוק:</p>
+<ol>
+  <li>הפרש ריבועים: <span class="m">a² − b² = (a − b)(a + b)</span></li>
+  <li>ריבוע של סכום: <span class="m">(a + b)² = a² + 2ab + b²</span></li>
+  <li>ריבוע של הפרש: <span class="m">(a − b)² = a² − 2ab + b²</span></li>
+</ol>
+<div class="box">
+<p>דוגמה 3: <span class="m">x² − 49 = (x − 7)(x + 7)</span>, כי <span class="m">49 = 7²</span>.</p>
+<p>דוגמה 4: <span class="m">9x² − 25 = (3x − 5)(3x + 5)</span>, כי <span class="m">9x² = (3x)²</span> ו־<span class="m">25 = 5²</span>.</p>
+<p>דוגמה 5: <span class="m">x² + 10x + 25 = (x + 5)²</span>, כי האיבר האמצעי הוא <span class="m">2·x·5 = 10x</span>.</p>
+</div>
+<div class="box warn">
+<p>שימו לב: הפרש ריבועים עובד רק כשיש מינוס בין שני הריבועים. הביטוי <span class="m">x² + 9</span> הוא סכום ריבועים, ואי אפשר לפרק אותו בעזרת הנוסחה הזו.</p>
+</div>
+
+<h2>חלק ד: פירוק טרינום</h2>
+<p>טרינום הוא ביטוי בעל שלושה איברים מהצורה <span class="m">x² + bx + c</span>. כדי לפרק אותו מחפשים שני מספרים שהמכפלה שלהם היא c והסכום שלהם הוא b.</p>
+<div class="box">
+<p>דוגמה 6: <span class="m">x² + 5x + 6</span>. מחפשים מכפלה 6 וסכום 5: המספרים הם 2 ו־3. לכן <span class="m">x² + 5x + 6 = (x + 2)(x + 3)</span>.</p>
+<p>דוגמה 7: <span class="m">x² − x − 12</span>. מחפשים מכפלה ‎−12 וסכום ‎−1: המספרים הם ‎−4 ו־3. לכן <span class="m">x² − x − 12 = (x − 4)(x + 3)</span>.</p>
+<p>בדיקה לדוגמה 7: <span class="m">(−4)·3 = −12</span> וגם <span class="m">−4 + 3 = −1</span>.</p>
+</div>
+<p>כלל לזכור: הסכום של שני המספרים שווה למקדם של x, עם אותו סימן בדיוק. בדוגמה 7 המקדם הוא ‎−1, והסכום הוא ‎−1.</p>
+
+<h2>חלק ה: פירוק מלא</h2>
+<p>פירוק מלא פירושו שאי אפשר להמשיך לפרק אף אחד מהגורמים. הסדר הנכון: קודם מוציאים גורם משותף, ואחר כך בודקים אם מה שנשאר בסוגריים אפשר לפרק עוד.</p>
+<div class="box">
+<p>דוגמה 8: <span class="m">2x² − 18 = 2(x² − 9) = 2(x − 3)(x + 3)</span>.</p>
+<p>הביטוי <span class="m">2(x² − 9)</span> נכון, אבל הוא עדיין לא פירוק מלא, כי <span class="m">x² − 9</span> הוא הפרש ריבועים.</p>
+</div>
+
+<h2 class="page-break">חלק ו: פתרון משוואה ריבועית בעזרת פירוק</h2>
+<p>משוואה ריבועית היא משוואה מהצורה <span class="m">ax² + bx + c = 0</span>. כשאפשר לפרק את האגף השמאלי, משתמשים בכלל: אם מכפלה שווה לאפס, אחד הגורמים שווה לאפס.</p>
+<div class="box">
+<p>דוגמה 9: <span class="m">x² − 5x + 6 = 0</span></p>
+<ol class="steps">
+  <li>מפרקים: <span class="m">(x − 2)(x − 3) = 0</span></li>
+  <li>משווים כל גורם לאפס: <span class="m">x − 2 = 0</span> או <span class="m">x − 3 = 0</span></li>
+  <li>הפתרונות: <span class="m">x = 2</span> או <span class="m">x = 3</span></li>
+</ol>
+</div>
+<div class="box warn">
+<p>טעות נפוצה: במשוואה <span class="m">x² = 3x</span> מחלקים את שני האגפים ב־x ומקבלים רק <span class="m">x = 3</span>. כך הולך לאיבוד הפתרון <span class="m">x = 0</span>. הדרך הנכונה היא להעביר אגף ולפרק: <span class="m">x² − 3x = 0</span>, כלומר <span class="m">x(x − 3) = 0</span>, ולכן <span class="m">x = 0</span> או <span class="m">x = 3</span>.</p>
+</div>
+
+<h2>חלק ז: נוסחת השורשים והדיסקרימיננטה</h2>
+<p>כשהפירוק לא קל, משתמשים בנוסחת השורשים:</p>
+<p style="text-align:center"><span class="m">x = (−b ± √(b² − 4ac)) / 2a</span></p>
+<p>הביטוי שמתחת לשורש נקרא דיסקרימיננטה: <span class="m">Δ = b² − 4ac</span>. הוא קובע כמה פתרונות יש למשוואה:</p>
+<ol>
+  <li>אם הדיסקרימיננטה חיובית, יש שני פתרונות.</li>
+  <li>אם הדיסקרימיננטה שווה לאפס, יש פתרון אחד.</li>
+  <li>אם הדיסקרימיננטה שלילית, אין פתרון.</li>
+</ol>
+<div class="box">
+<p>דוגמה 10: <span class="m">2x² + 3x − 2 = 0</span>. כאן <span class="m">a = 2, b = 3, c = −2</span>.</p>
+<ol class="steps">
+  <li>מחשבים את הדיסקרימיננטה: <span class="m">Δ = 3² − 4·2·(−2) = 9 + 16 = 25</span></li>
+  <li>מציבים בנוסחה: <span class="m">x = (−3 ± 5) / 4</span></li>
+  <li>הפתרונות: <span class="m">x = 0.5</span> או <span class="m">x = −2</span></li>
+</ol>
+<p>בדיקה: <span class="m">2·(0.5)² + 3·0.5 − 2 = 0.5 + 1.5 − 2 = 0</span>.</p>
+</div>
+
+<h2>תרגילים</h2>
+<p>פרקו לגורמים באופן מלא:</p>
+<ol>
+  <li><span class="m">5x − 15</span></li>
+  <li><span class="m">3x² + 12x</span></li>
+  <li><span class="m">x² − 64</span></li>
+  <li><span class="m">4x² − 1</span></li>
+  <li><span class="m">x² − 6x + 9</span></li>
+  <li><span class="m">x² + 7x + 12</span></li>
+  <li><span class="m">x² − 2x − 15</span></li>
+  <li><span class="m">3x² − 27</span></li>
+</ol>
+<p>פתרו את המשוואות:</p>
+<ol start="9">
+  <li><span class="m">x² − 7x + 10 = 0</span></li>
+  <li><span class="m">x² = 4x</span></li>
+  <li><span class="m">2x² − 7x + 3 = 0</span></li>
+  <li>כמה פתרונות יש למשוואה <span class="m">x² + 2x + 5 = 0</span>? נמקו בעזרת הדיסקרימיננטה.</li>
+</ol>
+
+<h2>תשובות</h2>
+<ol class="answers">
+  <li><span class="m">5(x − 3)</span></li>
+  <li><span class="m">3x(x + 4)</span></li>
+  <li><span class="m">(x − 8)(x + 8)</span></li>
+  <li><span class="m">(2x − 1)(2x + 1)</span></li>
+  <li><span class="m">(x − 3)²</span></li>
+  <li><span class="m">(x + 3)(x + 4)</span></li>
+  <li><span class="m">(x − 5)(x + 3)</span></li>
+  <li><span class="m">3(x − 3)(x + 3)</span></li>
+  <li><span class="m">x = 2</span> או <span class="m">x = 5</span></li>
+  <li><span class="m">x = 0</span> או <span class="m">x = 4</span></li>
+  <li><span class="m">x = 3</span> או <span class="m">x = 0.5</span>, כי <span class="m">Δ = 49 − 24 = 25</span></li>
+  <li>אין פתרון, כי <span class="m">Δ = 4 − 20 = −16</span> והיא שלילית.</li>
+</ol>
+
+</body>
+</html>

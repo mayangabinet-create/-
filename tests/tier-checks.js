@@ -38,13 +38,13 @@
 // once (this file still expected sonnet/opus here), which would have failed
 // modelOk on a run that was actually correct.
 const TIER_EXPECT = {
-  trial: { concepts: 10, model: /haiku/,  docChars:   5000 },
-  basic: { concepts: 10, model: /haiku/,  docChars:   5000 },
+  trial: { concepts: 10, model: /haiku/,  docChars:  20000 },
+  basic: { concepts: 10, model: /haiku/,  docChars:  20000 },
   pro:   { concepts: 12, model: /haiku/,  docChars:  40000 },
   max:   { concepts: 15, model: /sonnet/, docChars: 120000 },
 };
 
-const TEMPLATE_ALLOWANCE = 12000;  // must match ai-proxy/index.ts
+const TEMPLATE_ALLOWANCE = 14500;  // must match ai-proxy/policy.mjs
 
 // Plausible English prose: ~4 chars/token, so the token counts below are
 // predictable. Filler in Hebrew tokenizes at ~2 chars/token and the expected

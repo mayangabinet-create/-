@@ -1093,6 +1093,15 @@
         .error-message { --callout-tint: var(--danger-tint); --callout-rule: var(--danger); color: var(--danger-strong); font-weight: 600; }
         .info-message  { --callout-tint: var(--info-tint); --callout-rule: var(--info); }
 
+        /* Where a card's claim comes from in the learner's own document. Quiet on
+           purpose: it is there to be checked, not read every time. */
+        .card-source {
+            margin-top: var(--sp-3); padding-inline-start: var(--sp-3);
+            border-inline-start: 2px solid var(--border-strong);
+            color: var(--text-muted); font-size: var(--fs-sm); line-height: var(--lh-snug);
+        }
+        .card-source-label { display: block; font-weight: 700; font-size: var(--fs-xs); margin-bottom: 2px; }
+
         .example-label, .analogy-label, .why-label {
             display: block; font-weight: 700; font-size: var(--fs-sm);
             margin-bottom: var(--sp-1);
@@ -1249,6 +1258,20 @@
         .demo-lesson-banner-text span { font-size: var(--fs-xs); color: var(--text-muted); }
         .demo-lesson-banner-arrow { flex: none; color: var(--info-strong); }
         .course-name-field { margin-bottom: var(--sp-5); }
+        /* Who the course is for and how they will be tested. Two short native
+           selects rather than a step of their own: both are optional, and an
+           upload that needs two extra screens is an upload fewer people start. */
+        .learner-fields {
+            display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3);
+            margin-bottom: var(--sp-5);
+        }
+        .learner-fields .field-hint { grid-column: 1 / -1; margin-top: 0; }
+        select.auth-input {
+            -webkit-appearance: menulist; appearance: auto;
+            min-height: var(--tap); padding-block: 0; padding-inline: var(--sp-3);
+            cursor: pointer;
+        }
+        @media (max-width: 520px) { .learner-fields { grid-template-columns: 1fr; } }
 
         /* ---- Switch row: one on/off setting with a label, not a question with
            options ---- */
@@ -2084,7 +2107,7 @@
             display: grid;
             /* Two columns since the hearts left: a third track with nothing in
                it still pays for its gap, and the step bar should have it. */
-            grid-template-columns: var(--tap) 1fr;
+            grid-template-columns: var(--tap) 1fr var(--tap);
             align-items: center;
             gap: var(--sp-3);
             padding: var(--sp-3) var(--sp-4) var(--sp-2);
@@ -2173,6 +2196,24 @@
         /* The verdict banner: slides up from the bottom with the explanation and the
            only button that matters at that moment. Grid rows animate to the content's
            real height, so a long explanation is never clipped. */
+        /* Ask a question mid-lesson. Docked like the feedback bar, above it, so
+           the step it is asked about stays on screen behind it. */
+        .ask-panel {
+            position: fixed; inset-inline: 0; bottom: 0; z-index: 30;
+            width: 100%; max-width: calc(var(--content-max) + var(--sp-10)); margin-inline: auto;
+            max-height: 72vh; overflow-y: auto;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--r-lg) var(--r-lg) 0 0;
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.12);
+            padding: var(--sp-4) var(--sp-4) calc(var(--sp-4) + env(safe-area-inset-bottom, 0px));
+        }
+        .ask-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+        .ask-note { color: var(--text-muted); font-size: var(--fs-sm); margin: 0 0 var(--sp-3); }
+        .ask-log { display: grid; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+        .ask-q { font-weight: 700; }
+        .ask-a { white-space: pre-wrap; line-height: var(--lh-prose); }
+        .ask-input { min-height: 64px; margin-bottom: var(--sp-3); resize: vertical; }
+
         .feedback-bar {
             flex: none;
             display: grid;
@@ -3044,6 +3085,7 @@
         [dir="rtl"] .option,
         [dir="rtl"] .feedback-bar,
         [dir="rtl"] .summary-facts,
+        [dir="rtl"] .card-source,
         [dir="rtl"] .vis-table th,
         [dir="rtl"] .vis-table td { text-align: right; }
 
@@ -3375,6 +3417,32 @@
                     <p class="field-hint">Optional. Leave it blank and one is written for you — you can rename it later.</p>
                 </div>
 
+                <!-- Read by every lesson prompt (learnerNote in app.js) and saved on
+                     the course as `learner`. Both optional: "Not sure" sends nothing. -->
+                <div class="learner-fields">
+                    <div>
+                        <label class="field-label" for="learnerLevel">Who is this for?</label>
+                        <select id="learnerLevel" class="auth-input">
+                            <option value="">Not sure</option>
+                            <option value="school">High school</option>
+                            <option value="university">University or college</option>
+                            <option value="professional">A professional exam or work</option>
+                            <option value="self">Myself, out of interest</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="field-label" for="learnerExam">How will you be tested?</label>
+                        <select id="learnerExam" class="auth-input">
+                            <option value="">Not sure</option>
+                            <option value="choice">Multiple choice</option>
+                            <option value="open">Written answers</option>
+                            <option value="problems">Problems to solve</option>
+                            <option value="none">I won't be tested</option>
+                        </select>
+                    </div>
+                    <p class="field-hint">Lessons are pitched to this, and their questions are written the way your exam asks them.</p>
+                </div>
+
                 <!-- Off by default: most uploads are a chapter to be taught, not a
                      worksheet to be worked through problem by problem. See
                      assessWorksheetMaterial and buildWorksheetPlanPrompt in app.js. -->
@@ -3679,6 +3747,13 @@
                 </svg>
             </button>
             <div class="lesson-step-bar" id="lessonStepBar"></div>
+            <button type="button" class="icon-button" id="askBtn" aria-label="Ask a question about this lesson" aria-expanded="false" aria-controls="askPanel">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>
+                    <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .8-1 1.5v.2M12 16.5h.01"/>
+                </svg>
+            </button>
         </header>
         <!-- Where this lesson lives, since the lesson screen replaces every other
              piece of chrome — bottom nav included — and without this the only way
@@ -3697,6 +3772,22 @@
                 <div id="lessonExplanation"></div>
                 <div class="lesson-scroll-pad"></div>
             </div>
+        </div>
+
+        <!-- Ask a question about what is on screen. app.js: openAsk / sendAsk. -->
+        <div class="ask-panel" id="askPanel" role="dialog" aria-modal="false" aria-labelledby="askTitle" hidden>
+            <div class="ask-head">
+                <strong id="askTitle">Ask about this lesson</strong>
+                <button type="button" class="icon-button" id="askClose" aria-label="Close">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+                         stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+            <p class="ask-note">Answers come from your document. On a question you haven't answered yet, you'll get a nudge, not the answer.</p>
+            <div class="ask-log" id="askLog" aria-live="polite"></div>
+            <label class="field-label" for="askInput">Your question</label>
+            <textarea class="text-input ask-input" id="askInput" placeholder="What didn't make sense?"></textarea>
+            <button type="button" class="button button-block" id="askSend">Ask</button>
         </div>
 
         <!-- Duolingo-style sliding feedback banner: docked at the foot of the

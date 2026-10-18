@@ -6,6 +6,7 @@ import {
   FREE_CALLS_PER_DAY,
   fixCourseSize,
   KNOWN_TASKS,
+  modelFor,
   normaliseContent,
   planFor,
   prepareBlocks,
@@ -13,6 +14,8 @@ import {
   sseScanner,
   streamUsage,
   TEMPLATE_ALLOWANCE,
+  thinkingFor,
+  upstreamError,
   clampText,
   usageFrom,
   wantsStream,
@@ -141,7 +144,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { kind, cap } = classify(max_tokens);
-  const model = kind === "course" ? plan.modelCourse : plan.modelLesson;
+  const model = modelFor(kind, plan);
 
   // Quota. Metered work checks and increments in one statement so two
   // concurrent requests can't both pass the check; free work keeps the old
@@ -220,6 +223,7 @@ Deno.serve(async (req: Request) => {
       max_tokens: Math.min(Number(max_tokens) || 1024, cap),
       system: typeof system === "string" ? clampText(system, TEMPLATE_ALLOWANCE) : system,
       messages: safeMessages,
+      ...(thinkingFor(model) ? { thinking: thinkingFor(model) } : {}),
       ...(stream ? { stream: true } : {}),
     }),
   });
@@ -234,14 +238,23 @@ Deno.serve(async (req: Request) => {
 
   const result = await anthropicRes.json();
 
-  if (anthropicRes.ok && result.usage) {
-    await recordUsage(admin, user.id, usageFrom(result.usage));
+  if (anthropicRes.ok) {
+    if (result.usage) await recordUsage(admin, user.id, usageFrom(result.usage));
+    return new Response(JSON.stringify(result), {
+      status: anthropicRes.status,
+      headers: { ...corsHeaders, "content-type": "application/json" },
+    });
   }
 
-  return new Response(JSON.stringify(result), {
-    status: anthropicRes.status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
-  });
+  // A refusal is not forwarded as it arrives. Anthropic's error envelope puts
+  // an object where this app's own errors put a string, which the client
+  // rendered into a dialog as "[object Object]" — and nothing wrote the body
+  // anywhere, so a real refusal left no trace on either side of the wire.
+  // `upstreamError` gives the browser a sentence; this line gives the function
+  // logs the reason.
+  const refusal = upstreamError(anthropicRes.status, result);
+  console.error("anthropic refused:", anthropicRes.status, refusal.error, refusal.detail);
+  return json(refusal, anthropicRes.status);
 });
 
 /**

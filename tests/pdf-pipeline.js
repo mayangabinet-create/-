@@ -60,6 +60,8 @@ const names = [
   'const CHUNK_CHARS',
   'const STOPWORDS',
   'function tokenize',
+  'const HEBREW_PREFIX',
+  'function retrievalTokens',
   'function splitBlocks',
   'function chunkText',
   'function buildIndex',
@@ -94,8 +96,8 @@ const MAX_SOURCE_CHARS = 600000;
 let entitlement = null;
 let currentUser = null;
 const PLAN_LIMITS = ${JSON.stringify({
-  trial: { readChars: 5000, excerptChars: 2400 },
-  basic: { readChars: 5000, excerptChars: 2400 },
+  trial: { readChars: 20000, excerptChars: 6000 },
+  basic: { readChars: 20000, excerptChars: 6000 },
   pro:   { readChars: 40000, excerptChars: 8000 },
   max:   { readChars: 120000, excerptChars: 16000 },
 })};
@@ -108,7 +110,7 @@ for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
   pagesToText, looksScanned, ocrLinesToLines, scanNoticeBody, MAX_OCR_PAGES,
-  splitBlocks, chunkText, tokenize, retrieveExcerpt, sectionSource, looksLikeHeading,
+  splitBlocks, chunkText, tokenize, retrievalTokens, retrieveExcerpt, sectionSource, looksLikeHeading,
   readBundle, bundleStructure, locateSections,
   canDebugPlan, setUser, DEBUG_PLAN_EMAIL,
   assessMaterial, materialStats, materialFingerprint,
@@ -689,6 +691,28 @@ console.log('\n== chunking ==');
   ok('tiny input yields nothing', P.chunkText('hi').length === 0);
 }
 
+console.log('\n== Hebrew prefixes in retrieval ==');
+{
+  const toks = P.retrievalTokens('הפירוק לגורמים ומשוואה');
+  ok('a prefixed word also counts as its bare form', toks.includes('פירוק'), toks.join(' '));
+  ok('two prefix letters come off too', P.retrievalTokens('והפירוק').includes('פירוק'));
+  ok('the word as written is kept', toks.includes('הפירוק') && toks.includes('משוואה'));
+  ok('nothing shorter than three letters is produced', toks.every(t => t.length >= 3), toks.join(' '));
+  ok('English is untouched', P.retrievalTokens('the hypotenuse').join(' ') === P.tokenize('the hypotenuse').join(' '));
+  ok('plain tokenize is unchanged', !P.tokenize('הפירוק').includes('פירוק'));
+
+  // The concept is named bare; the passage that teaches it only ever uses it
+  // with a prefix. Before, the two never matched and the excerpt fell back to
+  // the first chunk.
+  P.setPlan('basic');
+  const filler = [...Array(40)].map((_, i) => `פסקה ${i} עוסקת בנושא אחר לגמרי ומתארת מקרים שונים ומגוונים בלי קשר לעניין, ממש כך ${i}.`);
+  filler[30] = 'בפרק הזה נלמד על הפירוק לגורמים: כך מפרקים טרינום לגורמים ומוצאים את השורשים של המשוואה, צעד אחר צעד.';
+  const doc = filler.join('\n\n').repeat(3);
+  const hit = P.retrieveExcerpt({ name: 'פירוק', description: 'גורמים', importance: '', examples: [] }, doc);
+  ok('a bare Hebrew concept name finds its prefixed passage', hit.includes('הפירוק לגורמים'), hit.slice(0, 80));
+  P.setPlan(null);
+}
+
 console.log('\n== tier-sized excerpt budget ==');
 {
   // topic40 is genuinely discussed in many places, as a real concept in a real
@@ -705,10 +729,16 @@ console.log('\n== tier-sized excerpt budget ==');
   P.setPlan('max');
   const max = P.retrieveExcerpt(concept, doc);
 
-  ok('basic excerpt within basic budget', basic.length <= 2400, 'len=' + basic.length);
+  ok('basic excerpt within basic budget', basic.length <= 6000, 'len=' + basic.length);
   ok('max excerpt within max budget', max.length <= 16000, 'len=' + max.length);
   ok('max reads more than basic', max.length > basic.length, `${max.length} vs ${basic.length}`);
   ok('excerpt is on-topic', basic.includes('topic40'), basic.slice(0, 120));
+
+  // A document shorter than the budget is sent whole, not cut down to the
+  // chunks that happen to score highest.
+  const short = 'Intro paragraph that names nothing in particular and sets the scene for the reader.\n\n'
+    + 'The worked example two paragraphs later shows topic40 being applied step by step to real numbers.';
+  ok('a document that fits is sent whole', P.retrieveExcerpt(concept, short) === short);
 
   P.setPlan(null);
   ok('signed-out falls back to the smallest budget', P.excerptBudget() === 2400 && P.planReadChars() === 5000);

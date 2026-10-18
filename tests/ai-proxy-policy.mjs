@@ -13,6 +13,7 @@
 import {
   CHARS_PER_TOKEN,
   DOMAIN_TOOLKIT_ALLOWANCE,
+  FREE_CALLS_PER_DAY,
   FREE_CALL_CHARS,
   GLOBAL_TOOLKIT_ALLOWANCE,
   HAIKU,
@@ -25,12 +26,15 @@ import {
   classify,
   fixCourseSize,
   minCacheChars,
+  modelFor,
   normaliseContent,
   planFor,
   prepareBlocks,
   shouldFixCourseSize,
   sseScanner,
   streamUsage,
+  thinkingFor,
+  upstreamError,
   usageFrom,
   wantsStream,
 } from "../supabase/functions/ai-proxy/policy.mjs";
@@ -45,6 +49,13 @@ const chars = (n, c = "x") => c.repeat(n);
 const lessonOf = (planKey, blocks) =>
   prepareBlocks(blocks.map(text => ({ type: "text", text })),
     { kind: "lesson", plan: PLANS[planKey], model: PLANS[planKey].modelLesson });
+
+// No shipping tier has a zero context budget any more, but the path that
+// handles one is still the path any tier takes the moment it is set to 0.
+const NO_CONTEXT = { ...PLANS.basic, contextChars: 0 };
+const lessonOnNoContext = blocks =>
+  prepareBlocks(blocks.map(text => ({ type: "text", text })),
+    { kind: "lesson", plan: NO_CONTEXT, model: NO_CONTEXT.modelLesson });
 
 console.log("\n== classification ==");
 {
@@ -68,6 +79,20 @@ console.log("\n== classification ==");
   // reaches classify() at all — it 400s as unknown_task instead.
   ok("the primer label onboarding sends is accepted", KNOWN_TASKS.has("primer"));
   ok("a primer call is free work, so it is capped and metered", classify(1000).kind === "free");
+  // The lesson check (verifyLesson in app.js) asks for 900 tokens.
+  ok("the verify label is accepted", KNOWN_TASKS.has("verify"));
+  ok("a verify call is free work, so it is capped and metered", classify(900).kind === "free");
+}
+
+console.log("\n== thinking ==");
+{
+  // Thinking tokens come out of max_tokens, and a lesson's 6,000 were all
+  // budgeted for the JSON. Each model is told "off" in the form it accepts.
+  ok("Haiku is sent thinking disabled", thinkingFor(HAIKU)?.type === "disabled");
+  ok("Sonnet is sent between_tools, since it rejects disabled", thinkingFor(SONNET)?.type === "between_tools");
+  ok("between_tools carries no other field", Object.keys(thinkingFor(SONNET)).length === 1);
+  ok("every model a plan names gets an explicit setting",
+     Object.values(PLANS).every(p => thinkingFor(p.modelCourse) && thinkingFor(p.modelLesson)));
 }
 
 console.log("\n== tier resolution ==");
@@ -76,6 +101,25 @@ console.log("\n== tier resolution ==");
   ok("an unknown plan falls back to basic", planFor("enterprise", false).key === "basic");
   ok("a missing plan falls back to basic", planFor(undefined, false).key === "basic");
   ok("a real plan is honoured", planFor("pro", false).plan.excerptChars === 8_000);
+}
+
+console.log("\n== which model runs the call ==");
+{
+  ok("a course plan runs on the tier's planning model",
+     modelFor("course", PLANS.max) === PLANS.max.modelCourse);
+  ok("a lesson runs on the tier's lesson model",
+     modelFor("lesson", PLANS.pro) === PLANS.pro.modelLesson);
+  // Free work is the only path no monthly quota limits, so it is also the
+  // only path where the model is a cost ceiling rather than a tier benefit.
+  ok("free work runs on Haiku even where the tier writes lessons on Sonnet",
+     modelFor("free", PLANS.pro) === HAIKU && modelFor("free", PLANS.max) === HAIKU);
+  ok("free work on the Haiku tiers is unchanged",
+     modelFor("free", PLANS.basic) === HAIKU);
+  // The daily cap times what one call can cost is the whole ceiling on
+  // unmetered spend; both halves are checked so neither drifts back up alone.
+  ok("the free-call backstop stays bounded",
+     FREE_CALLS_PER_DAY <= 60 && FREE_CALL_CHARS <= 8_000,
+     `${FREE_CALLS_PER_DAY} calls x ${FREE_CALL_CHARS} chars`);
 }
 
 console.log("\n== content normalisation ==");
@@ -139,18 +183,29 @@ console.log("\n== caching ==");
   ok("a prefix at exactly the minimum is cacheable",
      exact[0].cache_control?.type === "ephemeral");
 
-  ok("Haiku's minimum is the highest of the three",
-     minCacheChars(HAIKU) > minCacheChars(SONNET) && minCacheChars(SONNET) > minCacheChars(OPUS));
+  ok("no model is credited with less than its documented 512-token minimum",
+     [HAIKU, SONNET, OPUS].every(m => minCacheChars(m) >= 512 * CHARS_PER_TOKEN));
   ok("the minimum is computed conservatively",
      minCacheChars(SONNET) === 1024 * CHARS_PER_TOKEN);
 
-  // Trial and Basic run on Haiku with contextChars 0 — the feature is off
-  // there on purpose, and off must mean no write premium.
-  const basic = lessonOf("basic", [chars(200_000), "q"]);
+  // A tier with contextChars 0 has the feature off, and off must mean no
+  // write premium.
+  const flat = lessonOnNoContext([chars(200_000), "q"]);
   ok("a tier with no context budget caches nothing",
-     basic.every(b => b.cache_control === undefined));
+     flat.every(b => b.cache_control === undefined));
   ok("and its blocks still share one budget",
-     basic.reduce((n, b) => n + b.text.length, 0) === PLANS.basic.excerptChars + TEMPLATE_ALLOWANCE);
+     flat.reduce((n, b) => n + b.text.length, 0) === NO_CONTEXT.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // Trial and Basic now carry a shared context on Haiku 5.5.
+  const basic = lessonOf("basic", [chars(200_000), "q"]);
+  ok("Basic now sends a shared context, clamped to its budget",
+     basic[0].text.length === PLANS.basic.contextChars, String(basic[0].text.length));
+  ok("and caches it", basic[0].cache_control?.type === "ephemeral");
+  ok("Trial reads as much of the document as Basic",
+     PLANS.trial.readChars === PLANS.basic.readChars && PLANS.trial.excerptChars === PLANS.basic.excerptChars);
+  ok("the paid tiers still read more than Basic",
+     PLANS.pro.readChars > PLANS.basic.readChars && PLANS.pro.excerptChars > PLANS.basic.excerptChars
+     && PLANS.pro.contextChars > PLANS.basic.contextChars);
 
   // Max plans on Opus but writes lessons on Sonnet, so the lesson block is
   // measured against Sonnet's minimum, not Opus's.
@@ -193,15 +248,21 @@ console.log("\n== four-block lesson caching (global toolkit / course / domain / 
   ok("an empty domain toolkit block does not break the split",
      noDomain.length === 4 && noDomain[2].text === "");
 
-  // Trial/Basic never fund any of this (contextChars is 0), so a four-block
+  // A tier with no context budget never funds any of this, so a four-block
   // call there — a stray one, since the client only ever builds one when
   // contextBudget() > 0 — must fail safe to the flat, uncached path rather
   // than throw or silently cache nothing at 0 chars.
-  const basicFour = lessonOf("basic", [chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
+  const flatFour = lessonOnNoContext([chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
   ok("a four-block call on a tier with no context budget is never cached",
-     basicFour.every(b => b.cache_control === undefined));
+     flatFour.every(b => b.cache_control === undefined));
   ok("and still shares one flat budget across all four blocks",
-     basicFour.reduce((n, b) => n + b.text.length, 0) === PLANS.basic.excerptChars + TEMPLATE_ALLOWANCE);
+     flatFour.reduce((n, b) => n + b.text.length, 0) === NO_CONTEXT.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // Basic sends four blocks now, and they split the way Pro's do.
+  const basicFour = lessonOf("basic", [chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
+  ok("Basic's four-block call is split and cached",
+     basicFour.length === 4 && basicFour[1].text.length === PLANS.basic.contextChars
+     && basicFour[2].cache_control?.type === "ephemeral" && basicFour[3].cache_control === undefined);
 
   // The cumulative-prefix check: even a domain with a thin shelf (a few
   // hundred characters) clears the model's minimum, because it is checked
@@ -253,6 +314,69 @@ console.log("\n== usage accounting ==");
   const plain = usageFrom({ input_tokens: 1_000, output_tokens: 500 });
   ok("an uncached call is unchanged", plain.totalRead === 1_000 && plain.hit === false);
   ok("a missing usage object does not throw", usageFrom(undefined).totalRead === 0);
+}
+
+console.log("\n== a refusal from upstream ==");
+{
+  const anthropic400 = {
+    type: "error",
+    error: { type: "invalid_request_error", message: "text content blocks must be non-empty" },
+  };
+  const out = upstreamError(400, anthropic400);
+  // Forwarded as it arrived, `error` was an object and the client — which
+  // reads `payload.message || payload.error` into a dialog that sets
+  // textContent — showed the learner "[object Object]".
+  ok("the type comes back as a string, never the object it was nested in",
+     out.error === "invalid_request_error");
+  ok("the message says what the model actually objected to",
+     out.message.includes("text content blocks must be non-empty"), out.message);
+  ok("and the raw upstream text is kept for the logs",
+     out.detail === "text content blocks must be non-empty");
+  ok("every field a dialog might read is a string",
+     ["error", "code", "message", "detail"].every(k => typeof out[k] === "string"));
+
+  // A rate limit or an outage is not a bug in the request, and the upstream
+  // wording ("Number of requests has exceeded...") is not something a learner
+  // can act on.
+  for (const status of [429, 500, 529]) {
+    const busy = upstreamError(status, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    ok(`a ${status} reads as transient rather than as a bad request`,
+       /busy right now/.test(busy.message), busy.message);
+    ok(`and a ${status} still records what upstream said`, busy.detail === "Overloaded");
+  }
+
+  // The refusal that actually happened, on 2026-08-25: a spent credit
+  // balance. Anthropic returns it as a 400 whose message tells the reader to
+  // go and pay a bill — addressed to whoever runs this app, on an account a
+  // learner cannot see and is not responsible for.
+  const spent = upstreamError(400, {
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+    },
+  });
+  ok("a spent credit balance is not billed to the learner in words",
+     !/credit balance|billing/i.test(spent.message), spent.message);
+  ok("it says the app is at fault rather than blaming the request",
+     /on us, not on you/.test(spent.message), spent.message);
+  ok("and it is separable from other refusals in the logs",
+     spent.code === "upstream_billing");
+  ok("while the upstream wording is still recorded",
+     /Plans & Billing/.test(spent.detail));
+  // Wording is a weak signal, so a miss has to fail towards the old
+  // behaviour rather than towards a broken lesson.
+  const other = upstreamError(400, { type: "error", error: { type: "invalid_request_error", message: "text content blocks must be non-empty" } });
+  ok("an unrelated 400 is untouched by the billing case",
+     other.code === "upstream_error" && other.message.includes("non-empty"));
+
+  const empty = upstreamError(400, {});
+  ok("a body with nothing in it still produces a string message",
+     typeof empty.message === "string" && empty.message.length > 0);
+  ok("and falls back to a generic type", empty.error === "upstream_error");
+
+  const html = upstreamError(502, "<html>gateway</html>");
+  ok("a non-JSON body does not throw", typeof html.message === "string");
 }
 
 console.log("\n== streaming ==");

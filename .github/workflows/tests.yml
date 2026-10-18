@@ -25,7 +25,7 @@ jobs:
           set -e
           for f in tests/lesson-flow.js tests/onboarding.js tests/pdf-pipeline.js \
                    tests/lesson-visuals.js tests/learning-state.js tests/site-metadata.js \
-                   tests/lesson-verify.js; do
+                   tests/lesson-verify.js tests/teaching-board.js; do
             echo "== $f =="
             node "$f"
           done

@@ -1056,6 +1056,49 @@ work to the server (free, Haiku, 8,000 characters with the material last, since 
 cap cuts the tail), carries the last two exchanges for a follow-up, and starts fresh
 with every lesson. The demo lesson has no button, because no account is behind it.
 
+## Taught at a board, practised on paper
+
+The app is for learning a topic well enough to sit down with a workbook and a pen,
+and then for practising with it beside you. Two things follow from that.
+
+**A solution is written, not displayed.** The worked example, the practice problem's
+working and every exercise on a practice sheet go on *the board* (`renderBoard`,
+`boardController`): graph paper in the light theme, a chalkboard in the dark one. Each
+tap writes one line, word by word, in a handwritten face; a drawn arrow then leads to a
+note in the teacher's red (or chalk yellow) saying why, and the answer is written last
+and underlined. Lines are in the DOM from the start and hidden, so showing one is what
+starts its CSS animation and no timers are involved; under `prefers-reduced-motion` the
+pacing stays and the animation goes. Card and hook text appear word by word the same
+way, and every SVG figure is drawn through one gentle displacement filter (`#sketchy`,
+applied as `<g filter>` inside the SVG by `sketchSvg()`, which Safari renders reliably)
+so ruled lines look drawn.
+
+The handwriting is two faces, both SIL OFL with their licences in `fonts/`: **Gveret
+Levin** for Hebrew and **Caveat** for Latin, digits and symbols. Gveret Levin's own
+digits are too close to Hebrew letters for working (its 9 reads as פ), so it is given
+only the Hebrew range. Options, questions and explanations in a right-to-left lesson are
+laid out with `unicode-bidi: plaintext`, which is what stops an option that is all
+formula from showing `4(x − 3)` as `(x − 3)4`.
+
+**Practice is on paper.** The lesson's practice problem goes on the board with "Solve it
+in your notebook first": a hint writes the next line of its `solution` and no more, the
+options appear only when the learner says they have an answer, and after grading the
+rest of the working can be written out. A lesson written before `solution` existed
+shows its old hint instead.
+
+**More exercises like this.** The lesson-complete screen, and the path preview of any
+finished lesson ("Practice on paper"), open a practice sheet: six exercises of the kind
+the lesson taught, easy to exam level, each with its full working and why-notes. One at
+a time: solve in the notebook, take a hint (next line) or the whole solution, then mark
+it *right*, *a mistake* or *couldn't solve it*. Anything short of right brings the
+lesson's review forward (`nudgeReviewSooner`). The sheet prints, problems with room to
+work and the answers with their working on a separate page. It is written by one
+`lesson`-sized call, so **it counts as one lesson against the month's quota**, and is
+kept on the lesson (`lesson.practiceSheet`) so reopening it is free. Exercises with a
+numeric answer get the same blind check a lesson does, and one the second reader
+disagrees with is removed. `tests/teaching-board.js` covers the board, the controller,
+the sketch wrapper and the sheet's normalisation.
+
 ## Checking a lesson's answers
 
 A lesson is written in one pass, and nothing in that pass checked its answer key.

@@ -30,10 +30,12 @@ const names = [
   'const VERIFIABLE', 'const MIN_QUIZ_AFTER_VERIFY', 'const VERIFY_EXCERPT_CHARS',
   'function verifiableItems', 'function buildVerifyPrompt',
   'function disputedItems', 'function withoutDisputed',
+  'const SOURCE_MIN_CHARS', 'const SOURCE_MAX_CHARS', 'function sourceKey', 'function keepVerbatimSources',
+  'function buildAskPrompt',
 ];
 let code = '';
 for (const n of names) code += grab(n) + '\n';
-code += 'module.exports = { verifiableItems, buildVerifyPrompt, disputedItems, withoutDisputed, VERIFY_EXCERPT_CHARS };';
+code += 'module.exports = { verifiableItems, buildVerifyPrompt, disputedItems, withoutDisputed, VERIFY_EXCERPT_CHARS, keepVerbatimSources, buildAskPrompt };';
 const P = new Function('module', code + '\nreturn module.exports;')({});
 
 let passed = 0, failed = 0;
@@ -111,6 +113,37 @@ console.log('\n== failing open ==');
 
   const all = new Set(['quiz:0', 'quiz:1', 'quiz:2', 'quiz:3']);
   ok('a check that would empty the quiz leaves the lesson as written', P.withoutDisputed(l, all) === l);
+}
+
+console.log('\n== quotations from the document ==');
+{
+  const doc = 'כלל לזכור: הסכום של שני המספרים שווה למקדם של x, עם אותו סימן בדיוק.\n\nThe   hypotenuse is the "longest" side.';
+  const out = P.keepVerbatimSources({ cards: [
+    { text: 'a', source: 'הסכום של שני המספרים שווה למקדם של x' },
+    { text: 'b', source: 'הסכום שווה למקדם עם הסימן ההפוך' },
+    { text: 'c', source: 'the hypotenuse is the longest side' },
+    { text: 'd', source: 'side.' },
+    { text: 'e' },
+  ] }, doc);
+  ok('a quotation that is in the document is kept', out.cards[0].source === 'הסכום של שני המספרים שווה למקדם של x');
+  ok('one the model made up is dropped', out.cards[1].source === null);
+  ok('case, spacing and quote marks do not count against it', out.cards[2].source !== null);
+  ok('a fragment too short to mean anything is dropped', out.cards[3].source === null);
+  ok('a card without one is left without one', out.cards[4].source === null);
+  ok('no stored document means nothing can be checked, so nothing is shown',
+     P.keepVerbatimSources({ cards: [{ text: 'a', source: 'anything at all here' }] }, '').cards[0].source === null);
+}
+
+console.log('\n== asking a question mid-lesson ==');
+{
+  const base = { screen: 'Factor x² − 9', excerpt: 'MATERIAL TEXT', history: [], title: 'Factoring' };
+  const open = P.buildAskPrompt('how?', { ...base, openQuestion: true });
+  const after = P.buildAskPrompt('how?', { ...base, openQuestion: false });
+  ok('an unanswered question is fenced: no answer handed over', /Do not say which option or value is correct/.test(open));
+  ok('once answered, the fence comes down', !/Do not say which option/.test(after));
+  ok('the material comes last, where the free-work cap cuts', open.trim().endsWith('MATERIAL TEXT\n"""'));
+  ok('earlier turns are carried for a follow-up',
+     /EARLIER IN THIS CONVERSATION/.test(P.buildAskPrompt('and?', { ...base, openQuestion: false, history: [{ q: 'why', a: 'because' }] })));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

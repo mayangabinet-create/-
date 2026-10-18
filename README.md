@@ -249,7 +249,7 @@ One constraint worth knowing before adding to either catalogue: the lesson promp
 retrieved passage share one content block, and `ai-proxy` clamps that block to
 `excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
 which is where its own JSON schema lives. The widest prompt (a maths concept, whose shelf
-is the largest) is currently about 13,200 of the 14,500 characters allowed, and the test
+is the largest) is currently about 14,000 of the 14,500 characters allowed (with the longest `WHO THIS IS FOR` line in it), and the test
 fails if an addition leaves under 500 spare. Raising the ceiling means raising
 `TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function — which is what
 was done when the calibration line was added and the margin fell to 350. It is a ceiling,
@@ -999,6 +999,54 @@ hosted checkout for that plan. There's still no price printed on the cards —
 Grow's own checkout page is where the actual amount is shown and can change
 without a deploy — the redesign is about reading the difference between tiers at a
 glance, not about repeating a number that lives elsewhere.
+
+## Who the course is for
+
+The same document is a different course for a high-school student before a school
+exam, a university student, and an adult before a licensing exam: different
+vocabulary, different depth, and above all a different kind of question. The lesson
+used to know none of this. The first run already asked *what are you learning for*
+(an exam, work, curiosity, teaching), stored the answer, showed it on the Account
+screen, and never sent it anywhere.
+
+The upload screen now asks two optional questions: **who is this for** (high school,
+university, a professional exam or work, out of interest) and **how will you be
+tested** (multiple choice, written answers, problems to solve, not tested). They are
+saved on the course as `courses.learner` (`{level, exam}`, migration
+`20261018120000_courses_learner.sql`) and remembered in the browser for the next
+upload. `learnerNote()` turns them into a `WHO THIS IS FOR` line in every lesson
+prompt. When a course says nothing, the first-run goal stands in. The exam line
+matters most: a licensing exam's multiple choice wants options that differ in one
+condition, a written exam wants explain-compare-apply questions, a problem set wants
+problems.
+
+The prompt's tone moved with it. It used to ask for "a lesson in the style of
+Duolingo and Brilliant" that opened on "a surprising fact"; most people who upload
+their own document have a deadline, not a whim. Now: write like a tutor talking to an
+adult, direct and exact, with no exclamation marks, no praise and no cartoon
+analogies. The hook is *why this matters*, the prediction is a real question asked
+before the explanation (the pretesting effect, which is why it survives), an analogy
+only appears when it clarifies, `explore` is omitted for most concepts, and the
+memory check is an exam-style open question marked by an examiner rather than
+"gently evaluated". The step labels say the same: *Why this matters*, *Before you
+read it*, *In your own words*.
+
+**Where a card comes from.** Each card may carry `source`, words the model says it
+copied from the learner's document. `keepVerbatimSources()` looks the quotation up in
+the stored text, forgiving case, spacing, quote marks, dashes and niqqud and nothing
+else, and drops it if it is not there. A citation that cannot be found is worse than
+none, because it is the one line on a card that claims to need no trust. A card shows
+it as *From your document: "…"*.
+
+**Asking a question mid-lesson.** The question-mark button in the lesson's top bar
+opens a panel that answers one question about the step on screen, grounded in the
+concept's passage. It reads the step off the screen, so it sees exactly what the
+learner saw. On a question that has not been answered yet it explains the idea and
+the first step and does not give the answer: a tutor that hands answers over raises
+practice scores and lowers exam scores (Bastani et al., PNAS 2025). It is `tutor`
+work to the server (free, Haiku, 8,000 characters with the material last, since that
+cap cuts the tail), carries the last two exchanges for a follow-up, and starts fresh
+with every lesson. The demo lesson has no button, because no account is behind it.
 
 ## Checking a lesson's answers
 

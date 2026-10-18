@@ -226,7 +226,7 @@
         // document for (see the first run). 1000 because that is exactly what
         // the Edge Function allows anything under the course threshold —
         // asking for more only buys a sentence cut in half.
-        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000, verify: 900 };
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000, verify: 900, ask: 600 };
 
         let lastCallTruncated = false;
 
@@ -1291,6 +1291,46 @@ ${planSchemaAndLanguage(`{
             return '';
         }
 
+        // Who the course is for, as one or two lines to the model. Read from
+        // the course's `learner` (the upload screen's two questions) and, when
+        // the course says nothing, from the goal picked during the first run —
+        // which until now was stored, shown on the Account screen, and never
+        // sent anywhere. The exam line matters most: a licensing exam's
+        // multiple choice, a written university exam and a page of problems
+        // each want a different kind of question, and the quiz is the part of
+        // a lesson the learner will meet again under pressure.
+        const LEARNER_LEVEL_NOTES = {
+            school: 'a high-school student preparing for a school exam such as the bagrut. Plain language, every term defined the first time it is used — but a teenager, not a child: no baby talk.',
+            university: "a university or college student. Use the field's own terminology precisely and go as deep as the source does.",
+            professional: "an adult preparing for a professional exam or using this at work. Short on time: be dense and exact, use the profession's terms, prefer cases from practice.",
+            self: 'an adult learning this out of interest, with no exam. Favour understanding and how the ideas connect over drill.',
+        };
+        const LEARNER_EXAM_NOTES = {
+            choice: "They will be tested with multiple choice. Write options like a real exam's: differing in one condition, number or exception.",
+            open: 'They will answer in writing: include questions that ask them to explain, compare or apply a rule to a short case.',
+            problems: 'They will be tested by solving problems: most questions are problems to work out (numeric where the answer is a number), rising to exam level.',
+            none: 'They will not be tested on this. Check understanding, not recall of wording.',
+        };
+        const GOAL_NOTES = {
+            exam: 'They are studying for an exam.',
+            work: 'They need this for their work: tie the examples to how it is used in practice.',
+            teaching: 'They will have to explain this to others: show why each step holds, not only that it does.',
+        };
+
+        function learnerNote() {
+            const learner = courseData?.learner || null;
+            const lines = [];
+            if (learner?.level) lines.push(`The learner is ${LEARNER_LEVEL_NOTES[learner.level]}`);
+            if (learner?.exam) lines.push(LEARNER_EXAM_NOTES[learner.exam]);
+            if (!lines.length) {
+                // `onboarding` is declared further down this file; typeof keeps
+                // a caller that runs without it (the tests) from throwing.
+                const goal = typeof onboarding !== 'undefined' ? onboarding?.goal : null;
+                if (GOAL_NOTES[goal]) lines.push(GOAL_NOTES[goal]);
+            }
+            return lines.length ? `\nWHO THIS IS FOR: ${lines.join(' ')}\n` : '';
+        }
+
         // The three pieces below are the parts of the lesson prompt that do not
         // depend on the concept: `lessonPrinciplesAndVisuals` and
         // `lessonQuestionTypes` are identical for every lesson, of any domain,
@@ -1307,7 +1347,10 @@ ${planSchemaAndLanguage(`{
         function lessonPrinciplesAndVisuals() {
             return `Principles:
 - Never a wall of text. Each card = ONE idea, 2-3 sentences.
-- Assume no prior knowledge. Open with curiosity, not a definition.
+- Pitch it to the learner described below; if nobody is described, to a
+  serious adult new to this topic. Write like a good tutor talking to an
+  adult: direct and exact. No exclamation marks, no praise, no "let's dive
+  in", no cartoon analogies.
 - SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
   comparison in it, draw it. Prose describing a figure the app could have drawn
   is the worst thing this lesson can contain.
@@ -1383,7 +1426,7 @@ ${lessonQuestionTypes()}`;
             const domain = String(concept.domain || '').trim().toLowerCase();
             const toolkit = standalone ? lessonDomainToolkit(domain) : '';
 
-            return `You are an excellent teacher building an interactive lesson in the style of Duolingo and Brilliant, about: "${concept.name}"
+            return `You are an expert tutor building an interactive lesson — short steps, each one something the learner does or checks — about: "${concept.name}"
 
 Description: ${concept.description}
 Why it matters: ${concept.importance}
@@ -1404,7 +1447,7 @@ GROUNDING RULES (these override everything else):
 ${languageRule()}
 ${standalone ? `
 ${lessonPrinciplesAndVisuals()}
-` : ''}${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${calibrationNote()}${toolkit ? `
+` : ''}${kind ? `\nThis concept is a ${kind} concept. For that kind, what usually works best is: ${KIND_PLAYBOOK[kind]}\n` : ''}${learnerNote()}${calibrationNote()}${toolkit ? `
 ${toolkit}
 ` : ''}
 ${standalone ? `${lessonQuestionTypes()}
@@ -1414,14 +1457,14 @@ ${standalone ? `${lessonQuestionTypes()}
 {
   "title": "${concept.name}",
   "estimatedMinutes": 6,
-  "hook": { "text": "A surprising fact or question. 1-2 sentences. Not a definition." },
-  "prediction": { "question": "A guess before we explain. Not graded.", "options": ["A","B","C"] },
+  "hook": { "text": "Why this matters, 1-2 sentences: where it is used, tested or needed. No trivia." },
+  "prediction": { "question": "A real question, asked before it is taught, that can be reasoned out. Not graded.", "options": ["A","B","C"] },
   "explore": {
     "instruction": "What to DO — drag it, tap it, uncover it",
     "visual": { "…": "a touchable spec: slider, reveal, or a figure with parts" },
     "insight": "What they should notice. Shown after they touch it."
   },
-  "cards": [ { "idea": "Heading", "text": "2-3 sentences, ONE idea", "analogy": "An everyday one, or null", "visual": null } ],
+  "cards": [ { "idea": "Heading", "text": "2-3 sentences, ONE idea", "analogy": "Only if it truly clarifies, else null", "source": "Words copied exactly from the SOURCE MATERIAL that back this card, or null", "visual": null } ],
   "workedExample": {
     "problem": "A concrete problem", "answer": "The final answer", "visual": null,
     "steps": [ { "action": "What you do", "why": "Why it is correct" } ]
@@ -1439,7 +1482,7 @@ ${standalone ? `${lessonQuestionTypes()}
     "options":["A","B","C","D"], "correct":0, "explanation":"The full solution" },
   "summary": { "mainIdea": "The central idea in one sentence", "keyFacts": ["1","2","3"],
     "commonMistake": "The most common mistake", "realWorld": "Where it shows up", "visual": null },
-  "memoryCheck": { "prompt": "Explain this concept as if teaching a friend." }
+  "memoryCheck": { "prompt": "An exam-style open question: explain, apply or compare, in their own words." }
 }
 
 Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions.
@@ -1458,7 +1501,8 @@ only what those exercises need.
 something, sees what happens, and is told why afterwards. Its "visual" must be
 touchable — a slider that moves a result, reveal cards, a figure with parts to
 tap. One they can only look at is a card; write it as a card and omit this.
-Omit it rather than invent an interaction the material does not support.
+Most concepts have nothing to touch: omit it then, rather than invent an
+interaction the material does not support.
 
 "hint" is shown only after a wrong answer, for a second try: point at the
 mistake, never give the answer.
@@ -1611,7 +1655,40 @@ ${languageRule()}`;
                 return null;
             }
 
-            return verifyLesson(normalised, excerpt);
+            return verifyLesson(keepVerbatimSources(normalised, getSourceText()), excerpt);
+        }
+
+        // ============= Where a card comes from =============
+        // Each card may carry `source`: words the model says it copied from the
+        // learner's document. A quotation is only worth showing if it is real —
+        // a citation that cannot be found is worse than none, because it is
+        // the one thing on the card that claims to need no trust. So it is
+        // looked up in the stored text, and kept only if it is there.
+        //
+        // The comparison forgives what extraction and retyping change and
+        // nothing else: case, runs of whitespace, quote marks and dashes.
+        const SOURCE_MIN_CHARS = 12;
+        const SOURCE_MAX_CHARS = 240;
+
+        function sourceKey(text) {
+            return String(text || '')
+                .toLowerCase()
+                .replace(/[\u0591-\u05C7]/g, '')            // Hebrew niqqud and cantillation
+                .replace(/["'`´‘’“”„״׳«»]/g, '')
+                .replace(/[‐-―−]/g, '-')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function keepVerbatimSources(lesson, sourceText) {
+            const haystack = sourceKey(sourceText);
+            (lesson.cards || []).forEach(card => {
+                const quote = typeof card.source === 'string' ? card.source.trim() : '';
+                const key = sourceKey(quote);
+                card.source = (haystack && key.length >= SOURCE_MIN_CHARS
+                    && quote.length <= SOURCE_MAX_CHARS && haystack.includes(key)) ? quote : null;
+            });
+            return lesson;
         }
 
         // ============= Checking a lesson's answers =============
@@ -2453,6 +2530,45 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             return { text: text.slice(0, MAX_SOURCE_CHARS), structure: null };
         }
 
+        // ============= Who the course is for =============
+        // Two optional answers from the upload screen, saved on the course as
+        // `learner` and read by every lesson prompt (see `learnerNote`). The
+        // same document is a different course for a high-school student, a
+        // university student and an adult before a licensing exam — and the
+        // kind of question their exam asks matters more than any of that.
+        // Sticky between courses in this browser: most people upload for the
+        // same exam more than once.
+        const LEARNER_LEVELS = ['school', 'university', 'professional', 'self'];
+        const LEARNER_EXAMS = ['choice', 'open', 'problems', 'none'];
+        const LEARNER_STORAGE = 'learner_profile';
+
+        // Only known values survive; nothing known is null rather than {}.
+        function cleanLearner(raw) {
+            const level = LEARNER_LEVELS.includes(raw?.level) ? raw.level : '';
+            const exam = LEARNER_EXAMS.includes(raw?.exam) ? raw.exam : '';
+            if (!level && !exam) return null;
+            return { ...(level ? { level } : {}), ...(exam ? { exam } : {}) };
+        }
+
+        function readLearnerProfile() {
+            const learner = cleanLearner({
+                level: document.getElementById('learnerLevel')?.value,
+                exam: document.getElementById('learnerExam')?.value,
+            });
+            try { localStorage.setItem(LEARNER_STORAGE, JSON.stringify(learner || {})); } catch { /* private mode */ }
+            return learner;
+        }
+
+        function restoreLearnerProfile() {
+            let saved = null;
+            try { saved = JSON.parse(localStorage.getItem(LEARNER_STORAGE) || 'null'); } catch { /* unreadable */ }
+            const learner = cleanLearner(saved) || {};
+            const level = document.getElementById('learnerLevel');
+            const exam = document.getElementById('learnerExam');
+            if (level) level.value = learner.level || '';
+            if (exam) exam.value = learner.exam || '';
+        }
+
         // Worksheet mode: the upload screen's one toggle, read by both submit
         // paths below and by the resume-after-signup replay (see pendingAction).
         // Reset on every fresh visit to the upload screen (see showNewCourse) so
@@ -2894,6 +3010,10 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
 
             buildStage('plan', worksheet ? 'Finding the exercises in your worksheet' : 'Finding the concepts in your material');
 
+            // Read once, here, so lesson 1 — written while the plan is still
+            // streaming — is pitched the same way as every lesson after it.
+            const learner = readLearnerProfile();
+
             // Lesson 1 is written alongside the plan rather than after it (see
             // `firstPlannedConcept`), and `generateLesson` reads the document
             // it is grounding in off the same globals a open course uses. They
@@ -2922,7 +3042,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                         // A provisional course, holding the one concept being
                         // written and the language every string in the lesson
                         // has to be in.
-                        courseData = { language, concepts: [concept] };
+                        courseData = { language, concepts: [concept], learner };
                         // Nobody has answered anything in a course that does not
                         // exist yet; the previous course's scores must not pitch
                         // this one's first lesson.
@@ -2954,6 +3074,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                     return;
                 }
 
+                course.learner = learner;
                 course.courseName = chosenName
                     || cleanTitle(course.courseName)
                     || cleanTitle(title)
@@ -7240,6 +7361,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 concepts: course.concepts,
                 source_text: sourceText || null,
                 structure: structure || null,
+                learner: course.learner || null,
             };
 
             let { data, error } = await supabaseClient
@@ -7253,6 +7375,14 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 console.warn('courses.structure is missing — saving without it. '
                     + 'Run supabase/migrations to keep document outlines.');
                 delete row.structure;
+                ({ data, error } = await supabaseClient
+                    .from('courses').insert(row).select('id').single());
+            }
+            // Same for `learner`, newer still: losing who the course is for
+            // pitches its lessons generically, which is how they always were.
+            if (error && /learner/i.test(error.message || '')) {
+                console.warn('courses.learner is missing — saving without it.');
+                delete row.learner;
                 ({ data, error } = await supabaseClient
                     .from('courses').insert(row).select('id').single());
             }
@@ -7384,6 +7514,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 courseName: courseRow.title,
                 language: courseRow.language,
                 concepts: courseRow.concepts,
+                learner: cleanLearner(courseRow.learner),
             };
             activeSourceText = courseRow.source_text || '';
             activeStructure = courseRow.structure || null;
@@ -7572,6 +7703,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             setScreen('home');
             document.getElementById('backToLibraryBtn').hidden = library.length === 0;
             setWorksheetMode(false);
+            restoreLearnerProfile();
         }
 
         // ============= Lesson preview =============
@@ -7675,9 +7807,14 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             screen.setAttribute('aria-hidden', 'false');
             document.getElementById('lessonScroll').scrollTop = 0;
             document.getElementById('backBtn').focus();
+            // A fresh lesson starts a fresh conversation. The demo has no
+            // account behind it to pay for one, so it has no button.
+            resetAsk();
+            document.getElementById('askBtn').hidden = demoMode;
         }
 
         function closeLessonScreen() {
+            closeAsk();
             const screen = document.getElementById('lessonScreen');
             screen.classList.remove('open');
             screen.setAttribute('aria-hidden', 'true');
@@ -7691,6 +7828,127 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 path.scrollTop = savedPathScroll;
                 path.style.scrollBehavior = behavior;
             }
+        }
+
+        // ============= Asking a question mid-lesson =============
+        // The one thing a tutor does that a written lesson cannot: answer the
+        // question this learner has, about the step in front of them. It is
+        // grounded the same way the lesson is — the concept's passage from
+        // their document — and fenced the way the evidence says it has to be:
+        // a tutor that hands over answers raises practice scores and lowers
+        // exam scores (Bastani et al., PNAS 2025). So on a question the
+        // learner has not answered yet it explains the idea and points at the
+        // next step, and does not say which option is right.
+        //
+        // It is `tutor` work to the server: free, pinned to Haiku, capped at
+        // 1,000 output tokens and 8,000 characters, and counted against the
+        // daily backstop. The material goes last because that cap cuts the tail.
+        const ASK_SCREEN_CHARS = 1500;
+        const ASK_EXCERPT_CHARS = 3500;
+        const ASK_HISTORY = 2;
+        let askLog = [];
+
+        function resetAsk() {
+            askLog = [];
+            const log = document.getElementById('askLog');
+            if (log) log.innerHTML = '';
+            closeAsk();
+        }
+
+        function openAsk() {
+            const panel = document.getElementById('askPanel');
+            panel.hidden = false;
+            document.getElementById('askBtn').setAttribute('aria-expanded', 'true');
+            document.getElementById('askInput').focus();
+        }
+
+        function closeAsk() {
+            const panel = document.getElementById('askPanel');
+            if (!panel) return;
+            panel.hidden = true;
+            document.getElementById('askBtn')?.setAttribute('aria-expanded', 'false');
+        }
+
+        // What the learner is looking at, as text. Read off the screen rather
+        // than rebuilt from the lesson, so it is exactly what they asked about —
+        // including which options were on offer and what feedback they got.
+        function askScreenText() {
+            const body = document.getElementById('lessonExplanation');
+            const feedback = document.getElementById('feedbackBar');
+            const text = [body?.innerText, feedback?.innerText].filter(Boolean).join('\n');
+            return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, ASK_SCREEN_CHARS);
+        }
+
+        // Is the step on screen a question still waiting for an answer?
+        function askStepIsOpenQuestion() {
+            const s = lessonState?.steps?.[lessonState.step];
+            if (!s || !['quiz', 'practice', 'challenge', 'warmup', 'repair', 'prediction'].includes(s.type)) return false;
+            // Graded once the feedback bar has shown its verdict.
+            return !document.getElementById('feedbackBar')?.classList.contains('show');
+        }
+
+        function buildAskPrompt(question, context) {
+            const { screen, excerpt, history, openQuestion, title } = context;
+            const earlier = history.map(h => `Learner: ${h.q}\nYou: ${h.a}`).join('\n\n');
+            return `LESSON: ${title}
+${openQuestion ? `
+The screen shows a question the learner has NOT answered yet. Do not say which option or value is correct, and do not solve it for them. Explain the idea they need, or what the question is asking, and say what step to try first.
+` : ''}
+ON SCREEN:
+"""
+${screen}
+"""
+${earlier ? `\nEARLIER IN THIS CONVERSATION:\n${earlier}\n` : ''}
+QUESTION: ${question}
+
+MATERIAL (the learner's own document):
+"""
+${excerpt}
+"""`;
+        }
+
+        function askSystemPrompt() {
+            return 'You are a tutor answering one question from a learner in the middle of a lesson built from their own document. '
+                + 'Answer what they asked, directly and exactly, in at most 5 short sentences. Use the MATERIAL for facts; if it does not cover the question, say so plainly and answer only from general knowledge that is safe, saying that it is not from their document. '
+                + 'No praise, no exclamation marks.'
+                + learnerNote().replace(/\s+/g, ' ')
+                + ' ' + languageRule();
+        }
+
+        function renderAskLog(pending = '') {
+            const log = document.getElementById('askLog');
+            const dir = isRTL() ? 'rtl' : 'ltr';
+            log.innerHTML = askLog.map(h => `
+                <div dir="auto"><div class="ask-q">${esc(h.q)}</div><div class="ask-a" dir="${dir}">${esc(h.a)}</div></div>`).join('')
+                + (pending ? `<div dir="auto"><div class="ask-q">${esc(pending)}</div>
+                    <div class="tutor-thinking"><span class="spinner" aria-hidden="true"></span><span>Thinking…</span></div></div>` : '');
+        }
+
+        async function sendAsk() {
+            const input = document.getElementById('askInput');
+            const send = document.getElementById('askSend');
+            const question = input.value.trim();
+            if (!question || send.disabled || !lessonState) return;
+
+            send.disabled = true;
+            renderAskLog(question);
+            const concept = courseData?.concepts?.[currentLessonIndex] || { name: lessonState.lesson?.title || '' };
+            const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure()).slice(0, ASK_EXCERPT_CHARS);
+            const prompt = buildAskPrompt(question, {
+                screen: askScreenText(),
+                excerpt,
+                history: askLog.slice(-ASK_HISTORY),
+                openQuestion: askStepIsOpenQuestion(),
+                title: lessonState.lesson?.title || concept.name || '',
+            });
+            const answer = await callAI(prompt, askSystemPrompt(), { maxTokens: MAX_TOKENS.ask, task: 'tutor' });
+            send.disabled = false;
+            if (answer) {
+                askLog.push({ q: question, a: answer.trim() });
+                input.value = '';
+            }
+            renderAskLog();
+            if (!answer) input.focus();
         }
 
         // Leave a lesson without finishing it. No reward, no confetti.
@@ -8932,7 +9190,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
 
         function stepHook(l) {
             return `
-                <div class="step-eyebrow">A moment of curiosity</div>
+                <div class="step-eyebrow">Why this matters</div>
                 <div class="hook-card">${esc(l.hook.text)}</div>
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
@@ -8941,9 +9199,9 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             const opts = l.prediction.options.map((o, i) =>
                 `<button type="button" class="option" data-pick="${i}">${esc(o)}</button>`).join('');
             return `
-                <div class="step-eyebrow">Guess before we explain</div>
+                <div class="step-eyebrow">Before you read it</div>
                 <h2 class="question-text">${esc(l.prediction.question)}</h2>
-                <div class="step-note">${"No wrong answer \u2014 just think for a second."}</div>
+                <div class="step-note">Not marked. Trying a question before the explanation is what makes the explanation stick.</div>
                 <div class="options" id="predictOpts">${opts}</div>`;
         }
 
@@ -8978,6 +9236,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 <div class="concept-text">${esc(c.text)}</div>
                 ${renderVisual(c.visual)}
                 ${analogy}
+                ${c.source ? `<div class="card-source"><span class="card-source-label">From your document</span>“${esc(c.source)}”</div>` : ''}
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
 
@@ -9041,7 +9300,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
 
         function stepMemory(l) {
             return `
-                <div class="step-eyebrow">Memory check</div>
+                <div class="step-eyebrow">In your own words</div>
                 <h2 class="question-text">${esc(l.memoryCheck.prompt)}</h2>
                 <textarea class="memory-input" id="memoryInput" placeholder="Write it in your own words…"></textarea>
                 <button class="button" id="memorySubmit">Check my answer</button>
@@ -9291,16 +9550,20 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             </div>`;
 
             const l = lessonState.lesson;
-            const sys = "You are a tutor. Gently evaluate the learner's explanation: name what they got right, then what is missing. 2-3 sentences. " + languageRule();
+            // Marked the way an examiner who wants them to pass would mark it:
+            // what holds, then exactly what is missing or wrong. "Gently" was
+            // the old instruction, and it read as praise for anything typed.
+            const sys = "You mark a learner's written answer the way a fair examiner would. In 2-3 sentences: say what is correct, then name precisely what is missing or wrong, if anything. No praise words, no exclamation marks. " + languageRule();
+            const facts = (l.summary?.keyFacts || []).filter(Boolean).join('; ');
             const res = await callAI(
-                `Concept: ${l.title}\nMain idea: ${l.summary?.mainIdea || ''}\n\nLearner's explanation: ${input}`,
+                `Concept: ${l.title}\nQuestion: ${l.memoryCheck?.prompt || ''}\nMain idea: ${l.summary?.mainIdea || ''}${facts ? `\nKey facts: ${facts}` : ''}\n${learnerNote()}\nLearner's answer: ${input}`,
                 sys,
                 { maxTokens: MAX_TOKENS.feedback, task: 'feedback' }
             );
 
             fb.className = 'feedback feedback-ok';
             fb.innerHTML = `
-                <div>${esc(res || "Thanks \u2014 putting it in your own words is the best way to remember it.")}</div>
+                <div>${esc(res || "Saved. Putting it in your own words is what makes it stay.")}</div>
                 <button class="button step-next" id="stepNext">Continue</button>`;
             document.getElementById('stepNext').onclick = advanceStep;
         }
@@ -9581,6 +9844,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
         });
 
         document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
+        restoreLearnerProfile();
 
         // The title itself and the pencil beside it do the same thing — the pencil
         // exists so the affordance is visible without a caption explaining it.
@@ -9629,11 +9893,23 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
         });
 
         document.getElementById('backBtn').addEventListener('click', exitLesson);
+        document.getElementById('askBtn').addEventListener('click', () => {
+            if (document.getElementById('askPanel').hidden) openAsk(); else closeAsk();
+        });
+        document.getElementById('askClose').addEventListener('click', closeAsk);
+        document.getElementById('askSend').addEventListener('click', sendAsk);
+        document.getElementById('askInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendAsk(); }
+        });
 
         document.addEventListener('keydown', (e) => {
             if (e.key !== 'Escape') return;
             if (document.getElementById('previewOverlay').classList.contains('show')) {
                 closePreview();
+            } else if (!document.getElementById('askPanel').hidden) {
+                // Escape closes the question first, not the lesson behind it.
+                closeAsk();
+                document.getElementById('askBtn').focus();
             } else if (document.body.classList.contains('lesson-open')) {
                 exitLesson();
             } else if (document.getElementById('authModal').classList.contains('active')) {

@@ -27,7 +27,7 @@ function setup() {
     displayLearningPath:noop, openLessonScreen:()=>events.push('open'),
     closeLessonScreen:()=>events.push('close'), renderStep:()=>events.push('render'),
     currentUser:{id:'fixture'}, activeSourceText:'', activeStructure:null, activeCourseId:null,
-    buildStage:noop, assessMaterial:()=>null, saveCourse:async()=> 'fixture-course',
+    buildStage:noop, assessMaterial:()=>null, saveCourse:async()=> 'fixture-course', readLearnerProfile:()=>null,
     localStorage:{setItem:noop}, ACTIVE_STORAGE:'fixture', cleanTitle:x=>x,
   };
   vm.createContext(ctx);

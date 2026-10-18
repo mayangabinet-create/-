@@ -13,6 +13,7 @@ import {
   sseScanner,
   streamUsage,
   TEMPLATE_ALLOWANCE,
+  thinkingFor,
   clampText,
   usageFrom,
   wantsStream,
@@ -220,6 +221,7 @@ Deno.serve(async (req: Request) => {
       max_tokens: Math.min(Number(max_tokens) || 1024, cap),
       system: typeof system === "string" ? clampText(system, TEMPLATE_ALLOWANCE) : system,
       messages: safeMessages,
+      ...(thinkingFor(model) ? { thinking: thinkingFor(model) } : {}),
       ...(stream ? { stream: true } : {}),
     }),
   });

@@ -31,6 +31,7 @@ import {
   shouldFixCourseSize,
   sseScanner,
   streamUsage,
+  thinkingFor,
   usageFrom,
   wantsStream,
 } from "../supabase/functions/ai-proxy/policy.mjs";
@@ -45,6 +46,13 @@ const chars = (n, c = "x") => c.repeat(n);
 const lessonOf = (planKey, blocks) =>
   prepareBlocks(blocks.map(text => ({ type: "text", text })),
     { kind: "lesson", plan: PLANS[planKey], model: PLANS[planKey].modelLesson });
+
+// No shipping tier has a zero context budget any more, but the path that
+// handles one is still the path any tier takes the moment it is set to 0.
+const NO_CONTEXT = { ...PLANS.basic, contextChars: 0 };
+const lessonOnNoContext = blocks =>
+  prepareBlocks(blocks.map(text => ({ type: "text", text })),
+    { kind: "lesson", plan: NO_CONTEXT, model: NO_CONTEXT.modelLesson });
 
 console.log("\n== classification ==");
 {
@@ -68,6 +76,20 @@ console.log("\n== classification ==");
   // reaches classify() at all — it 400s as unknown_task instead.
   ok("the primer label onboarding sends is accepted", KNOWN_TASKS.has("primer"));
   ok("a primer call is free work, so it is capped and metered", classify(1000).kind === "free");
+  // The lesson check (verifyLesson in app.js) asks for 900 tokens.
+  ok("the verify label is accepted", KNOWN_TASKS.has("verify"));
+  ok("a verify call is free work, so it is capped and metered", classify(900).kind === "free");
+}
+
+console.log("\n== thinking ==");
+{
+  // Thinking tokens come out of max_tokens, and a lesson's 6,000 were all
+  // budgeted for the JSON. Each model is told "off" in the form it accepts.
+  ok("Haiku is sent thinking disabled", thinkingFor(HAIKU)?.type === "disabled");
+  ok("Sonnet is sent between_tools, since it rejects disabled", thinkingFor(SONNET)?.type === "between_tools");
+  ok("between_tools carries no other field", Object.keys(thinkingFor(SONNET)).length === 1);
+  ok("every model a plan names gets an explicit setting",
+     Object.values(PLANS).every(p => thinkingFor(p.modelCourse) && thinkingFor(p.modelLesson)));
 }
 
 console.log("\n== tier resolution ==");
@@ -139,18 +161,29 @@ console.log("\n== caching ==");
   ok("a prefix at exactly the minimum is cacheable",
      exact[0].cache_control?.type === "ephemeral");
 
-  ok("Haiku's minimum is the highest of the three",
-     minCacheChars(HAIKU) > minCacheChars(SONNET) && minCacheChars(SONNET) > minCacheChars(OPUS));
+  ok("no model is credited with less than its documented 512-token minimum",
+     [HAIKU, SONNET, OPUS].every(m => minCacheChars(m) >= 512 * CHARS_PER_TOKEN));
   ok("the minimum is computed conservatively",
      minCacheChars(SONNET) === 1024 * CHARS_PER_TOKEN);
 
-  // Trial and Basic run on Haiku with contextChars 0 — the feature is off
-  // there on purpose, and off must mean no write premium.
-  const basic = lessonOf("basic", [chars(200_000), "q"]);
+  // A tier with contextChars 0 has the feature off, and off must mean no
+  // write premium.
+  const flat = lessonOnNoContext([chars(200_000), "q"]);
   ok("a tier with no context budget caches nothing",
-     basic.every(b => b.cache_control === undefined));
+     flat.every(b => b.cache_control === undefined));
   ok("and its blocks still share one budget",
-     basic.reduce((n, b) => n + b.text.length, 0) === PLANS.basic.excerptChars + TEMPLATE_ALLOWANCE);
+     flat.reduce((n, b) => n + b.text.length, 0) === NO_CONTEXT.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // Trial and Basic now carry a shared context on Haiku 5.5.
+  const basic = lessonOf("basic", [chars(200_000), "q"]);
+  ok("Basic now sends a shared context, clamped to its budget",
+     basic[0].text.length === PLANS.basic.contextChars, String(basic[0].text.length));
+  ok("and caches it", basic[0].cache_control?.type === "ephemeral");
+  ok("Trial reads as much of the document as Basic",
+     PLANS.trial.readChars === PLANS.basic.readChars && PLANS.trial.excerptChars === PLANS.basic.excerptChars);
+  ok("the paid tiers still read more than Basic",
+     PLANS.pro.readChars > PLANS.basic.readChars && PLANS.pro.excerptChars > PLANS.basic.excerptChars
+     && PLANS.pro.contextChars > PLANS.basic.contextChars);
 
   // Max plans on Opus but writes lessons on Sonnet, so the lesson block is
   // measured against Sonnet's minimum, not Opus's.
@@ -193,15 +226,21 @@ console.log("\n== four-block lesson caching (global toolkit / course / domain / 
   ok("an empty domain toolkit block does not break the split",
      noDomain.length === 4 && noDomain[2].text === "");
 
-  // Trial/Basic never fund any of this (contextChars is 0), so a four-block
+  // A tier with no context budget never funds any of this, so a four-block
   // call there — a stray one, since the client only ever builds one when
   // contextBudget() > 0 — must fail safe to the flat, uncached path rather
   // than throw or silently cache nothing at 0 chars.
-  const basicFour = lessonOf("basic", [chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
+  const flatFour = lessonOnNoContext([chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
   ok("a four-block call on a tier with no context budget is never cached",
-     basicFour.every(b => b.cache_control === undefined));
+     flatFour.every(b => b.cache_control === undefined));
   ok("and still shares one flat budget across all four blocks",
-     basicFour.reduce((n, b) => n + b.text.length, 0) === PLANS.basic.excerptChars + TEMPLATE_ALLOWANCE);
+     flatFour.reduce((n, b) => n + b.text.length, 0) === NO_CONTEXT.excerptChars + TEMPLATE_ALLOWANCE);
+
+  // Basic sends four blocks now, and they split the way Pro's do.
+  const basicFour = lessonOf("basic", [chars(10_000, "g"), chars(200_000, "c"), chars(2_000, "d"), "the concept"]);
+  ok("Basic's four-block call is split and cached",
+     basicFour.length === 4 && basicFour[1].text.length === PLANS.basic.contextChars
+     && basicFour[2].cache_control?.type === "ephemeral" && basicFour[3].cache_control === undefined);
 
   // The cumulative-prefix check: even a domain with a thin shelf (a few
   // hundred characters) clears the model's minimum, because it is checked

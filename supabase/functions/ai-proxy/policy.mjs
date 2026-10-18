@@ -11,8 +11,8 @@
  * file, so the tests exercise the shipping rules rather than a copy.
  */
 
-export const HAIKU = "claude-haiku-4-5";
-export const SONNET = "claude-sonnet-5";
+export const HAIKU = "claude-haiku-5-5";
+export const SONNET = "claude-sonnet-5-5";
 export const OPUS = "claude-opus-5";
 
 /**
@@ -25,13 +25,13 @@ export const OPUS = "claude-opus-5";
  * is unchanged — the passage retrieved for one concept, different every call
  * and therefore never cacheable.
  *
- * Trial and Basic run on Haiku, whose minimum cacheable prefix is 4,096
- * tokens. Their `contextChars` is 0 — not an oversight. Caching only repays
- * its write premium when the same prefix is read again, and a prefix that
- * never reaches the minimum is billed at the premium and never read. Turning
- * this on for Haiku means first raising the budget past ~16,000 characters,
- * which costs real money per course; that decision should be made against the
- * hit rate the paid tiers are about to start reporting, not against a guess.
+ * Trial and Basic used to read 2,400 characters of a document per lesson and
+ * nothing of the rest — on Haiku 4.5, whose 4,096-token cache minimum made a
+ * shared context cost more than it saved. Haiku 5.5 caches from a far smaller
+ * prefix and costs a tenth as much, so the trial — the first lesson anyone
+ * ever sees from this app — now reads a real share of the document: a 15,000
+ * character worksheet is seen nearly whole instead of a sixth of it. The tiers
+ * still differ in how much they read and in which model writes the lesson.
  *
  * `modelCourse` is not `modelLesson`, and on Pro it is deliberately the
  * cheapest, fastest model of the three.
@@ -56,8 +56,8 @@ export const OPUS = "claude-opus-5";
  * speed or cost without the price list becoming wrong.
  */
 export const PLANS = {
-  trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
-  basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 5_000, excerptChars: 2_400, contextChars: 0, modelCourse: HAIKU, modelLesson: HAIKU },
+  trial: { coursesPerMonth: 1, lessonsPerCourse: 10, readChars: 20_000, excerptChars: 6_000, contextChars: 16_000, modelCourse: HAIKU, modelLesson: HAIKU },
+  basic: { coursesPerMonth: 3, lessonsPerCourse: 10, readChars: 20_000, excerptChars: 6_000, contextChars: 16_000, modelCourse: HAIKU, modelLesson: HAIKU },
   pro: { coursesPerMonth: 5, lessonsPerCourse: 12, readChars: 40_000, excerptChars: 8_000, contextChars: 24_000, modelCourse: HAIKU, modelLesson: SONNET },
   max: { coursesPerMonth: 8, lessonsPerCourse: 15, readChars: 120_000, excerptChars: 16_000, contextChars: 48_000, modelCourse: SONNET, modelLesson: SONNET },
 };
@@ -74,8 +74,12 @@ export const PLANS = {
  * raising it costs whatever the prompt actually grows by, which is a fraction
  * of a cent per lesson, and buys back the margin that catches the next few
  * templates in the test rather than in a lesson that will not open.
+ *
+ * Raised again from 13,000 when the prompt gained its rules on one defensible
+ * answer per question and on building a lesson from the learner's own
+ * exercises, which left the widest prompt 195 characters over.
  */
-export const TEMPLATE_ALLOWANCE = 13_000;
+export const TEMPLATE_ALLOWANCE = 14_500;
 
 /**
  * Ceilings for the two cache-only lesson blocks `prepareLessonBlocks` below
@@ -116,8 +120,13 @@ export const FREE_CALLS_PER_DAY = 200;
  * same way (`classify()` reads `max_tokens`, not `task`) — the only thing it
  * changes is `shouldFixCourseSize` below, which is why it needs its own
  * label rather than reusing `path`.
+ *
+ * `verify` is the check run on a finished lesson (`verifyLesson` in app.js):
+ * the model answers the lesson's own questions without seeing the key, and a
+ * question it answers differently is dropped. A short answer, so it prices as
+ * free work like `feedback`.
  */
-export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer", "worksheet"]);
+export const KNOWN_TASKS = new Set(["path", "lesson", "tutor", "feedback", "primer", "worksheet", "verify"]);
 
 // A client that sends fifty blocks is not a client we wrote.
 export const MAX_CONTENT_BLOCKS = 8;
@@ -129,10 +138,33 @@ export const MAX_CONTENT_BLOCKS = 8;
  * against.
  */
 export const CACHE_MIN_TOKENS = {
-  [HAIKU]: 4096,
+  // Both are documented at 512. 1,024 is a margin, not a measurement: a
+  // block credited too generously pays the write premium for nothing.
+  [HAIKU]: 1024,
   [SONNET]: 1024,
   [OPUS]: 512,
 };
+
+/**
+ * Thinking, explicitly off.
+ *
+ * Both current models think by default when nothing is said, and thinking
+ * tokens count against `max_tokens`. A lesson is capped at 6,000 output tokens
+ * and every one of them was budgeted for the JSON the learner reads, so a
+ * model that spent a thousand thinking first would be cut off mid-quiz — and
+ * it would also go quiet for that long, which the client's stream watchdog
+ * reads as a dead connection. Correctness is checked by a separate verify call
+ * instead (see `verifyLesson` in app.js), which costs a fraction of a cent.
+ *
+ * The two models spell "off" differently: Haiku 5.5 takes `disabled` (allowed
+ * at its default effort), Sonnet 5.5 rejects `disabled` and takes
+ * `between_tools`, which with no tools in the request means no thinking.
+ */
+export function thinkingFor(model) {
+  if (model === HAIKU) return { type: "disabled" };
+  if (model === SONNET) return { type: "between_tools" };
+  return undefined;
+}
 
 /**
  * Characters per token, assumed low on purpose.

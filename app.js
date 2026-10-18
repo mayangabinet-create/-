@@ -226,7 +226,7 @@
         // document for (see the first run). 1000 because that is exactly what
         // the Edge Function allows anything under the course threshold —
         // asking for more only buys a sentence cut in half.
-        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000 };
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000, verify: 900 };
 
         let lastCallTruncated = false;
 
@@ -1309,6 +1309,12 @@ ${planSchemaAndLanguage(`{
 - Vary the position of the correct answer. Never always first.
 - Explanations must match the arithmetic shown, not a rule that merely
   sounds right — check any sign, sum or size claim against those numbers.
+- Every question has exactly ONE defensible answer. Solve it yourself before
+  writing it, then check each wrong option is really wrong: a partial
+  factorisation is still a factorisation, so ask for the "fully factorised"
+  form. A learner marked wrong for a right answer stops trusting the lesson.
+- A hook is a puzzle, a surprise or a situation the learner cares about — not
+  the lesson's own question stated plainly.
 
 VISUALS — attach one to a card, worked example, summary or question in its
 "visual" field; omit it where a diagram adds nothing. Never invent a type not on
@@ -1431,10 +1437,16 @@ ${standalone ? `${lessonQuestionTypes()}
 }
 
 Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions.
-Required: at least TWO visuals of TWO different types, one of them interactive
-(slider, reveal, or a shape with a hotspot question); at least THREE question
-types across the quiz, never the same twice in a row; and a numeric question
-wherever the material is quantitative. "correct" is a 0-based index.
+A visual goes where it shows what prose cannot — a lesson with none beats one
+with a decorative figure. Choose each question's type for what it tests, not
+for variety; wherever the material is quantitative, make the learner work it
+out (numeric), since four options turn a calculation into a guess.
+"correct" is a 0-based index.
+
+If the SOURCE MATERIAL is exercises — a worksheet, a problem set, past exam
+questions — build the lesson on them: the worked example is one of them
+solved, practice and quiz use others of the same kind, and the cards teach
+only what those exercises need.
 
 "explore" comes BEFORE the explanation and matters most: the learner does
 something, sees what happens, and is told why afterwards. Its "visual" must be
@@ -1593,7 +1605,133 @@ ${languageRule()}`;
                 return null;
             }
 
-            return normalised;
+            return verifyLesson(normalised, excerpt);
+        }
+
+        // ============= Checking a lesson's answers =============
+        // A lesson is written in one pass, and nothing in that pass checks that
+        // its answer key is right. The one real lesson in the database marked a
+        // correct factorisation wrong and printed a sign rule that contradicted
+        // its own arithmetic — a learner who answers correctly and is told
+        // otherwise learns to distrust the whole course. So a second call
+        // answers the lesson's own questions without seeing the key, and a
+        // question it answers differently, or finds a second right answer to,
+        // is taken out. Two readers disagreeing does not say which is wrong,
+        // only that the question is not safe to grade.
+        //
+        // It fails open: no reply, an unparseable reply, or a server too old to
+        // know the `verify` label all leave the lesson exactly as it was.
+
+        // Question types a second reader can answer blind and be compared on.
+        const VERIFIABLE = new Set(['choice', 'blank', 'mistake', 'boolean', 'numeric']);
+        // Fewer quiz questions than this and the lesson is kept as written: a
+        // quiz emptied by the check is worse than one questionable item.
+        const MIN_QUIZ_AFTER_VERIFY = 2;
+        const VERIFY_EXCERPT_CHARS = 8000;
+
+        // Every gradable item in the lesson, each with a key into where it lives.
+        function verifiableItems(lesson) {
+            const items = [];
+            (lesson.quiz || []).forEach((q, i) => {
+                if (VERIFIABLE.has(q.type)) items.push({ key: `quiz:${i}`, q });
+            });
+            if (lesson.challenge && VERIFIABLE.has(lesson.challenge.type)) {
+                items.push({ key: 'challenge', q: lesson.challenge });
+            }
+            if (lesson.practice) {
+                items.push({ key: 'practice', q: { type: 'choice', text: lesson.practice.problem,
+                    options: lesson.practice.options, correct: lesson.practice.correct } });
+            }
+            return items;
+        }
+
+        function buildVerifyPrompt(items, excerpt) {
+            const lines = items.map((item, n) => {
+                const q = item.q;
+                if (q.type === 'boolean') return `${n + 1}. [true/false] ${q.text}`;
+                if (q.type === 'numeric') return `${n + 1}. [number${q.unit.trim() ? `, in ${q.unit.trim()}` : ''}] ${q.text}`;
+                const options = q.options.map((o, i) => `   ${i}) ${o}`).join('\n');
+                return `${n + 1}. [pick one] ${q.text}\n${options}`;
+            }).join('\n\n');
+            // Questions before the material: the server clamps this call from
+            // the tail, and a clamped excerpt still leaves a checkable list.
+            return `You are checking a quiz before learners see it. Answer every question yourself, using the MATERIAL below and ordinary reasoning — work each one out, do not guess.
+
+For "pick one" questions, give the index of the best option, and in "alsoCorrect" list any OTHER option a careful teacher would also have to accept as right (for example a correct but less complete answer). Usually it is empty.
+
+QUESTIONS:
+${lines}
+
+Return JSON only, no prose:
+{"answers":[{"q":1,"answer":0,"alsoCorrect":[]},{"q":2,"answer":true},{"q":3,"answer":12.5}]}
+
+MATERIAL:
+"""
+${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
+"""`;
+        }
+
+        // Which items the second reader disagreed with. An item it skipped is
+        // kept — no answer is no evidence.
+        function disputedItems(items, reply) {
+            const answers = Array.isArray(reply?.answers) ? reply.answers : [];
+            const byNumber = new Map(answers.map(a => [Number(a?.q), a]));
+            const disputed = new Set();
+            items.forEach((item, n) => {
+                const a = byNumber.get(n + 1);
+                if (!a || a.answer === undefined || a.answer === null) return;
+                const q = item.q;
+                if (q.type === 'boolean') {
+                    const said = a.answer === true || a.answer === 'true' ? true
+                        : a.answer === false || a.answer === 'false' ? false : null;
+                    if (said !== null && said !== q.answer) disputed.add(item.key);
+                    return;
+                }
+                if (q.type === 'numeric') {
+                    const said = Number(a.answer);
+                    if (!isFinite(said)) return;
+                    const slack = Math.max(q.tolerance || 0, Math.abs(q.answer) * 1e-6, 1e-9);
+                    if (Math.abs(said - q.answer) > slack) disputed.add(item.key);
+                    return;
+                }
+                const said = Number(a.answer);
+                if (!Number.isInteger(said)) return;
+                const also = (Array.isArray(a.alsoCorrect) ? a.alsoCorrect : [])
+                    .map(Number).filter(i => Number.isInteger(i) && i >= 0 && i < q.options.length && i !== q.correct);
+                if (said !== q.correct || also.length) disputed.add(item.key);
+            });
+            return disputed;
+        }
+
+        // The lesson with the disputed items taken out. Pure, so it can be
+        // tested without a model.
+        function withoutDisputed(lesson, disputed) {
+            if (!disputed.size) return lesson;
+            const quiz = lesson.quiz.filter((_, i) => !disputed.has(`quiz:${i}`));
+            if (quiz.length < MIN_QUIZ_AFTER_VERIFY) return lesson;
+            return {
+                ...lesson,
+                quiz,
+                challenge: disputed.has('challenge') ? null : lesson.challenge,
+                practice: disputed.has('practice') ? null : lesson.practice,
+            };
+        }
+
+        async function verifyLesson(lesson, excerpt) {
+            const items = verifiableItems(lesson);
+            if (!items.length) return lesson;
+            try {
+                const reply = await callAI(buildVerifyPrompt(items, excerpt), '', {
+                    maxTokens: MAX_TOKENS.verify, task: 'verify', quiet: true,
+                });
+                if (!reply) return lesson;
+                const disputed = disputedItems(items, extractJSON(reply));
+                if (disputed.size) console.warn('Verification removed questions:', [...disputed]);
+                return withoutDisputed(lesson, disputed);
+            } catch (err) {
+                console.warn('Could not verify the lesson:', err);
+                return lesson;
+            }
         }
 
         // Validate one question of any type. Returns a clean question or null.
@@ -3656,8 +3794,8 @@ ${languageRule()}`;
             // stale every time one is renamed or retired. Which models actually
             // process the material is a fact about where the text goes, so it
             // lives in privacy.html, next to everything else of that kind.
-            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
-            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 5000,   excerptChars: 2400,  contextChars: 0 },
+            trial: { label: 'Free trial', courses: 1, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 20000,  excerptChars: 6000,  contextChars: 16000 },
+            basic: { label: 'Basic',      courses: 3, lessonsPerCourse: 10, depth: 'short, straightforward lessons', readChars: 20000,  excerptChars: 6000,  contextChars: 16000 },
             pro:   { label: 'Pro',        courses: 5, lessonsPerCourse: 12, depth: 'more detailed lessons',          readChars: 40000,  excerptChars: 8000,  contextChars: 24000 },
             max:   { label: 'Max',        courses: 8, lessonsPerCourse: 15, depth: 'the most detailed lessons',      readChars: 120000, excerptChars: 16000, contextChars: 48000 },
         };
@@ -6231,11 +6369,37 @@ ${languageRule()}`;
                 .filter(w => w.length > 2 && !STOPWORDS.has(w));
         }
 
+        // Hebrew glues its prepositions, articles and conjunctions onto the
+        // front of the word: "הפירוק", "לפירוק" and "ופירוק" are all "פירוק".
+        // Matched as written, the concept's own name never meets the passage
+        // that teaches it, and retrieval falls back to whichever chunk happens
+        // to share the most incidental words. So every Hebrew word also counts
+        // as itself with one and two of those letters taken off the front.
+        // Both sides get the same treatment, which is what lets a word that
+        // genuinely starts with one of them ("משוואה") still meet itself.
+        // Retrieval only: the digest's density score keeps plain `tokenize`.
+        const HEBREW_PREFIX = /^[והבלמשכ]/;
+
+        function retrievalTokens(s) {
+            const out = [];
+            for (const word of tokenize(s)) {
+                out.push(word);
+                if (!/[\u0590-\u05FF]/.test(word)) continue;
+                let stem = word;
+                for (let k = 0; k < 2; k++) {
+                    if (!HEBREW_PREFIX.test(stem) || stem.length - 1 < 3) break;
+                    stem = stem.slice(1);
+                    out.push(stem);
+                }
+            }
+            return out;
+        }
+
         // Classic TF-IDF-ish scoring: rare words that match count for more.
         function buildIndex(chunks) {
             const docFreq = new Map();
             const tokenized = chunks.map(c => {
-                const toks = tokenize(c);
+                const toks = retrievalTokens(c);
                 new Set(toks).forEach(t => docFreq.set(t, (docFreq.get(t) || 0) + 1));
                 return toks;
             });
@@ -6307,12 +6471,17 @@ ${languageRule()}`;
             if (!sourceText) return '';
 
             const cap = excerptBudget();
+            // Text that fits whole is sent whole — the concept's own section
+            // when it has one, otherwise the document. Choosing passages only
+            // pays when there is more text than room; below that it can only
+            // lose the worked example two paragraphs away from the definition.
+            if (sourceText.length <= cap) return sourceText;
             const chunks = chunkText(sourceText);
             if (!chunks.length) return '';
             if (chunks.length === 1) return chunks[0].slice(0, cap);
 
             const index = buildIndex(chunks);
-            const query = tokenize([
+            const query = retrievalTokens([
                 concept.name,
                 concept.description,
                 concept.importance,

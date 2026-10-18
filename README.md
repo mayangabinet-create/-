@@ -249,7 +249,7 @@ One constraint worth knowing before adding to either catalogue: the lesson promp
 retrieved passage share one content block, and `ai-proxy` clamps that block to
 `excerptChars + TEMPLATE_ALLOWANCE` — a prompt that overruns is truncated from the tail,
 which is where its own JSON schema lives. The widest prompt (a maths concept, whose shelf
-is the largest) is currently about 11,600 of the 13,000 characters allowed, and the test
+is the largest) is currently about 13,200 of the 14,500 characters allowed, and the test
 fails if an addition leaves under 500 spare. Raising the ceiling means raising
 `TEMPLATE_ALLOWANCE` in `policy.mjs` and redeploying the Edge Function — which is what
 was done when the calibration line was added and the margin fell to 350. It is a ceiling,
@@ -355,6 +355,14 @@ account's tier — and now narrowed by the plan. Each concept records the outlin
 came from, and retrieval searches that section first, falling back to the whole document
 when the heading does not match or the section is too thin. Told the chapter, retrieval no
 longer has to distinguish the chapter that *teaches* a term from the four that mention it.
+Text that fits the budget whole (the concept's section, or the whole document) is sent
+whole rather than cut down to its best-scoring chunks.
+
+Hebrew glues prepositions, articles and conjunctions onto the front of a word, so
+"הפירוק" and "פירוק" used to be two different terms and a concept named bare never met
+the passage that taught it. `retrievalTokens()` counts every Hebrew word also as itself
+with one and two of ו/ה/ב/ל/מ/ש/כ taken off the front, on both the query and the
+document. The digest's density score keeps plain `tokenize()`.
 
 `tests/pdf-pipeline.js` covers all of this and needs nothing but `node`.
 
@@ -910,8 +918,8 @@ unrecognised value falls back to `basic` rather than the largest tier.
 
 | | courses/mo | lessons/course | doc read (course plan) | excerpt (per lesson) | shared context (cached) | model |
 |---|---|---|---|---|---|---|
-| trial | 1 (lifetime) | 10 | 5,000 | 2,400 | — | Haiku |
-| basic | 3 | 10 | 5,000 | 2,400 | — | Haiku |
+| trial | 1 (lifetime) | 10 | 20,000 | 6,000 | 16,000 | Haiku |
+| basic | 3 | 10 | 20,000 | 6,000 | 16,000 | Haiku |
 | pro | 5 | 12 | 40,000 | 8,000 | 24,000 | Haiku plans, Sonnet writes |
 | max | 8 | 15 | 120,000 | 16,000 | 48,000 | Sonnet plans, Sonnet writes |
 
@@ -921,11 +929,13 @@ premium of 1.25x, the rest read it back at about a tenth of input price. It is w
 lets a lesson see the document it came from rather than only its own retrieved
 passage.
 
-It is blank on the Haiku tiers on purpose. Haiku will not cache a prefix under 4,096
-tokens, and below that the API accepts the request, caches nothing, and charges the
-premium anyway. Turning it on there means first raising the budget past ~16,000
-characters, which costs real money per course — a decision worth making against the
-hit rate the paid tiers are about to start reporting rather than against a guess.
+It used to be blank on the Haiku tiers, when Haiku meant Haiku 4.5: a 4,096-token
+cache minimum and ten times today's price made a shared context cost more than it
+saved, and Trial read 2,400 characters of a document per lesson and nothing else.
+Haiku 5.5 caches from a far smaller prefix at a tenth of the price, so Trial and Basic
+now get a 16,000-character shared context and a 6,000-character excerpt. The trial is
+the first lesson anyone sees from this app; it was also the one built from the least
+of the document.
 
 On Pro and Max, the shared context is one of three cached blocks sent ahead of the
 concept itself, least specific first. `lessonToolkitGlobal()` — Principles, every
@@ -974,9 +984,44 @@ Grow's own checkout page is where the actual amount is shown and can change
 without a deploy — the redesign is about reading the difference between tiers at a
 glance, not about repeating a number that lives elsewhere.
 
+## Checking a lesson's answers
+
+A lesson is written in one pass, and nothing in that pass checked its answer key.
+The one real lesson in the database — factoring, Hebrew, on Basic — marked
+`7(x² − 9)` wrong as a factorisation of `7x² − 63`, and its explanation gave a
+sign rule that contradicted the arithmetic printed right above it. The learner
+scored 33%.
+
+`verifyLesson()` now runs a second, short call on every finished lesson: the model
+answers the lesson's own gradable questions (choice, blank, mistake, true/false,
+numeric, plus the practice problem and the challenge) without seeing the key, and
+lists any *other* option a careful teacher would also have to accept. A question it
+answers differently, or finds a second right answer to, is taken out. Two readers
+disagreeing does not say which one is wrong — only that the question is not safe to
+grade. It never empties a quiz (below two questions the lesson is kept as written),
+and it fails open: no reply, junk, or an `ai-proxy` too old to know the `verify`
+label leaves the lesson exactly as it was. `tests/lesson-verify.js` covers it.
+
+The lesson prompt changed alongside it. It no longer demands "at least two visuals
+of two types" and "at least three question types" — quotas the model met with
+decorative figures and filler questions. It now says every question must have
+exactly one defensible answer, that a hook is not the lesson's question restated,
+and that when the source is a set of exercises the lesson is built on those
+exercises rather than on a textbook summary of their topic.
+
+Both models are sent thinking explicitly off (`thinkingFor()` in `policy.mjs`):
+they think by default, and thinking tokens come out of the same 6,000-token
+`max_tokens` a lesson's JSON needs.
+
+**Deploy order:** `ai-proxy` first, then the client. A new client against the old
+function sends Trial and Basic a four-block lesson call that the old function, with
+`contextChars: 0` on those tiers, squeezes into one flat budget — the prompt is
+clamped away and the lesson does not build. The new function with the old client
+works.
+
 ## Cost model
 
-One Haiku lesson ≈ $0.01; the higher tiers cost more per lesson because they run on
+One Haiku lesson costs well under a cent (Haiku 5.5, plus the answer check); the higher tiers cost more per lesson because they run on
 larger models and read more of the document. Lessons are cached after first
 generation, so replaying or exiting and coming back is free. The Account tab shows
 cumulative spend, call count, and this month's course/lesson quota, read from

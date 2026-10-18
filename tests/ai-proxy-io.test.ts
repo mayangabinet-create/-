@@ -317,8 +317,11 @@ console.log("\n== streaming ==");
   ok("a refused request is passed through as plain JSON even when streaming was asked for",
      refused.status === 529);
   const refusedBody = await refused.json();
-  ok("carrying Anthropic's own error rather than being wrapped in an SSE envelope",
-     refusedBody.error?.message === "overloaded");
+  // Normalised by upstreamError(): a string `error`, a sentence the client
+  // can show, and Anthropic's own wording kept in `detail` for the logs.
+  ok("carrying the refusal as JSON rather than wrapped in an SSE envelope",
+     typeof refusedBody.error === "string" && refusedBody.detail === "overloaded"
+     && typeof refusedBody.message === "string");
   ok("and nothing is billed for a call that never ran",
      !mock.calls.some((c) => c.name === "increment_ai_usage"));
 }

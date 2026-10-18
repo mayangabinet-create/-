@@ -1346,7 +1346,8 @@ ${planSchemaAndLanguage(`{
         // cached, in front of it.
         function lessonPrinciplesAndVisuals() {
             return `Principles:
-- Never a wall of text. Each card = ONE idea, 2-3 sentences.
+- Short and to the point. Each card = ONE idea in 1-2 sentences, under 30
+  words. Cut every word that does not teach.
 - Pitch it to the learner described below; if nobody is described, to a
   serious adult new to this topic. Write like a good tutor talking to an
   adult: direct and exact. No exclamation marks, no praise, no "let's dive
@@ -1457,14 +1458,14 @@ ${standalone ? `${lessonQuestionTypes()}
 {
   "title": "${concept.name}",
   "estimatedMinutes": 6,
-  "hook": { "text": "Why this matters, 1-2 sentences: where it is used, tested or needed. No trivia." },
+  "hook": { "text": "Why this matters, in ONE sentence: where it is used, tested or needed." },
   "prediction": { "question": "A real question, asked before it is taught, that can be reasoned out. Not graded.", "options": ["A","B","C"] },
   "explore": {
     "instruction": "What to DO — drag it, tap it, uncover it",
     "visual": { "…": "a touchable spec: slider, reveal, or a figure with parts" },
-    "insight": "What they should notice. Shown after they touch it."
+    "insight": "One sentence they should notice, true wherever they leave it."
   },
-  "cards": [ { "idea": "Heading", "text": "2-3 sentences, ONE idea", "analogy": "Only if it truly clarifies, else null", "source": "Words copied exactly from the SOURCE MATERIAL that back this card, or null", "visual": null } ],
+  "cards": [ { "idea": "Heading", "text": "1-2 sentences, ONE idea", "analogy": "Only if it truly clarifies, else null", "source": "Words copied exactly from the SOURCE MATERIAL that back this card, or null", "visual": null } ],
   "workedExample": {
     "problem": "A concrete problem", "answer": "The final answer", "visual": null,
     "steps": [ { "action": "What you do", "why": "Why it is correct" } ]
@@ -1485,7 +1486,7 @@ ${standalone ? `${lessonQuestionTypes()}
   "memoryCheck": { "prompt": "An exam-style open question: explain, apply or compare, in their own words." }
 }
 
-Quantities: 3-5 cards. 3-4 steps in workedExample. 4-5 quiz questions.
+Quantities: 2-4 cards. 3-4 steps in workedExample. 4-5 quiz questions.
 A visual goes where it shows what prose cannot — a lesson with none beats one
 with a decorative figure. Choose each question's type for what it tests, not
 for variety; wherever the material is quantitative, make the learner work it
@@ -1515,9 +1516,8 @@ what they must have thought, not that they were wrong.
 Two quiz questions must test the SAME idea in different clothes — other numbers,
 another context, another representation — so memorising one answer is not enough.
 
-Keep every explanation, whyWrong line and hint to ONE short sentence — this is
-read on a phone mid-lesson, not a textbook footnote. Say what is true, not
-everything that is true about it.
+Keep every explanation, whyWrong line, hint and step to ONE short sentence:
+it is read on a phone mid-lesson.
 ${languageRule()}`;
         }
 
@@ -9201,7 +9201,7 @@ ${excerpt}
             return `
                 <div class="step-eyebrow">Before you read it</div>
                 <h2 class="question-text">${esc(l.prediction.question)}</h2>
-                <div class="step-note">Not marked. Trying a question before the explanation is what makes the explanation stick.</div>
+                <div class="step-note">Not marked.</div>
                 <div class="options" id="predictOpts">${opts}</div>`;
         }
 

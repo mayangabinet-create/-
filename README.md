@@ -768,6 +768,14 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   keep `subscriptions` in sync. See *Payments*, below.
 - New signups get a 3-day trial automatically via a trigger on `auth.users`.
 
+**A new `app.js` reaches browsers that already have the old one.** `index.html`
+loads it as `app.js?v=<first ten hex digits of its SHA-256>`, and
+`tests/site-metadata.js` fails if the two disagree, with the value to write. The
+version used to be a hand-bumped counter, and the one time it was not bumped a
+course built a minute after a deploy was written by the previous release's prompt.
+After any edit to `app.js`, run `sha256sum app.js | cut -c1-10` and put the result
+in the script tag.
+
 ### The pages around the app
 
 `index.html` is the app, but it is not the only file GitHub Pages serves. The rest are

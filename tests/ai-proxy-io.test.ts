@@ -243,6 +243,43 @@ console.log("\n== a normal, successful call ==");
      anthropic.requests.at(-1)!.body.max_tokens === 6000);
 }
 
+// ------------------------------------------------------------- upstream refusals
+console.log("\n== when Anthropic refuses ==");
+{
+  resetMock();
+  queueAnthropicJson(
+    { type: "error", error: { type: "invalid_request_error", message: "text content blocks must be non-empty" } },
+    400,
+  );
+  const refused = await call(baseBody({ max_tokens: 500 }));
+  ok("the upstream status is preserved", refused.status === 400);
+  const body = await refused.json();
+  // Forwarded verbatim, `error` was an object; the client reads
+  // `payload.message || payload.error` into a dialog that sets textContent,
+  // so the learner was shown "[object Object]".
+  ok("`error` is a string, not the object it arrived nested in", typeof body.error === "string");
+  ok("there is a message to show", typeof body.message === "string" && body.message.length > 0);
+  ok("and it names what the model objected to",
+     body.message.includes("text content blocks must be non-empty"), body.message);
+  ok("nothing is metered for a call that produced nothing",
+     !mock.calls.some((c) => c.name === "increment_ai_usage"));
+
+  resetMock();
+  queueAnthropicJson({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, 529);
+  const busy = await call(baseBody({ max_tokens: 500 }));
+  ok("an overloaded upstream keeps its status so the client retries", busy.status === 529);
+  ok("and reads as transient", /busy right now/.test((await busy.json()).message));
+
+  // A streaming request that is refused never becomes a stream: the refusal is
+  // one short JSON body, and the client's error handling already reads it.
+  resetMock();
+  queueAnthropicJson({ type: "error", error: { type: "invalid_request_error", message: "bad prompt" } }, 400);
+  const refusedStream = await call(baseBody({ stream: true, max_tokens: 500 }));
+  ok("a refused streaming request answers with JSON, not an event stream",
+     (refusedStream.headers.get("content-type") ?? "").includes("application/json"));
+  ok("carrying the same readable message", (await refusedStream.json()).message.includes("bad prompt"));
+}
+
 // ---------------------------------------------------------------------- streaming
 console.log("\n== streaming ==");
 {

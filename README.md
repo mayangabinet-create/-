@@ -747,6 +747,22 @@ framework or build step) and `fonts/`, backed by a real Supabase project ("Mayan
   in `policy.mjs`, which the tests import directly, and the I/O in `index.ts`. It
   streams: the model's answer is forwarded to the browser as it is written rather than
   held until it is finished (see *Why the bigger plans felt slower* below).
+  A *refusal* is the one thing it does not forward as it arrives: Anthropic's error
+  envelope nests `{type, message}` under `error`, where this app's own errors put a
+  string, so passing it through handed the client an object — which the dialog, being
+  `textContent`, rendered as **"[object Object]"**. `upstreamError()` turns it into a
+  sentence naming what the model objected to (a rate limit or an outage reads as
+  transient instead, since the upstream wording is not something a learner can act on),
+  and `index.ts` logs the same detail, so a refusal now leaves a record on both sides
+  of the wire rather than on neither. One refusal gets a message of its own: an
+  exhausted API credit balance — the refusal that produced the dialog above — arrives
+  as a 400 whose text tells the reader to go and pay a bill on an account no learner
+  can see, so it reads as "temporarily unavailable, this one is on us" and carries
+  `code: "upstream_billing"` for the logs. The client no longer trusts any of this blindly
+  either: `asMessage()` in `app.js` coerces whatever reaches a dialog into text, and
+  `errorText()` reads a message out of all three shapes — this app's, Anthropic's, and
+  a bare code — because a browser served from GitHub Pages and a function deployed
+  from here are versioned separately.
 - **`grow-checkout`, `grow-webhook`, `grow-cancel`, `grow-billing-cron`
   Edge Functions** — turn a plan choice into a real, self-renewing subscription and
   keep `subscriptions` in sync. See *Payments*, below.
@@ -1021,12 +1037,53 @@ works.
 
 ## Cost model
 
-One Haiku lesson costs well under a cent (Haiku 5.5, plus the answer check); the higher tiers cost more per lesson because they run on
-larger models and read more of the document. Lessons are cached after first
-generation, so replaying or exiting and coming back is free. The Account tab shows
-cumulative spend, call count, and this month's course/lesson quota, read from
-`ai_usage` and `subscriptions` — the same rows `ai-proxy` meters against, so running
-out is visible before it happens rather than only when a build is refused.
+What a subscription has to cover, computed from the tier table above and the
+current API rates ($0.10/$0.50 per MTok on Haiku 5.5, $2/$10 on Sonnet 5.5), with
+every block at its ceiling and every generation running to its output cap — the
+worst case, not the typical one. Each lesson also carries one answer check
+(`verifyLesson`), free work on Haiku at well under a tenth of a cent:
+
+| | course plan | first lesson | each lesson after | **month at full quota** |
+|---|---|---|---|---|
+| trial | <$0.01 | ~$0.005 | ~$0.005 | ~$0.05 (lifetime, one course) |
+| basic | <$0.01 | ~$0.005 | ~$0.005 | **~$0.20** |
+| pro | <$0.01 | $0.09 | $0.07 | **~$4** |
+| max | $0.10 | $0.11 | $0.08 | **~$10** |
+
+Trial and Basic fell by about five times when they moved from Haiku 4.5 to
+Haiku 5.5, while reading three to four times more of the document. Those two
+rows are estimates from the token arithmetic, not yet from metered usage.
+
+The gap between the first lesson of a course and every one after it is the
+shared context paying for itself: $0.09 → $0.07 on Pro, $0.11 → $0.08 on Max.
+Trial and Basic's gap is too small to show at Haiku 5.5's prices. Real
+usage lands well under these rows — few accounts spend a whole month's quota,
+and a lesson rarely runs to 6,000 output tokens — but a plan priced against the
+typical case is a plan that loses money on the accounts that use it most.
+
+Lessons are cached client-side after first generation, so replaying or exiting
+and coming back costs nothing at all.
+
+**The one path a monthly quota does not bound** is free work — `feedback` after
+a learner writes an explanation, `primer` during onboarding — which is metered
+against a daily call cap instead. That cap is the entire ceiling on what an
+account can spend outside its plan, so both halves of it are sized against
+money rather than generosity: 60 calls a day, 8,000 characters each, pinned to
+Haiku on every tier by `modelFor()` regardless of what the tier writes lessons
+on. Each lesson's answer check (`verify`) is free work too, so a lesson costs two
+of those calls. About $0.03 a day at Haiku 5.5's rates. At the previous 200 calls of 20,000 characters on the
+tier's own lesson model, a single Pro account could have spent ~$4 a day —
+roughly thirty times its subscription — without touching its quota, and a retry
+loop in the client would have reached it as readily as anyone meaning harm.
+
+The Account tab shows cumulative spend, call count, and this month's
+course/lesson quota, read from `ai_usage` and `subscriptions` — the same rows
+`ai-proxy` meters against, so running out is visible before it happens rather
+than only when a build is refused. Spend is priced per tier (`PLAN_PRICES` in
+`app.js`) across all four token columns, cache writes at 1.25x input and reads
+at a tenth: pricing every account at Haiku's rates and ignoring the cache
+columns, as it did, reported roughly half of what a Pro or Max account actually
+costs.
 
 ## Addressing a long PDF by page
 
@@ -1301,7 +1358,8 @@ the button is drawn, which is why the address is duplicated in both places —
 - **No signup abuse protection.** New accounts get a 3-day trial automatically from
   just an email + password, with no CAPTCHA and no email confirmation gate found in the
   auth flow. The trial plan is capped (one course, 10 lessons, lifetime) and the quota
-  is enforced server-side in `consume_ai_quota`, so a single account can't run up an
+  is enforced server-side in `consume_ai_quota`, with unmetered work bounded separately
+  by the daily free-call cap (see *Cost model*), so a single account can't run up an
   unbounded bill — but nothing here stops a script from creating many accounts to stack
   free trials. Worth adding (Supabase Auth supports hCaptcha/Turnstile natively) before
   publicizing the site, not after. Neither piece can be turned on from this repo — both

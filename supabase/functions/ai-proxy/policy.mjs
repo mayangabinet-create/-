@@ -98,8 +98,34 @@ export const TEMPLATE_ALLOWANCE = 14_500;
 export const GLOBAL_TOOLKIT_ALLOWANCE = 8_000;
 export const DOMAIN_TOOLKIT_ALLOWANCE = 3_000;
 
-export const FREE_CALL_CHARS = 20_000;
-export const FREE_CALLS_PER_DAY = 200;
+/*
+ * The backstop on unmetered work, sized against what it costs rather than
+ * against what felt generous.
+ *
+ * Free work is the only path that does not consume the monthly course/lesson
+ * quota, so these two numbers — and `modelFor` below — are the whole ceiling
+ * on what one account can spend outside its plan. At 20,000 characters and
+ * 200 calls a day, a Pro account could buy roughly $4 of Sonnet a day, every
+ * day, without touching its quota: about thirty times the subscription it
+ * pays for, and reachable by a retry loop as easily as by anyone meaning
+ * harm.
+ *
+ * What actually sends free work is one `feedback` call per lesson (the
+ * learner's own explanation, evaluated in two or three sentences) and one
+ * `primer` during onboarding. 8,000 characters is far more than either
+ * writes, and 60 calls a day covers more lessons than any tier's monthly
+ * quota allows in one sitting. On Haiku — which `modelFor` now pins free work
+ * to — the ceiling is about $0.30 a day rather than $4, and about $0.03 since
+ * Haiku 5.5.
+ *
+ * Each finished lesson also sends one `verify` call (its answer check, see
+ * `verifyLesson` in app.js), so a lesson costs two of the sixty: thirty
+ * lessons a day, still more than any tier's monthly quota allows in a sitting.
+ * The check puts its questions before the material because this budget
+ * clamps from the tail.
+ */
+export const FREE_CALL_CHARS = 8_000;
+export const FREE_CALLS_PER_DAY = 60;
 /**
  * `tutor` is still here although the dock that sent it has been deleted from
  * the client, because the server has to outlive the client it talks to. The
@@ -209,6 +235,27 @@ export function planFor(planName, isTrialing) {
   // largest, so a bad row cannot hand out Max limits.
   const key = planName && PLANS[planName] ? planName : "basic";
   return { key, plan: PLANS[key] };
+}
+
+/**
+ * Which model runs this call.
+ *
+ * A tier buys a bigger model for the two things it meters — planning a course
+ * and writing a lesson. Free work is neither: it is a short evaluation of
+ * something the learner typed, or the primer written for a subject during
+ * onboarding, both capped at 1,000 output tokens. Running those on the tier's
+ * lesson model made the most expensive model in the app reachable on the one
+ * path that no monthly quota limits, at twice Haiku's price per token and for
+ * no gain the learner can read — Trial and Basic have always answered the
+ * same calls on Haiku.
+ *
+ * So free work is pinned to Haiku on every tier. This is the cost ceiling,
+ * not a preference: `FREE_CALLS_PER_DAY` bounds how many of these an account
+ * can make, and this bounds what each one can cost.
+ */
+export function modelFor(kind, plan) {
+  if (kind === "free") return HAIKU;
+  return kind === "course" ? plan.modelCourse : plan.modelLesson;
 }
 
 export const CONCEPT_RE = /Identify\s+(?:exactly\s+)?\d+(?:\s*[-–]\s*\d+)?\s+core concepts/i;
@@ -359,6 +406,79 @@ function prepareLessonBlocks(blocks, plan, model) {
   }
   out.push({ type: "text", text: clampText(blocks[3].text, plan.excerptChars + TEMPLATE_ALLOWANCE) });
   return out;
+}
+
+/**
+ * Turn a refusal from Anthropic into this app's own error shape.
+ *
+ * Anthropic answers a refused request with `{type:"error", error:{type,
+ * message}}`, and this function used to hand that back to the browser
+ * untouched. The client reads `payload.message || payload.error`, so it found
+ * no message, took `error` — an object — and put it straight into a dialog
+ * that sets `textContent`. The learner got "[object Object]", and since
+ * nothing logged the body either, there was no record anywhere of what the
+ * model had actually objected to. Both halves of that are fixed here: a
+ * string message for the dialog, the upstream text kept in `detail`, and a
+ * shape the caller can log.
+ *
+ * A rate limit or an outage is transient and says so in words a learner can
+ * act on. Anything else is a bug in what was sent, and the upstream text is
+ * the most useful thing anyone — them, reporting it, or whoever reads the
+ * logs — can be handed, so it goes in the message rather than being swallowed.
+ *
+ * One refusal is neither, and it is the one that actually happened: an
+ * exhausted API credit balance, which Anthropic returns as a 400 whose
+ * message names the account and where to top it up. That text is addressed
+ * to whoever runs this app, not to the learner reading it — it tells them to
+ * go and pay a bill that is not theirs, on an account they cannot see. So
+ * this case gets a neutral sentence and a code of its own, and the upstream
+ * wording goes to `detail`, which only the logs read. Everything a learner is
+ * shown should be either something they can act on or something honest about
+ * the app being at fault; this is the second kind.
+ */
+export function upstreamError(status, body) {
+  const detail =
+    typeof body?.error?.message === "string" ? body.error.message
+    : typeof body?.message === "string" ? body.message
+    : safeJson(body);
+  const type = typeof body?.error?.type === "string" ? body.error.type : "upstream_error";
+  const transient = status === 429 || status >= 500;
+
+  if (!transient && BILLING_RE.test(detail)) {
+    return {
+      error: type,
+      code: "upstream_billing",
+      message: "Lessons are temporarily unavailable. This one is on us, not on you — please try again a bit later.",
+      detail,
+    };
+  }
+
+  return {
+    error: type,
+    code: "upstream_error",
+    message: transient
+      ? "The service is busy right now. Give it a minute and try again."
+      : `The model refused that request: ${detail}`,
+    detail,
+  };
+}
+
+/**
+ * Matched against the upstream message, because the error *type* does not
+ * distinguish this from any other bad request — a spent balance and a
+ * malformed block both arrive as `invalid_request_error`. Wording is a weak
+ * signal and this deliberately fails safe: a miss shows the upstream text,
+ * which is the old behaviour, not a broken lesson.
+ */
+const BILLING_RE = /credit balance|plans\s*&\s*billing|billing|insufficient (?:funds|credit)/i;
+
+function safeJson(value) {
+  try {
+    const text = JSON.stringify(value);
+    return text && text !== "{}" && text !== "null" ? text.slice(0, 500) : "no details";
+  } catch {
+    return "no details";
+  }
 }
 
 /**

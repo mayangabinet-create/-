@@ -67,6 +67,9 @@ console.log('\n== what gets checked ==');
   ok('the prompt never shows the answer key', !prompt.includes('"correct"') && !prompt.includes('-5'));
   ok('questions come before the material', prompt.indexOf('QUESTIONS:') < prompt.indexOf('MATERIAL:'));
   ok('the material is capped', prompt.length < P.VERIFY_EXCERPT_CHARS + 3000, String(prompt.length));
+  // The server clamps free work to 8,000 characters (FREE_CALL_CHARS) from
+  // the tail; a lesson of ordinary size must arrive whole.
+  ok('an ordinary lesson\'s check fits the free-work budget', prompt.length <= 8000, String(prompt.length));
 }
 
 console.log('\n== what gets taken out ==');

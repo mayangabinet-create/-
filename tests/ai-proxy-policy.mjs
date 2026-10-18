@@ -13,6 +13,7 @@
 import {
   CHARS_PER_TOKEN,
   DOMAIN_TOOLKIT_ALLOWANCE,
+  FREE_CALLS_PER_DAY,
   FREE_CALL_CHARS,
   GLOBAL_TOOLKIT_ALLOWANCE,
   HAIKU,
@@ -25,6 +26,7 @@ import {
   classify,
   fixCourseSize,
   minCacheChars,
+  modelFor,
   normaliseContent,
   planFor,
   prepareBlocks,
@@ -32,6 +34,7 @@ import {
   sseScanner,
   streamUsage,
   thinkingFor,
+  upstreamError,
   usageFrom,
   wantsStream,
 } from "../supabase/functions/ai-proxy/policy.mjs";
@@ -98,6 +101,25 @@ console.log("\n== tier resolution ==");
   ok("an unknown plan falls back to basic", planFor("enterprise", false).key === "basic");
   ok("a missing plan falls back to basic", planFor(undefined, false).key === "basic");
   ok("a real plan is honoured", planFor("pro", false).plan.excerptChars === 8_000);
+}
+
+console.log("\n== which model runs the call ==");
+{
+  ok("a course plan runs on the tier's planning model",
+     modelFor("course", PLANS.max) === PLANS.max.modelCourse);
+  ok("a lesson runs on the tier's lesson model",
+     modelFor("lesson", PLANS.pro) === PLANS.pro.modelLesson);
+  // Free work is the only path no monthly quota limits, so it is also the
+  // only path where the model is a cost ceiling rather than a tier benefit.
+  ok("free work runs on Haiku even where the tier writes lessons on Sonnet",
+     modelFor("free", PLANS.pro) === HAIKU && modelFor("free", PLANS.max) === HAIKU);
+  ok("free work on the Haiku tiers is unchanged",
+     modelFor("free", PLANS.basic) === HAIKU);
+  // The daily cap times what one call can cost is the whole ceiling on
+  // unmetered spend; both halves are checked so neither drifts back up alone.
+  ok("the free-call backstop stays bounded",
+     FREE_CALLS_PER_DAY <= 60 && FREE_CALL_CHARS <= 8_000,
+     `${FREE_CALLS_PER_DAY} calls x ${FREE_CALL_CHARS} chars`);
 }
 
 console.log("\n== content normalisation ==");
@@ -292,6 +314,69 @@ console.log("\n== usage accounting ==");
   const plain = usageFrom({ input_tokens: 1_000, output_tokens: 500 });
   ok("an uncached call is unchanged", plain.totalRead === 1_000 && plain.hit === false);
   ok("a missing usage object does not throw", usageFrom(undefined).totalRead === 0);
+}
+
+console.log("\n== a refusal from upstream ==");
+{
+  const anthropic400 = {
+    type: "error",
+    error: { type: "invalid_request_error", message: "text content blocks must be non-empty" },
+  };
+  const out = upstreamError(400, anthropic400);
+  // Forwarded as it arrived, `error` was an object and the client — which
+  // reads `payload.message || payload.error` into a dialog that sets
+  // textContent — showed the learner "[object Object]".
+  ok("the type comes back as a string, never the object it was nested in",
+     out.error === "invalid_request_error");
+  ok("the message says what the model actually objected to",
+     out.message.includes("text content blocks must be non-empty"), out.message);
+  ok("and the raw upstream text is kept for the logs",
+     out.detail === "text content blocks must be non-empty");
+  ok("every field a dialog might read is a string",
+     ["error", "code", "message", "detail"].every(k => typeof out[k] === "string"));
+
+  // A rate limit or an outage is not a bug in the request, and the upstream
+  // wording ("Number of requests has exceeded...") is not something a learner
+  // can act on.
+  for (const status of [429, 500, 529]) {
+    const busy = upstreamError(status, { type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    ok(`a ${status} reads as transient rather than as a bad request`,
+       /busy right now/.test(busy.message), busy.message);
+    ok(`and a ${status} still records what upstream said`, busy.detail === "Overloaded");
+  }
+
+  // The refusal that actually happened, on 2026-08-25: a spent credit
+  // balance. Anthropic returns it as a 400 whose message tells the reader to
+  // go and pay a bill — addressed to whoever runs this app, on an account a
+  // learner cannot see and is not responsible for.
+  const spent = upstreamError(400, {
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message: "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+    },
+  });
+  ok("a spent credit balance is not billed to the learner in words",
+     !/credit balance|billing/i.test(spent.message), spent.message);
+  ok("it says the app is at fault rather than blaming the request",
+     /on us, not on you/.test(spent.message), spent.message);
+  ok("and it is separable from other refusals in the logs",
+     spent.code === "upstream_billing");
+  ok("while the upstream wording is still recorded",
+     /Plans & Billing/.test(spent.detail));
+  // Wording is a weak signal, so a miss has to fail towards the old
+  // behaviour rather than towards a broken lesson.
+  const other = upstreamError(400, { type: "error", error: { type: "invalid_request_error", message: "text content blocks must be non-empty" } });
+  ok("an unrelated 400 is untouched by the billing case",
+     other.code === "upstream_error" && other.message.includes("non-empty"));
+
+  const empty = upstreamError(400, {});
+  ok("a body with nothing in it still produces a string message",
+     typeof empty.message === "string" && empty.message.length > 0);
+  ok("and falls back to a generic type", empty.error === "upstream_error");
+
+  const html = upstreamError(502, "<html>gateway</html>");
+  ok("a non-JSON body does not throw", typeof html.message === "string");
 }
 
 console.log("\n== streaming ==");

@@ -256,5 +256,18 @@ console.log('\n== the post-checkout return path ==');
     ok('app.js still acts on ?checkout=success', /params\.get\('checkout'\)/.test(app));
 }
 
+// ------------------------------------------------------------ cache busting
+console.log('\n== a new app.js reaches browsers that have the old one ==');
+{
+    // index.html loads app.js?v=…, and a browser that has the old file under
+    // the same URL keeps running it: a course built right after a deploy was
+    // built by the previous release's prompt. The version is the first ten hex
+    // digits of app.js's own SHA-256, so it changes exactly when the file does.
+    const want = crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'app.js'))).digest('hex').slice(0, 10);
+    const got = (read('index.html').match(/<script src="app\.js\?v=([^"]+)"><\/script>/) || [])[1];
+    ok('index.html loads app.js under a version derived from its content', got === want,
+       `found v=${got}; set it to v=${want}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

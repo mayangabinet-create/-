@@ -226,7 +226,7 @@
         // document for (see the first run). 1000 because that is exactly what
         // the Edge Function allows anything under the course threshold —
         // asking for more only buys a sentence cut in half.
-        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000, verify: 900, ask: 600 };
+        const MAX_TOKENS = { path: 4000, lesson: 6000, feedback: 250, primer: 1000, verify: 900, ask: 600, sheet: 5000 };
 
         let lastCallTruncated = false;
 
@@ -1468,10 +1468,11 @@ ${standalone ? `${lessonQuestionTypes()}
   "cards": [ { "idea": "Heading", "text": "1-2 sentences, ONE idea", "analogy": "Only if it truly clarifies, else null", "source": "Words copied exactly from the SOURCE MATERIAL that back this card, or null", "visual": null } ],
   "workedExample": {
     "problem": "A concrete problem", "answer": "The final answer", "visual": null,
-    "steps": [ { "action": "What you do", "why": "Why it is correct" } ]
+    "steps": [ { "action": "The next line of working on the board", "why": "Why" } ]
   },
   "practice": {
-    "problem": "A similar one they solve alone", "hint": "Revealed on request",
+    "problem": "A similar one they solve on paper", "hint": "Revealed on request",
+    "solution": ["Full working, one short line each"],
     "options": ["A","B","C","D"], "correct": 0,
     "feedback": { "correct": "Why this is right", "incorrect": "The common mistake, and why" }
   },
@@ -1513,8 +1514,8 @@ naming the specific misunderstanding that leads to it, "" for the right one.
 The learner is shown the line for the option they picked, so write it to them:
 what they must have thought, not that they were wrong.
 
-Two quiz questions must test the SAME idea in different clothes — other numbers,
-another context, another representation — so memorising one answer is not enough.
+Two quiz questions test the SAME idea in different clothes (other numbers or
+context), so memorising one answer is not enough.
 
 Keep every explanation, whyWrong line, hint and step to ONE short sentence:
 it is read on a phone mid-lesson.
@@ -1945,11 +1946,23 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             l.cards = arr(l.cards).filter(c => c && c.text);
             l.cards.forEach(c => { c.visual = validVisual(c.visual); });
             l.workedExample = (l.workedExample?.problem && arr(l.workedExample.steps).length) ? l.workedExample : null;
-            if (l.workedExample) l.workedExample.visual = validVisual(l.workedExample.visual);
+            if (l.workedExample) {
+                l.workedExample.visual = validVisual(l.workedExample.visual);
+                // The board writes `action` and notes `why`; a step with
+                // neither has nothing to write.
+                l.workedExample.steps = arr(l.workedExample.steps)
+                    .filter(st => st && (st.action || st.why))
+                    .map(st => ({ action: String(st.action || ''), why: st.why ? String(st.why) : '' }));
+            }
 
             if (l.practice && arr(l.practice.options).length) {
                 l.practice.correct = clampIdx(l.practice.correct, l.practice.options.length);
                 l.practice.feedback = l.practice.feedback || { correct: '', incorrect: '' };
+                // The working the board writes out, line by line. Optional: a
+                // lesson written before it existed shows its hint instead.
+                l.practice.solution = arr(l.practice.solution)
+                    .map(line => typeof line === 'string' ? line : (line?.line || line?.action || ''))
+                    .map(line => String(line).trim()).filter(Boolean).slice(0, 8);
             } else { l.practice = null; }
 
             l.quiz = arr(l.quiz).map(normaliseQuestion).filter(Boolean);
@@ -4393,13 +4406,25 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
         // return (`use` + `spec`, which build the prompt catalogue), what survives
         // validation (`check`), and what is drawn (`draw`). Adding a type is one
         // entry, and the prompt updates itself.
+        // Every SVG a figure draws gets its content wrapped in a group that
+        // points at the page's #sketchy filter (index.html), so ruled lines
+        // waver slightly like a drawing. A <g filter> inside the SVG rather
+        // than a CSS filter on the element: that is the form every browser,
+        // Safari on a phone included, has rendered the same way for years.
+        // Figures that are HTML (tables, flows) have no <svg> and pass through.
+        function sketchSvg(html) {
+            return String(html)
+                .replace(/<svg\b[^>]*>/g, open => `${open}<g filter="url(#sketchy)">`)
+                .replace(/<\/svg>/g, '</g></svg>');
+        }
+
         function renderVisual(v, opts = {}) {
             if (!v || !v.type) return '';
             const def = VISUALS[v.type];
             if (!def) return '';
             try {
                 const inner = drawSpec(v, opts);
-                return inner ? `<figure class="visual visual-${escAttr(v.type)}">${inner}</figure>` : '';
+                return inner ? `<figure class="visual visual-${escAttr(v.type)}">${sketchSvg(inner)}</figure>` : '';
             } catch (err) {
                 console.warn('Visual render failed:', v.type, err);
                 return '';   // a broken diagram must never break the lesson
@@ -7740,6 +7765,9 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
 
             document.getElementById('previewStart').textContent =
                 done ? "Review lesson" : cached ? "Start lesson" : "Generate and start";
+            // A finished lesson can be practised on paper any time; the sheet is
+            // written once and kept.
+            document.getElementById('previewSheet').hidden = !done;
             document.getElementById('previewCancel').textContent = "Cancel";
 
             applyContentDirection();
@@ -9124,6 +9152,8 @@ ${excerpt}
                 challenge: () => stepChallenge(lesson),
                 summary: () => stepSummary(lesson),
                 memory: () => stepMemory(lesson),
+                paper: () => stepPaper(s.i),
+                sheetDone: () => stepSheetDone(),
                 complete: () => stepComplete(lesson),
                 demoComplete: () => stepDemoComplete(),
                 reviewq: () => stepReviewQuestion(s.i),
@@ -9191,7 +9221,7 @@ ${excerpt}
         function stepHook(l) {
             return `
                 <div class="step-eyebrow">Why this matters</div>
-                <div class="hook-card">${esc(l.hook.text)}</div>
+                <div class="hook-card">${inkWords(l.hook.text)}</div>
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
 
@@ -9233,42 +9263,366 @@ ${excerpt}
             return `
                 <div class="step-eyebrow">Idea ${i + 1} / ${l.cards.length}</div>
                 ${c.idea ? `<h3 class="card-idea">${esc(c.idea)}</h3>` : ''}
-                <div class="concept-text">${esc(c.text)}</div>
+                <div class="concept-text">${inkWords(c.text)}</div>
                 ${renderVisual(c.visual)}
                 ${analogy}
                 ${c.source ? `<div class="card-source"><span class="card-source-label">From your document</span>“${esc(c.source)}”</div>` : ''}
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
 
+        // ============= The teaching board =============
+        // A solution is written in front of the learner, one line at a time,
+        // the way a teacher works at a board: each line appears word by word
+        // in a handwritten face, a drawn arrow leads to a note saying why, and
+        // the answer is underlined last. The learner sets the pace — one tap,
+        // one line — because the point is to follow the working, and a whole
+        // solution arriving at once is a solution skimmed.
+        //
+        // Every line is in the DOM from the start, hidden; showing one is what
+        // starts its CSS animation, so no timers are needed to draw it. Under
+        // prefers-reduced-motion the CSS shows everything at once and only the
+        // pacing remains.
+        const BOARD_WORD_MS = 55;
+        const BOARD_NOTE_GAP_MS = 220;
+
+        // Each word in its own span, numbered from `start`, so the CSS can delay
+        // it by its position. Plain inline spans, not inline-block: they take no
+        // part in bidi, so a Hebrew line with a formula in it still reads right.
+        function inkWords(text, start = 0) {
+            let i = start;
+            return String(text || '').split(/(\s+)/).map(part =>
+                !part || /^\s+$/.test(part) ? part : `<span class="ink" style="--i:${i++}">${esc(part)}</span>`
+            ).join('');
+        }
+
+        function wordCount(text) {
+            return String(text || '').split(/\s+/).filter(Boolean).length;
+        }
+
+        const BOARD_ARROW = `<svg class="board-arrow" viewBox="0 0 34 30" aria-hidden="true">
+            <path pathLength="1" d="M5 2 C 4 12, 10 21, 30 22"/><path pathLength="1" d="M23 16 L31 22 L23 28"/></svg>`;
+        const BOARD_UNDERLINE = `<svg class="board-underline" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true">
+            <path pathLength="1" d="M2 8 C 40 3, 80 11, 120 6 S 178 4, 198 8"/></svg>`;
+
+        // The one word the board writes itself, in the lesson's language.
+        const BOARD_ANSWER_LABEL = { Hebrew: 'תשובה:', Arabic: 'الجواب:', Russian: 'Ответ:', Spanish: 'Respuesta:', French: 'Réponse :' };
+
+        // { problem, lines: [{ text, note }], answer } → HTML. Nothing is shown
+        // but the problem until boardController writes it.
+        function renderBoard({ problem = '', lines = [], answer = '', id = 'board' } = {}) {
+            const items = lines.map((line, n) => {
+                const delay = wordCount(line.text) * BOARD_WORD_MS + BOARD_NOTE_GAP_MS;
+                return `
+                <li class="board-line" data-board-line style="--note-delay:${delay}ms" hidden>
+                    <span class="board-num" aria-hidden="true">${n + 1}</span>
+                    <div class="board-text">${inkWords(line.text)}</div>
+                    ${line.note ? `<div class="board-note">${BOARD_ARROW}<span class="board-note-text">${inkWords(line.note)}</span></div>` : ''}
+                </li>`;
+            }).join('');
+            const answerDelay = wordCount(answer) * BOARD_WORD_MS;
+            return `
+                <div class="board" id="${escAttr(id)}" data-board>
+                    ${problem ? `<div class="board-problem">${esc(problem)}</div>` : ''}
+                    <ol class="board-lines">${items}</ol>
+                    ${answer ? `<div class="board-answer" data-board-answer style="--note-delay:${answerDelay}ms" hidden>
+                        <span class="board-answer-label">${inkWords(BOARD_ANSWER_LABEL[courseLanguage()] || 'Answer:')}</span> <span class="board-text">${inkWords(answer, 1)}</span>${BOARD_UNDERLINE}</div>` : ''}
+                </div>`;
+        }
+
+        // Writes a rendered board one line per call. `onChange` runs after each
+        // write so the caller can relabel its buttons.
+        function boardController(root, { onChange = null } = {}) {
+            const parts = root ? [...root.querySelectorAll('[data-board-line], [data-board-answer]')] : [];
+            let next = 0;
+            const write = () => {
+                if (next >= parts.length) return false;
+                const el = parts[next++];
+                el.hidden = false;
+                // Keep the line being written in view without yanking the page.
+                if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+                if (onChange) onChange();
+                return true;
+            };
+            return {
+                step: write,
+                all: () => { while (next < parts.length) { parts[next++].hidden = false; } if (onChange) onChange(); },
+                done: () => next >= parts.length,
+                written: () => next,
+                total: () => parts.length,
+            };
+        }
+
+        // The worked example on the board: problem, the working line by line
+        // with why-notes, then the answer.
+        function workedBoard(w) {
+            return renderBoard({
+                id: 'workedBoard',
+                problem: w.problem,
+                lines: (w.steps || []).map(st => ({ text: st.action, note: st.why })),
+                answer: w.answer,
+            });
+        }
+
         function stepWorked(l) {
             const w = l.workedExample;
-            const steps = w.steps.map((st, i) => `
-                <div class="worked-step" data-idx="${i}">
-                    <button class="worked-reveal" data-reveal="${i}">
-                        <span class="worked-num">${i + 1}</span>
-                        <span>${esc(st.action)}</span>
-                    </button>
-                    <div class="worked-why" id="why${i}" hidden>${esc(st.why)}</div>
-                </div>`).join('');
             return `
                 <div class="step-eyebrow">Worked example</div>
-                <div class="concept-text">${esc(w.problem)}</div>
                 ${renderVisual(w.visual)}
-                <div class="worked-list">${steps}</div>
-                <div class="example-box"><div class="example-label">The answer</div>${esc(w.answer)}</div>
-                <button class="button step-next" id="stepNext">Continue</button>`;
+                ${workedBoard(w)}
+                <div class="board-controls">
+                    <button type="button" class="button" id="boardNext">Next step</button>
+                    <button type="button" class="button button-secondary" id="boardAll">Show all</button>
+                </div>
+                <button class="button button-secondary step-next" id="stepNext">Continue</button>`;
+        }
+
+        // Wires a board's two buttons: the primary writes the next line, the
+        // secondary writes the rest. When it is all written the primary step
+        // button takes over, so the next thing to press is always the obvious one.
+        function wireBoardButtons(board, { nextId = 'boardNext', allId = 'boardAll', onDone = null } = {}) {
+            const nextBtn = document.getElementById(nextId);
+            const allBtn = document.getElementById(allId);
+            let finished = false;
+            const ctl = boardController(board, {
+                onChange: () => {
+                    if (!ctl || !ctl.done() || finished) return;
+                    finished = true;
+                    nextBtn?.remove();
+                    allBtn?.remove();
+                    if (onDone) onDone();
+                },
+            });
+            if (nextBtn) nextBtn.onclick = () => ctl.step();
+            if (allBtn) allBtn.onclick = () => ctl.all();
+            return ctl;
+        }
+
+        // Practice is done on paper. The problem goes on the board; the learner
+        // works it in their own notebook; a hint writes the next line of the
+        // solution and no more; only then are the options shown, to check the
+        // result. After grading, the rest of the working can be written out.
+        function practiceLines(p) {
+            return (p.solution || []).map(line => ({ text: line }));
         }
 
         function stepPractice(l) {
             const p = l.practice;
+            const lines = practiceLines(p);
             const opts = p.options.map((o, i) =>
                 `<button type="button" class="option" data-answer="${i}">${esc(o)}</button>`).join('');
             return `
-                <div class="step-eyebrow">Guided practice</div>
-                <h2 class="question-text">${esc(p.problem)}</h2>
-                <div class="options" id="answerOpts">${opts}</div>
-                ${p.hint ? `<button class="button button-secondary hint-btn" id="hintBtn">Show hint</button>
-                <div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}`;
+                <div class="step-eyebrow">Your turn</div>
+                ${renderBoard({ id: 'practiceBoard', problem: p.problem, lines })}
+                <div class="paper-prompt" id="paperPrompt">
+                    <p dir="ltr">Solve it in your notebook first, then check your answer here.</p>
+                    <div class="paper-actions">
+                        <button type="button" class="button" id="paperReady">I have an answer</button>
+                        ${lines.length ? `<button type="button" class="button button-secondary" id="paperHint">Hint: write the next step</button>`
+                            : (p.hint ? `<button type="button" class="button button-secondary" id="hintBtn">Show hint</button>` : '')}
+                    </div>
+                    ${!lines.length && p.hint ? `<div class="hint-box" id="hintBox" hidden>${esc(p.hint)}</div>` : ''}
+                </div>
+                <div class="options" id="answerOpts" hidden>${opts}</div>
+                ${lines.length ? `<button type="button" class="button button-secondary" id="paperSolution" hidden>Show the full solution</button>` : ''}`;
+        }
+
+        // ============= A practice sheet =============
+        // "More exercises like this": a page of problems of the kind the lesson
+        // taught, easy to exam level, each with its full working, to be solved
+        // in a notebook. The app's part is what a teacher's is when a student
+        // sits with a workbook: give the next problem, write the next line when
+        // they are stuck, show the whole solution when they are done, and
+        // remember which ones went wrong. It prints, with the answers on a
+        // separate page.
+        //
+        // One sheet is one lesson's worth of writing, so it is a `lesson` call
+        // to the server and counts against the month's lessons like one. It is
+        // kept on the lesson it belongs to, so reopening it is free.
+        const PRACTICE_SHEET_SIZE = 6;
+        const MIN_SHEET_AFTER_VERIFY = 2;
+
+        function buildPracticeSheetPrompt(concept, lesson, excerpt) {
+            const w = lesson?.workedExample;
+            const example = w ? `\nTHE LESSON'S WORKED EXAMPLE, for the kind and the style:\n${w.problem}\n${(w.steps || []).map(st => `- ${st.action}`).join('\n')}\n` : '';
+            return `Write a practice sheet for a learner who has just finished a lesson on "${concept.name}" (${concept.description || ''}).
+They will solve it on paper, in a notebook, then check each answer here.
+${learnerNote()}${example}
+Write ${PRACTICE_SHEET_SIZE} exercises of the kind the lesson taught and the SOURCE MATERIAL uses, from easy to exam level. Numbers that come out cleanly. Solve every exercise yourself before writing it, and check the answer against your own working.
+
+For each exercise: the problem; its full working as the short lines a teacher writes on a board, each with a note on why; and the final answer. "answerNumber" is the answer as a plain number when it is one number, otherwise null.
+
+SOURCE MATERIAL:
+"""
+${excerpt}
+"""
+
+${languageRule()}
+Return JSON only:
+{"exercises":[{"problem":"…","steps":[{"line":"…","why":"…"}],"answer":"…","answerNumber":12.5}]}`;
+        }
+
+        function normalisePracticeSheet(raw) {
+            const exercises = (Array.isArray(raw?.exercises) ? raw.exercises : [])
+                .map(ex => ({
+                    problem: String(ex?.problem || '').trim(),
+                    steps: (Array.isArray(ex?.steps) ? ex.steps : [])
+                        .map(st => typeof st === 'string' ? { line: st, why: '' } : { line: String(st?.line || st?.action || ''), why: String(st?.why || '') })
+                        .filter(st => st.line.trim())
+                        .slice(0, 10),
+                    answer: String(ex?.answer ?? '').trim(),
+                    answerNumber: Number.isFinite(Number(ex?.answerNumber)) && ex?.answerNumber !== null && ex?.answerNumber !== '' ? Number(ex.answerNumber) : null,
+                }))
+                .filter(ex => ex.problem && ex.steps.length && ex.answer)
+                .slice(0, PRACTICE_SHEET_SIZE + 2);
+            return exercises.length ? { exercises, createdAt: new Date().toISOString() } : null;
+        }
+
+        // The same blind check a lesson gets (see verifyLesson): another reader
+        // works out every exercise with a numeric answer, and one it gets a
+        // different number for is taken off the sheet.
+        async function verifyPracticeSheet(sheet, excerpt) {
+            const items = sheet.exercises
+                .map((ex, i) => ({ key: `ex:${i}`, q: { type: 'numeric', text: ex.problem, answer: ex.answerNumber, tolerance: 0 } }))
+                .filter(item => item.q.answer !== null);
+            if (!items.length) return sheet;
+            try {
+                const reply = await callAI(buildVerifyPrompt(items, excerpt), '', { maxTokens: MAX_TOKENS.verify, task: 'verify', quiet: true });
+                if (!reply) return sheet;
+                const disputed = disputedItems(items, extractJSON(reply));
+                const kept = sheet.exercises.filter((_, i) => !disputed.has(`ex:${i}`));
+                if (disputed.size) console.warn('Verification removed exercises:', [...disputed]);
+                return kept.length >= MIN_SHEET_AFTER_VERIFY ? { ...sheet, exercises: kept } : sheet;
+            } catch (err) {
+                console.warn('Could not verify the practice sheet:', err);
+                return sheet;
+            }
+        }
+
+        async function generatePracticeSheet(index) {
+            const concept = courseData.concepts[index];
+            const lesson = progress[index]?.lesson || null;
+            const excerpt = retrieveExcerpt(concept, getSourceText(), getStructure());
+            showMessage('Writing your practice sheet…');
+            try {
+                const reply = await callAI(buildPracticeSheetPrompt(concept, lesson, excerpt), '', {
+                    maxTokens: MAX_TOKENS.sheet, task: 'lesson', stream: true,
+                    onProgress: text => {
+                        const n = (text.match(/"answerNumber"\s*:/g) || []).length;
+                        showProgress(`Exercise ${Math.min(n + 1, PRACTICE_SHEET_SIZE)} of ${PRACTICE_SHEET_SIZE}`, n / PRACTICE_SHEET_SIZE);
+                    },
+                });
+                if (!reply) return null;
+                const sheet = normalisePracticeSheet(extractJSON(reply));
+                if (!sheet) { showError('The practice sheet came back empty. Try again.'); return null; }
+                showProgress('Checking the answers', 0.95);
+                return await verifyPracticeSheet(sheet, excerpt);
+            } finally {
+                hideMessage();
+            }
+        }
+
+        async function openPracticeSheet(index) {
+            if (demoMode || !courseData?.concepts?.[index]) return;
+            let sheet = progress[index]?.lesson?.practiceSheet || null;
+            if (!sheet) {
+                sheet = await generatePracticeSheet(index);
+                if (!sheet) return;
+                if (progress[index]?.lesson) {
+                    progress[index].lesson.practiceSheet = sheet;
+                    saveProgress();
+                }
+            }
+            startPracticeSheet(index, sheet);
+        }
+
+        function startPracticeSheet(index, sheet) {
+            const concept = courseData.concepts[index];
+            currentLessonIndex = index;
+            const steps = sheet.exercises.map((_, i) => ({ type: 'paper', i }));
+            steps.push({ type: 'sheetDone' });
+            lessonState = {
+                lesson: { title: `Practice: ${concept.name}` },
+                steps, step: 0,
+                correct: 0, total: 0,
+                startedAt: Date.now(),
+                attempts: {},
+                sheet: { ...sheet, index, marks: {} },
+                result: null,
+            };
+            document.getElementById('lessonXpBadge').textContent = `${sheet.exercises.length} exercises`;
+            document.getElementById('lessonMeta').innerHTML = `<span class="meta-chip">On paper</span>`;
+            applyContentDirection();
+            buildStepSegments(steps.length);
+            if (!document.getElementById('lessonScreen').classList.contains('open')) openLessonScreen();
+            else resetAsk();
+            renderStep();
+        }
+
+        const PAPER_MARKS = {
+            right: 'I got it right',
+            mistake: 'I made a mistake',
+            stuck: "I couldn't solve it",
+        };
+
+        function stepPaper(i) {
+            const ex = lessonState.sheet.exercises[i];
+            return `
+                <div class="step-eyebrow">Exercise ${i + 1} / ${lessonState.sheet.exercises.length}</div>
+                ${renderBoard({ id: 'paperBoard', problem: ex.problem, lines: ex.steps.map(st => ({ text: st.line, note: st.why })), answer: ex.answer })}
+                <div class="paper-prompt" id="paperPrompt">
+                    <p dir="ltr">Solve it in your notebook. Stuck? Get the next step.</p>
+                    <div class="paper-actions">
+                        <button type="button" class="button button-secondary" id="paperHint">Hint: write the next step</button>
+                        <button type="button" class="button" id="paperShow">Show the solution</button>
+                    </div>
+                </div>
+                <div class="paper-assess" id="paperAssess" hidden>
+                    ${Object.entries(PAPER_MARKS).map(([k, label]) =>
+                        `<button type="button" class="button ${k === 'right' ? '' : 'button-secondary'}" data-mark="${k}">${label}</button>`).join('')}
+                </div>`;
+        }
+
+        function stepSheetDone() {
+            const marks = Object.values(lessonState.sheet.marks);
+            const count = k => marks.filter(m => m === k).length;
+            return `
+                <div class="complete-screen">
+                    <div class="complete-badge">${ICONS.check}</div>
+                    <h3 class="complete-title">Sheet done</h3>
+                    <div class="complete-stats">
+                        <div class="cstat"><div class="cstat-val">${count('right')}</div><div class="cstat-lbl">Right</div></div>
+                        <div class="cstat"><div class="cstat-val">${count('mistake')}</div><div class="cstat-lbl">Mistakes</div></div>
+                        <div class="cstat"><div class="cstat-val">${count('stuck')}</div><div class="cstat-lbl">Stuck</div></div>
+                    </div>
+                    ${count('right') < marks.length ? `<div class="step-note" dir="ltr">This topic comes back for review sooner, because some of it did not land yet.</div>` : ''}
+                    <div class="complete-actions">
+                        <button class="button" id="printSheet">Print this sheet</button>
+                        <button class="button button-secondary" id="backToPath">Back to path</button>
+                    </div>
+                </div>`;
+        }
+
+        // A printable copy: the problems with room to work, then the answers
+        // and their working on a page of their own.
+        function printPracticeSheet(sheet, title) {
+            let host = document.getElementById('printSheetHost');
+            if (!host) {
+                host = document.createElement('div');
+                host.id = 'printSheetHost';
+                document.body.appendChild(host);
+            }
+            host.setAttribute('dir', isRTL() ? 'rtl' : 'ltr');
+            host.innerHTML = `
+                <h1>${esc(title)}</h1>
+                <ol class="print-problems">${sheet.exercises.map(ex => `<li>${esc(ex.problem)}</li>`).join('')}</ol>
+                <section class="print-answers">
+                    <h2>Answers</h2>
+                    <ol>${sheet.exercises.map(ex => `<li><strong>${esc(ex.answer)}</strong>
+                        <ul>${ex.steps.map(st => `<li>${esc(st.line)}${st.why ? ` — <em>${esc(st.why)}</em>` : ''}</li>`).join('')}</ul></li>`).join('')}</ol>
+                </section>`;
+            // Gone once printed, so printing the page any other way prints the page.
+            window.addEventListener('afterprint', () => host.remove(), { once: true });
+            window.print();
         }
 
         function stepQuiz(l, i) {
@@ -9377,6 +9731,7 @@ ${excerpt}
                          not two buttons of equal weight side by side. -->
                     <div class="complete-actions">
                         ${isLast ? '' : `<button class="button" id="continueNext">Next lesson</button>`}
+                        <button class="button button-secondary" id="moreExercises">More exercises like this</button>
                         <button class="button ${isLast ? '' : 'button-secondary'}" id="backToPath">Back to path</button>
                     </div>
                 </div>`;
@@ -9441,13 +9796,10 @@ ${excerpt}
             }
 
             if (s.type === 'worked') {
-                document.querySelectorAll('[data-reveal]').forEach(btn => {
-                    btn.onclick = () => {
-                        const why = document.getElementById('why' + btn.dataset.reveal);
-                        why.hidden = !why.hidden;
-                        btn.classList.toggle('revealed', !why.hidden);
-                    };
+                const ctl = wireBoardButtons(document.getElementById('workedBoard'), {
+                    onDone: () => document.getElementById('stepNext')?.classList.remove('button-secondary'),
                 });
+                ctl.step();   // the first line is written as the step opens
             }
 
             if (s.type === 'quiz' || s.type === 'challenge') {
@@ -9486,13 +9838,30 @@ ${excerpt}
             }
 
             if (s.type === 'practice') {
-                // Practice keeps its optional hint, then grades like a choice question.
+                // Solved on paper first (see stepPractice); then graded like a
+                // choice question, with the full working on offer afterwards.
                 const p = lessonState.lesson.practice;
+                const board = boardController(document.getElementById('practiceBoard'));
                 const hintBtn = document.getElementById('hintBtn');
                 if (hintBtn) hintBtn.onclick = () => {
                     document.getElementById('hintBox').hidden = false;
                     hintBtn.remove();
                 };
+                const paperHint = document.getElementById('paperHint');
+                if (paperHint) paperHint.onclick = () => {
+                    board.step();
+                    // The last line of working is the answer itself — a hint
+                    // that writes it is not a hint any more.
+                    if (board.written() >= board.total() - 1) paperHint.remove();
+                };
+                document.getElementById('paperReady').onclick = () => {
+                    document.getElementById('paperPrompt').hidden = true;
+                    const opts = document.getElementById('answerOpts');
+                    opts.hidden = false;
+                    opts.querySelector('.option')?.focus({ preventScroll: true });
+                };
+                const solutionBtn = document.getElementById('paperSolution');
+                if (solutionBtn) solutionBtn.onclick = () => { board.all(); solutionBtn.remove(); };
                 wireQuestion({
                     type: 'choice', text: p.problem, options: p.options,
                     correct: p.correct,
@@ -9501,6 +9870,7 @@ ${excerpt}
                     const msg = correct ? p.feedback.correct : p.feedback.incorrect;
                     const body = document.querySelector('#feedbackBar .feedback-body');
                     if (body && msg) body.textContent = msg;
+                    if (solutionBtn && !board.done()) solutionBtn.hidden = false;
                 });
             }
 
@@ -9527,9 +9897,44 @@ ${excerpt}
                     setTimeout(() => nextLesson(), 1100);
                 };
                 document.getElementById('backToPath').onclick = completeLesson;
+                const more = document.getElementById('moreExercises');
+                if (more) more.onclick = () => openPracticeSheet(currentLessonIndex);
             }
 
             if (s.type === 'reviewComplete') {
+                document.getElementById('backToPath').onclick = completeLesson;
+            }
+
+            if (s.type === 'paper') {
+                const board = boardController(document.getElementById('paperBoard'));
+                const hint = document.getElementById('paperHint');
+                const assess = document.getElementById('paperAssess');
+                const finish = () => {
+                    board.all();
+                    document.getElementById('paperPrompt').hidden = true;
+                    assess.hidden = false;
+                };
+                hint.onclick = () => {
+                    board.step();
+                    // Two parts left means the next is the last line and then
+                    // the answer: from here a hint is the solution.
+                    if (board.total() - board.written() <= 1) finish();
+                };
+                document.getElementById('paperShow').onclick = finish;
+                assess.querySelectorAll('[data-mark]').forEach(btn => {
+                    btn.onclick = () => {
+                        lessonState.sheet.marks[s.i] = btn.dataset.mark;
+                        lessonState.total++;
+                        if (btn.dataset.mark === 'right') lessonState.correct++;
+                        advanceStep();
+                    };
+                });
+            }
+
+            if (s.type === 'sheetDone') {
+                const { sheet } = lessonState;
+                if (Object.values(sheet.marks).some(m => m !== 'right')) nudgeReviewSooner(sheet.index);
+                document.getElementById('printSheet').onclick = () => printPracticeSheet(sheet, lessonState.lesson.title);
                 document.getElementById('backToPath').onclick = completeLesson;
             }
 
@@ -9881,6 +10286,11 @@ ${excerpt}
             if (i !== null) loadLesson(i);
         });
         document.getElementById('previewCancel').addEventListener('click', closePreview);
+        document.getElementById('previewSheet').addEventListener('click', () => {
+            const i = previewIndex;
+            closePreview();
+            if (i !== null) openPracticeSheet(i);
+        });
         document.getElementById('previewOverlay').addEventListener('click', (e) => {
             if (e.target.id === 'previewOverlay') closePreview();
         });

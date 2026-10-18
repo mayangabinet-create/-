@@ -293,6 +293,21 @@
             font-display: swap; src: url(fonts/nunito-vietnamese.woff2) format('woff2');
             unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
         }
+        /* The teacher's hand on the board, in two faces (both SIL OFL, licences in
+           fonts/). Caveat writes the Latin, the digits and the symbols: Gveret
+           Levin's own digits are too close to Hebrew letters for working (its 9
+           reads as פ), so it is only given the Hebrew range. */
+        @font-face {
+            font-family: 'Board Latin'; font-style: normal; font-weight: 600;
+            font-display: swap; src: url(fonts/caveat-latin.woff2) format('woff2');
+            size-adjust: 118%;   /* Caveat runs small beside Gveret Levin's Hebrew */
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+        @font-face {
+            font-family: 'Board Hebrew'; font-style: normal; font-weight: 400;
+            font-display: swap; src: url(fonts/gveret-levin-hebrew.woff2) format('woff2');
+            unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+        }
 
         /* The stand-in for the moment before Nunito paints, and for the case where
            it never arrives at all. Measured against Nunito, not guessed: same width
@@ -2351,6 +2366,102 @@
         }
         .step-next[disabled] { opacity: 0.45; cursor: not-allowed; filter: saturate(0.4); }
 
+        /* ======================= The teaching board =======================
+           A worked solution is written, not displayed: each line appears word by
+           word in the teacher's hand, a drawn arrow leads to the note that says
+           why, and the answer gets underlined. Graph paper in the light theme, a
+           chalkboard in the dark one. app.js: renderBoard / boardController. */
+        :root {
+            --board-bg: #FFFDF6;
+            --board-grid: rgba(64, 120, 190, 0.13);
+            --board-ink: #1E2B4A;
+            --board-note: #C2412D;
+            --board-mark: #E2A100;
+            --board-edge: #E6DFC8;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --board-bg: #1D3A2F; --board-grid: rgba(255, 255, 255, 0.05);
+                --board-ink: #F2F0E6; --board-note: #F5C04A; --board-mark: #8FD4F5; --board-edge: #4A3A24;
+            }
+        }
+        :root[data-theme="dark"] {
+            --board-bg: #1D3A2F; --board-grid: rgba(255, 255, 255, 0.05);
+            --board-ink: #F2F0E6; --board-note: #F5C04A; --board-mark: #8FD4F5; --board-edge: #4A3A24;
+        }
+        .board {
+            margin: var(--sp-4) 0;
+            padding: var(--sp-5) var(--sp-5) var(--sp-4);
+            background-color: var(--board-bg);
+            background-image:
+                linear-gradient(var(--board-grid) 1px, transparent 1px),
+                linear-gradient(90deg, var(--board-grid) 1px, transparent 1px);
+            background-size: 22px 22px;
+            border: 6px solid var(--board-edge);
+            border-radius: var(--r-md);
+            color: var(--board-ink);
+            font-family: 'Board Latin', 'Board Hebrew', var(--font);
+            font-size: 1.36rem; line-height: 1.5;
+            word-spacing: 0.12em;   /* Caveat's space is narrow next to a Hebrew word */
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+        }
+        .board-problem { font-size: 1.42rem; padding-bottom: var(--sp-2); margin-bottom: var(--sp-3); border-bottom: 2px dashed var(--board-grid); }
+        .board-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
+        .board-line { display: grid; grid-template-columns: 1.6em 1fr; column-gap: var(--sp-2); }
+        .board-num {
+            font-size: 0.85em; color: var(--board-mark); font-weight: 700;
+            width: 1.4em; height: 1.4em; display: grid; place-items: center;
+            border: 2px solid var(--board-mark); border-radius: 50%; margin-top: 0.15em;
+        }
+        .board-text { unicode-bidi: plaintext; }
+        .board-note {
+            grid-column: 2; display: flex; align-items: flex-start; gap: 6px;
+            color: var(--board-note); font-size: 1.08rem; line-height: 1.35;
+            margin-top: 2px;
+        }
+        .board-note-text { unicode-bidi: plaintext; padding-top: 0.55em; }
+        .board-arrow { flex: none; width: 34px; height: 30px; overflow: visible; }
+        [dir="rtl"] .board-arrow { transform: scaleX(-1); }
+        .board-arrow path, .board-underline path, .board-circle path {
+            fill: none; stroke: currentColor; stroke-width: 2.2;
+            stroke-linecap: round; stroke-linejoin: round;
+            stroke-dasharray: 1; stroke-dashoffset: 1;
+            animation: board-draw 480ms ease forwards;
+            animation-delay: var(--note-delay, 0ms);
+        }
+        .board-answer { position: relative; display: inline-block; margin-top: var(--sp-4); padding: 2px 10px 8px; font-size: 1.5rem; }
+        .board-answer-label { font-size: 0.75em; color: var(--board-note); margin-inline-end: 8px; }
+        .board-underline { position: absolute; inset-inline: 0; bottom: 0; width: 100%; height: 12px; color: var(--board-mark); }
+        .board-underline path { stroke-width: 3; animation-delay: var(--note-delay, 0ms); }
+        .ink { opacity: 0; animation: board-ink 280ms ease forwards; animation-delay: calc(var(--i, 0) * 55ms); }
+        .board-note .ink { animation-delay: calc(var(--note-delay, 0ms) + 260ms + var(--i, 0) * 55ms); }
+        @keyframes board-ink { from { opacity: 0; filter: blur(2px); } to { opacity: 1; filter: none; } }
+        @keyframes board-draw { to { stroke-dashoffset: 0; } }
+        .board-controls { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); font-family: var(--font); }
+        .board-controls .button { font-size: var(--fs-sm); }
+        .paper-prompt {
+            margin: var(--sp-4) 0; padding: var(--sp-4);
+            border: 2px dashed var(--border-strong); border-radius: var(--r-md);
+        }
+        .paper-prompt p { margin: 0 0 var(--sp-3); font-weight: 700; }
+        .paper-actions, .paper-assess { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+        .paper-assess { margin-top: var(--sp-4); }
+        /* A practice sheet's printable copy (printPracticeSheet in app.js). It
+           exists only while printing, and is the only thing printed. */
+        #printSheetHost { display: none; }
+        @media print {
+            body > *:not(#printSheetHost) { display: none !important; }
+            #printSheetHost { display: block; color: #000; background: #fff; font: 13pt/1.5 'Nunito', sans-serif; }
+            #printSheetHost h1 { font-size: 18pt; margin: 0 0 16pt; }
+            #printSheetHost .print-problems > li { margin-bottom: 110pt; break-inside: avoid; }
+            #printSheetHost .print-answers { break-before: page; }
+            #printSheetHost .print-answers > ol > li { margin-bottom: 12pt; break-inside: avoid; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .ink, .board-note .ink { animation: none; opacity: 1; }
+            .board-arrow path, .board-underline path, .board-circle path { animation: none; stroke-dashoffset: 0; }
+        }
+
         .hook-card {
             font-size: var(--fs-h3); line-height: var(--lh-body); font-weight: 700; color: var(--text);
             background: var(--info-tint);
@@ -3082,6 +3193,13 @@
         [dir="rtl"] .example-box,
         [dir="rtl"] .worked-reveal,
         [dir="rtl"] .worked-why,
+        /* A line that is all formula — an option reading 4(x − 3) — is laid out
+           left to right even in a right-to-left lesson; a Hebrew sentence with a
+           formula inside stays right to left. Without this the bidi algorithm
+           puts a leading number after its parentheses: "(x − 3)4". The
+           alignment stays the lesson's. */
+        [dir="rtl"] .option, [dir="rtl"] .question-text, [dir="rtl"] .concept-text,
+        [dir="rtl"] .feedback-body, [dir="rtl"] .hint-box, [dir="rtl"] .example-box { unicode-bidi: plaintext; }
         [dir="rtl"] .option,
         [dir="rtl"] .feedback-bar,
         [dir="rtl"] .summary-facts,
@@ -3292,6 +3410,15 @@
     </style>
 </head>
 <body>
+    <!-- One filter, used by every lesson figure (renderVisual wraps its SVG content
+         in a <g> that points here): a small displacement that makes ruled lines
+         look drawn by hand without moving any label far enough to misread. -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+        <filter id="sketchy" x="-5%" y="-5%" width="110%" height="110%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="1" seed="7" result="noise"/>
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.6" xChannelSelector="R" yChannelSelector="G"/>
+        </filter>
+    </svg>
     <!-- The first thing in the tab order, and invisible until it has focus. The
          header carries the app name, the streak and XP counters and a sign-in
          button before the content starts, and on a lesson screen that is a run of
@@ -3703,6 +3830,7 @@
                      actual state; these are the fallbacks so the buttons are never
                      nameless. -->
                 <button class="button" id="previewStart">Start lesson</button>
+                <button class="button button-secondary" id="previewSheet" hidden>Practice on paper</button>
                 <button class="button button-secondary" id="previewCancel">Cancel</button>
             </div>
         </div>
@@ -3899,7 +4027,7 @@
         <button type="button" id="bootFailureReload">Reload</button>
     </div>
 
-    <script src="app.js?v=b24a306b99"></script>
+    <script src="app.js?v=cdfe719d87"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

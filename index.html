@@ -2464,7 +2464,9 @@
             animation: pen-tip-ltr var(--ms, 700ms) linear var(--at, 0ms) forwards;
         }
         .pen-wrap[dir="rtl"] .pen-tip { animation-name: pen-tip-rtl; }
-        .board-problem .pen-text, .board-problem .pen-tip { --at: 100ms; --ms: 900ms; }
+        /* Why it matters, written above the working (the hook's sentence). */
+        .board-lead { font-size: 1.36rem; line-height: 1.45; margin-bottom: var(--sp-3); }
+        .board-problem { --at: 100ms; --ms: 900ms; }   /* inherited by its pen; a board with a lead starts later */
         .bd-label .pen-text, .bd-label .pen-tip { --at: var(--label-at); --ms: var(--label-ms); }
         .bd-expr .pen-text, .bd-expr .pen-tip { --at: var(--expr-at); --ms: var(--expr-ms); }
         @keyframes pen-write-ltr { to { -webkit-clip-path: inset(-20% -6% -20% -6%); clip-path: inset(-20% -6% -20% -6%); } }
@@ -2519,12 +2521,6 @@
             .bd-step.is-final .bd-expr .bd-text::after { animation: none; transform: scaleX(1) rotate(-1deg); }
         }
 
-        .hook-card {
-            font-size: var(--fs-h3); line-height: var(--lh-body); font-weight: 700; color: var(--text);
-            background: var(--info-tint);
-            border: 1px solid var(--info-border);
-            border-radius: var(--r-lg); padding: var(--sp-6);
-        }
         .card-idea { font-size: var(--fs-h2); font-weight: 800; margin-bottom: var(--sp-3); line-height: var(--lh-tight); }
 
         .question-text { font-size: var(--fs-lg); margin-bottom: var(--sp-5); font-weight: 700; line-height: var(--lh-snug); }
@@ -3243,7 +3239,7 @@
            Generated content follows the course language; the chrome does not. */
         [dir="rtl"] .concept-text,
         [dir="rtl"] .question-text,
-        [dir="rtl"] .hook-card,
+        [dir="rtl"] .board-lead,
         [dir="rtl"] .card-idea,
         [dir="rtl"] .analogy-box,
         [dir="rtl"] .misconception-box,
@@ -4085,7 +4081,7 @@
         <button type="button" id="bootFailureReload">Reload</button>
     </div>
 
-    <script src="app.js?v=4ea0610bff"></script>
+    <script src="app.js?v=3788d397af"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

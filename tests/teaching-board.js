@@ -35,15 +35,17 @@ const names = [
   'const FORMULA_RUN', 'const FORMULA_SIGN', 'function formulaRuns(', 'function inkWords(', 'function wordCount(', 'function writingDir(', 'function writeMs(', 'function penText(',
   'const BOARD_ANSWER_LABEL', 'const sameWorking', 'function renderBoard(', 'function boardController(', 'function sketchSvg(',
   'const PRACTICE_SHEET_SIZE', 'function normalisePracticeSheet(',
+  'let boardSeq', 'const inkedMs', 'function boardVisual(',
 ];
 let code = `
 const document = { createElement: () => ({ textContent: '', get innerHTML() {
   return String(this.textContent).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); } }) };
 const prefersReducedMotion = () => true;
 const courseLanguage = () => 'Hebrew';
+const renderVisual = v => v ? '<figure class="visual">' + v.type + '</figure>' : '';
 `;
 for (const n of names) code += grab(n) + '\n';
-code += 'module.exports = { formulaRuns, inkWords, wordCount, writingDir, writeMs, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE };';
+code += 'module.exports = { formulaRuns, inkWords, wordCount, writingDir, writeMs, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE, boardVisual };';
 const P = new Function('module', code + '\nreturn module.exports;')({});
 
 let passed = 0, failed = 0;
@@ -102,6 +104,28 @@ const lines = [{ text: 'x² − 9', note: 'הפרש ריבועים' }, { text: '
   ok('a formula and a Hebrew reason get their own writing direction',
      /dir="rtl"><span class="pen-text">הפרש ריבועים/.test(html) && /dir="ltr"><span class="pen-text">x² − 9/.test(html));
   ok('everything is escaped', !P.renderBoard({ lines: [{ text: '<b>x</b>' }] }).includes('<b>'));
+}
+
+console.log('\n== an equation is taught at the board ==');
+{
+  const eq = { type: 'equation', lines: [
+    { expr: 'x² − 5x + 6 = 0', note: 'start' },
+    { expr: '(x − 2)(x − 3) = 0', note: 'מפרקים' },
+    { expr: 'x = 2 או x = 3', note: 'כל גורם שווה 0' }] };
+  const hook = 'מכפלה שווה לאפס רק כשאחד הגורמים שלה אפס.';
+  const html = P.boardVisual(eq, hook);
+  ok('the hook is written on the board, above the working', /class="board-lead">[^]*class="board-problem"/.test(html) && html.includes('מכפלה'));
+  ok('its first line is the one written large', /board-problem[^>]*>.*x² − 5x \+ 6 = 0/.test(html));
+  ok('every later line arrives by an arrow with its note', (html.match(/data-board-line/g) || []).length === 2 && html.includes('מפרקים') && !html.includes('>start<'));
+  ok('the board plays by itself', /data-board-auto="\d+"/.test(html));
+  ok('and starts writing after the sentence above it',
+     Number(html.match(/board-problem" style="--at:(\d+)ms/)?.[1]) >= P.wordCount(hook) * 55);
+  ok('a card waits for its own text the same way',
+     /board-problem" style="--at:\d+ms/.test(P.boardVisual(eq, '', 'כמה מילים של כרטיס')));
+  ok('any other figure is drawn as it always was', P.boardVisual({ type: 'venn' }) === '<figure class="visual">venn</figure>');
+  ok('a hook with no working still goes on the board',
+     /class="board-lead"/.test(P.boardVisual(null, hook)) && !/data-board-auto/.test(P.boardVisual(null, hook)));
+  ok('a one-line equation is not a board', !/data-board/.test(P.boardVisual({ type: 'equation', lines: [{ expr: 'x = 1' }] })));
 }
 
 console.log('\n== playing it one tap at a time ==');

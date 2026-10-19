@@ -1418,17 +1418,17 @@ ${planSchemaAndLanguage(`{
         // cached, in front of it.
         function lessonPrinciplesAndVisuals() {
             return `Principles:
-- Short and to the point. Each card = ONE idea in 1-2 sentences, under 30
-  words. Cut every word that does not teach.
+- Each card = ONE idea in 1-2 sentences, under 30 words. Cut every word
+  that does not teach.
 - Pitch it to the learner described below; if nobody is described, to a
   serious adult new to this topic. Write like a good tutor talking to an
   adult: direct and exact. No exclamation marks, no praise, no "let's dive
   in", no cartoon analogies.
 - SHOW, don't only tell. If an idea has a shape, a quantity, a sequence or a
-  comparison in it, draw it. Prose describing a figure the app could have drawn
-  is the worst thing this lesson can contain.
+  comparison in it, draw it; a rule or a calculation goes on the board as an
+  "equation". Never describe in prose a figure the app could draw.
 - Distractors must be mistakes a real learner would make.
-- Vary the position of the correct answer. Never always first.
+- Vary where the correct answer sits.
 - Explanations must match the arithmetic shown, not a rule that merely
   sounds right — check any sign, sum or size claim against those numbers.
 - Every question has exactly ONE defensible answer. Solve it yourself before
@@ -1438,8 +1438,8 @@ ${planSchemaAndLanguage(`{
 - A hook is a puzzle, a surprise or a situation the learner cares about — not
   the lesson's own question stated plainly.
 
-VISUALS — attach one to a card, worked example, summary or question in its
-"visual" field; omit it where a diagram adds nothing. Never invent a type not on
+VISUALS — attach one to the hook, a card, worked example, summary or question
+in its "visual" field; omit it where a diagram adds nothing. Never invent a type not on
 this list — it is discarded.
 
 ${visualCatalogue()}
@@ -1530,7 +1530,7 @@ ${standalone ? `${lessonQuestionTypes()}
 {
   "title": "${concept.name}",
   "estimatedMinutes": 6,
-  "hook": { "text": "Why this matters, in ONE sentence: where it is used, tested or needed." },
+  "hook": { "text": "Why this matters, in ONE sentence: where it is used, tested or needed.", "visual": "An equation showing it at the board, or null" },
   "prediction": { "question": "A real question, asked before it is taught, that can be reasoned out. Not graded.", "options": ["A","B","C"] },
   "explore": {
     "instruction": "What to DO — drag it, tap it, uncover it",
@@ -1575,8 +1575,7 @@ only ideas taught so far.
 something, sees what happens, and is told why afterwards. Its "visual" must be
 touchable — a slider that moves a result, reveal cards, a figure with parts to
 tap. One they can only look at is a card; write it as a card and omit this.
-Most concepts have nothing to touch: omit it then, rather than invent an
-interaction the material does not support.
+Most concepts have nothing to touch: omit it then.
 
 "hint" is shown only after a wrong answer, for a second try: point at the
 mistake, never give the answer.
@@ -2007,7 +2006,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
 
             l.title = l.title || concept.name;
             l.estimatedMinutes = l.estimatedMinutes || 6;
-            l.hook = l.hook?.text ? l.hook : null;
+            l.hook = l.hook?.text ? { ...l.hook, visual: validVisual(l.hook.visual) } : null;
             l.prediction = (l.prediction?.question && arr(l.prediction.options).length) ? l.prediction : null;
             // An explore step with no figure to touch is a card with extra
             // steps, and one whose figure failed validation would be an
@@ -5621,7 +5620,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 draw: visFormula,
             },
             equation: {
-                use: 'a calculation worked line by line, each line saying what changed',
+                use: 'working taught at the board, line by line; each note is written on the arrow into its line',
                 spec: '{"type":"equation","lines":[{"expr":"2x + 4 = 10","note":"start"},{"expr":"2x = 6","note":"subtract 4"},{"expr":"x = 3","note":"divide by 2"}]}',
                 check: v => Array.isArray(v.lines) && v.lines.filter(l => l && l.expr).length >= 2,
                 draw: visEquation,
@@ -9373,7 +9372,7 @@ ${excerpt}
         function stepHook(l) {
             return `
                 <div class="step-eyebrow">Why this matters</div>
-                <div class="hook-card">${inkWords(l.hook.text)}</div>
+                ${boardVisual(l.hook.visual, l.hook.text)}
                 <button class="button step-next" id="stepNext">Continue</button>`;
         }
 
@@ -9416,7 +9415,7 @@ ${excerpt}
                 <div class="step-eyebrow">Idea ${i + 1} / ${l.cards.length}</div>
                 ${c.idea ? `<h3 class="card-idea">${esc(c.idea)}</h3>` : ''}
                 <div class="concept-text">${inkWords(c.text)}</div>
-                ${renderVisual(c.visual)}
+                ${boardVisual(c.visual, '', c.text)}
                 ${analogy}
                 ${c.source ? `<div class="card-source"><span class="card-source-label">From your document</span>“${esc(c.source)}”</div>` : ''}
                 <button class="button step-next" id="stepNext">Continue</button>`;
@@ -9495,7 +9494,7 @@ ${excerpt}
         // shows until boardController plays the steps. An answer that is just
         // the last line again is not written twice: the last line is marked as
         // the answer instead.
-        function renderBoard({ problem = '', lines = [], answer = '', id = 'board' } = {}) {
+        function renderBoard({ problem = '', lines = [], answer = '', id = 'board', lead = '', auto = false, startAt = 100 } = {}) {
             const nodes = lines.map(line => ({ text: line.text, note: line.note || '' }));
             if (answer) {
                 if (nodes.length && sameWorking(nodes[nodes.length - 1].text, answer)) nodes[nodes.length - 1].final = true;
@@ -9514,9 +9513,10 @@ ${excerpt}
                 </div>`;
             }).join('');
             return `
-                <div class="board" id="${escAttr(id)}" data-board>
+                <div class="board" id="${escAttr(id)}" data-board${auto ? ` data-board-auto="${startAt + 1300}"` : ''}>
                     <svg class="bd-arrows" aria-hidden="true" focusable="false"><g filter="url(#sketchy)"></g></svg>
-                    ${problem ? `<div class="board-problem">${penText(problem, 'bd-text')}</div>` : ''}
+                    ${lead ? `<div class="board-lead">${inkWords(lead)}</div>` : ''}
+                    ${problem ? `<div class="board-problem"${startAt !== 100 ? ` style="--at:${startAt}ms"` : ''}>${penText(problem, 'bd-text')}</div>` : ''}
                     <div class="bd-flow">${steps}</div>
                 </div>`;
         }
@@ -9625,6 +9625,53 @@ ${excerpt}
                 written: () => next,
                 total: () => parts.length,
             };
+        }
+
+        // An "equation" visual taught at the board instead of listed: its first
+        // line is written large, and each line after it arrives by an arrow
+        // with its note written on it. `lead` is a sentence written above it —
+        // the hook says why, the board shows it. Any other visual is drawn as
+        // it always was; a hook with no equation still goes on the board.
+        let boardSeq = 0;
+        // When the words of `text` have all appeared (inkWords' reveal).
+        const inkedMs = text => text ? wordCount(text) * BOARD_WORD_MS + 300 : 100;
+
+        // `after` is the text shown above the board, outside it, which the
+        // board waits for; a lead inside the board is waited for anyway.
+        function boardVisual(v, lead = '', after = '') {
+            const lines = v?.type === 'equation' ? (v.lines || []).filter(l => l && l.expr) : [];
+            if (lines.length < 2) {
+                return (lead ? renderBoard({ id: `board${++boardSeq}`, lead }) : '') + renderVisual(v);
+            }
+            return renderBoard({
+                id: `board${++boardSeq}`,
+                lead,
+                problem: lines[0].expr,
+                lines: lines.slice(1).map(l => ({ text: l.expr, note: l.note || '' })),
+                auto: true,
+                startAt: inkedMs(lead || after),
+            });
+        }
+
+        // Plays a board by itself, the way a teacher writes without being
+        // asked: after `delay` (the words above it appearing), one line at a
+        // time, each once the one before has finished. A tap writes the rest.
+        // Stops on its own when the step it is on goes away.
+        function autoplayBoard(el, delay = 0) {
+            const ctl = boardController(el);
+            if (!ctl.total()) return ctl;
+            if (prefersReducedMotion()) { ctl.all(); return ctl; }
+            let timer = null;
+            const pace = () => {
+                if (!el.isConnected || ctl.done()) return;
+                const step = el.querySelectorAll('[data-board-line]')[ctl.written()];
+                ctl.step();
+                const ms = parseInt(step?.style.getPropertyValue('--mark-at'), 10) || 1200;
+                timer = setTimeout(pace, ms + 500);
+            };
+            timer = setTimeout(pace, delay);
+            el.addEventListener('click', () => { clearTimeout(timer); ctl.all(); }, { once: true });
+            return ctl;
         }
 
         // The worked example on the board: problem, the working line by line
@@ -9920,7 +9967,7 @@ Return JSON only:
             return `
                 <div class="step-eyebrow">Summary</div>
                 <div class="concept-text"><strong>The main idea</strong><br>${esc(s.mainIdea)}</div>
-                ${renderVisual(s.visual)}
+                ${boardVisual(s.visual)}
                 ${facts ? `<div class="summary-facts"><strong>Key facts</strong><ul>${facts}</ul></div>` : ''}
                 ${s.commonMistake ? `<div class="misconception-box"><strong>Common Misconception:</strong><br>${esc(s.commonMistake)}</div>` : ''}
                 ${s.realWorld ? `<div class="example-box"><div class="example-label">Real-World Example:</div>${esc(s.realWorld)}</div>` : ''}
@@ -10069,6 +10116,10 @@ Return JSON only:
                     unlock();
                 }
             }
+
+            // A board that plays itself carries when its first line is due.
+            document.querySelectorAll('[data-board-auto]').forEach(el =>
+                autoplayBoard(el, Number(el.dataset.boardAuto) || 0));
 
             if (s.type === 'worked') {
                 const ctl = wireBoardButtons(document.getElementById('workedBoard'), {

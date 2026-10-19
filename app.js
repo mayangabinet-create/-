@@ -10259,6 +10259,33 @@ Return JSON only:
         const versionLabel = document.getElementById('appVersion');
         if (versionLabel) versionLabel.textContent = `v${appVersion()}`;
 
+        // A phone can keep serving yesterday's index.html for as long as it
+        // likes — GitHub Pages sets the cache headers and this repo cannot —
+        // and an old index.html loads the old app.js however carefully that
+        // file is versioned. So on every load, ask the server for the page
+        // itself, past every cache, and read which app.js it names. If that
+        // is not the one running, reload once onto a URL no cache has seen
+        // (?u=<new version>). Once per version per tab, so a CDN still
+        // catching up can never send this into a loop. Offline, or on any
+        // failure, nothing happens.
+        async function reloadIfStale() {
+            const running = appVersion();
+            if (running === 'dev' || !navigator.onLine) return;
+            try {
+                const res = await fetch(`index.html?check=${Date.now()}`, { cache: 'no-store' });
+                if (!res.ok) return;
+                const latest = ((await res.text()).match(/<script src="app\.js\?v=([0-9a-f]+)"><\/script>/) || [])[1];
+                if (!latest || latest.slice(0, 6) === running) return;
+                const key = `reloaded_for:${latest}`;
+                if (sessionStorage.getItem(key)) return;
+                sessionStorage.setItem(key, '1');
+                const url = new URL(location.href);
+                url.searchParams.set('u', latest.slice(0, 6));
+                location.replace(url.toString());
+            } catch { /* offline, blocked storage, a CDN hiccup: keep the version we have */ }
+        }
+        reloadIfStale();
+
         document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
         restoreLearnerProfile();
 

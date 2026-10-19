@@ -776,6 +776,15 @@ course built a minute after a deploy was written by the previous release's promp
 After any edit to `app.js`, run `sha256sum app.js | cut -c1-10` and put the result
 in the script tag.
 
+That covers `app.js` but not the page that names it: a phone can keep an old
+`index.html` for as long as it likes, and an old `index.html` loads the old `app.js`.
+So on every load `reloadIfStale()` fetches `index.html` past every cache
+(`cache: 'no-store'`), reads which `app.js?v=` it names, and if that is not the
+running build, reloads once onto `?u=<new version>`, a URL no cache has seen. It
+does this once per version per tab, so a CDN still catching up cannot loop it. The
+running build is shown as `v` plus six characters in the top-right corner of every
+screen.
+
 ### The pages around the app
 
 `index.html` is the app, but it is not the only file GitHub Pages serves. The rest are

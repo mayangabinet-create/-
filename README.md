@@ -1094,7 +1094,13 @@ Levin** for Hebrew and **Caveat** for Latin, digits and symbols. Gveret Levin's 
 digits are too close to Hebrew letters for working (its 9 reads as פ), so it is given
 only the Hebrew range. Options, questions and explanations in a right-to-left lesson are
 laid out with `unicode-bidi: plaintext`, which is what stops an option that is all
-formula from showing `4(x − 3)` as `(x − 3)4`.
+formula from showing `4(x − 3)` as `(x − 3)4`. A formula *inside* a Hebrew sentence,
+or in a figure's right-to-left list, needs more than that: `isolateFormulas()` watches
+the lesson screen and the preview (a `MutationObserver`) and wraps every run that looks
+like a formula (Latin, digits, brackets and operators, holding at least one bracket or
+operator) in `<bdi dir="ltr">`, with no-break spaces so it never splits across lines.
+SVG text and the board are left alone. `inkWords()` keeps a formula as one word, since
+three separately isolated pieces of `3(x + 4)` would come out in reverse.
 
 **Practice is on paper.** The lesson's practice problem goes on the board with "Solve it
 in your notebook first": a hint writes the next line of its `solution` and no more, the

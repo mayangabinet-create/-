@@ -32,7 +32,7 @@ function grab(decl) {
 const names = [
   'function esc(', 'function escAttr(',
   'const BOARD_WORD_MS', 'const ARROW_MS', 'const WRITE_MS_PER_CHAR', 'const WRITE_MIN_MS',
-  'function inkWords(', 'function wordCount(', 'function writingDir(', 'function writeMs(', 'function penText(',
+  'const FORMULA_RUN', 'const FORMULA_SIGN', 'function formulaRuns(', 'function inkWords(', 'function wordCount(', 'function writingDir(', 'function writeMs(', 'function penText(',
   'const BOARD_ANSWER_LABEL', 'const sameWorking', 'function renderBoard(', 'function boardController(', 'function sketchSvg(',
   'const PRACTICE_SHEET_SIZE', 'function normalisePracticeSheet(',
 ];
@@ -43,7 +43,7 @@ const prefersReducedMotion = () => true;
 const courseLanguage = () => 'Hebrew';
 `;
 for (const n of names) code += grab(n) + '\n';
-code += 'module.exports = { inkWords, wordCount, writingDir, writeMs, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE };';
+code += 'module.exports = { formulaRuns, inkWords, wordCount, writingDir, writeMs, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE };';
 const P = new Function('module', code + '\nreturn module.exports;')({});
 
 let passed = 0, failed = 0;
@@ -56,10 +56,22 @@ console.log('\n== writing word by word ==');
 {
   const html = P.inkWords('מוציאים גורם 3 <b>');
   ok('each word gets its own numbered span', (html.match(/class="ink"/g) || []).length === 4 && html.includes('--i:3'));
-  ok('the text is escaped', html.includes('&lt;b&gt;') && !html.includes('<b>'));
+  ok('the text is escaped', html.includes('&lt;') && html.includes('&gt;') && !html.includes('<b>'));
   ok('spaces stay between the words', /<\/span> <span/.test(html));
   ok('numbering can continue from an earlier run', P.inkWords('a b', 5).includes('--i:6'));
   ok('nothing in, nothing out', P.inkWords('') === '' && P.inkWords(null) === '');
+}
+
+console.log('\n== formulas in a right-to-left line ==');
+{
+  const runs = t => P.formulaRuns(t).map(r => t.slice(r.start, r.end));
+  ok('a formula inside a Hebrew sentence is found whole', runs('הופך סכום למכפלה: מ־3x + 12 אל 3(x + 4).').join('|') === '3x + 12|3(x + 4)');
+  ok("the sentence's full stop stays outside it", !runs('אל 3(x + 4).')[0].endsWith('.'));
+  ok('a bare number or word is left alone', runs('את 6 ואת 9').length === 0 && runs('Answer').length === 0);
+  ok('an option that is all formula is one run', runs('4(x − 3)').join('|') === '4(x − 3)');
+  ok('a squared term and an equation count', runs('x² − 9 = 0').join('|') === 'x² − 9 = 0');
+  const html = P.inkWords('מ־3x + 12 אל 3(x + 4)');
+  ok('the word-by-word reveal keeps a formula in one piece', html.includes('>3(x + 4)</span>') && html.includes('>3x + 12</span>'));
 }
 
 console.log('\n== which way the pen writes ==');

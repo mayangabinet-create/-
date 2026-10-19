@@ -10248,6 +10248,17 @@ Return JSON only:
             }
         });
 
+        // The running build, read off this script's own URL: index.html loads
+        // app.js?v=<content hash>, so the label changes exactly when the code
+        // does. Shown in the corner (#appVersion) and nowhere else.
+        function appVersion() {
+            const tag = [...document.scripts].find(s => /(^|\/)app\.js(\?|$)/.test(s.getAttribute('src') || ''));
+            const v = tag ? new URL(tag.src, location.href).searchParams.get('v') : null;
+            return v ? v.slice(0, 6) : 'dev';
+        }
+        const versionLabel = document.getElementById('appVersion');
+        if (versionLabel) versionLabel.textContent = `v${appVersion()}`;
+
         document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
         restoreLearnerProfile();
 

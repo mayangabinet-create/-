@@ -675,6 +675,20 @@
             }
         }
 
+        /* Which build is running, in the top-right corner of every screen, so
+           "is this the new version?" has an answer at a glance. It is the
+           ?v= of the app.js script tag (see appVersion() in app.js), the same
+           value a deploy changes. Out of the way: small, faint, never in the
+           way of a tap. */
+        .app-version {
+            position: fixed; z-index: 2000; pointer-events: none;
+            top: calc(env(safe-area-inset-top, 0px) + 2px); right: 6px;
+            font: 600 10px/1 var(--font); letter-spacing: 0.02em;
+            color: var(--text-subtle); opacity: 0.85;
+            font-variant-numeric: tabular-nums;
+        }
+        @media print { .app-version { display: none; } }
+
         /* Visible only to screen readers. */
         .visually-hidden {
             position: absolute; width: 1px; height: 1px;
@@ -3410,6 +3424,7 @@
     </style>
 </head>
 <body>
+    <div class="app-version" id="appVersion" aria-hidden="true"></div>
     <!-- One filter, used by every lesson figure (renderVisual wraps its SVG content
          in a <g> that points here): a small displacement that makes ruled lines
          look drawn by hand without moving any label far enough to misread. -->
@@ -4027,7 +4042,7 @@
         <button type="button" id="bootFailureReload">Reload</button>
     </div>
 
-    <script src="app.js?v=cdfe719d87"></script>
+    <script src="app.js?v=9bfd1eca64"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

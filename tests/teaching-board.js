@@ -31,9 +31,9 @@ function grab(decl) {
 
 const names = [
   'function esc(', 'function escAttr(',
-  'const BOARD_WORD_MS', 'const BOARD_NOTE_GAP_MS',
-  'function inkWords(', 'function wordCount(', 'const BOARD_ARROW', 'const BOARD_UNDERLINE',
-  'const BOARD_ANSWER_LABEL', 'function renderBoard(', 'function boardController(', 'function sketchSvg(',
+  'const BOARD_WORD_MS', 'const ARROW_MS', 'const WRITE_MS_PER_CHAR', 'const WRITE_MIN_MS',
+  'function inkWords(', 'function wordCount(', 'function writingDir(', 'function writeMs(', 'function penText(',
+  'const BOARD_ANSWER_LABEL', 'const sameWorking', 'function renderBoard(', 'function boardController(', 'function sketchSvg(',
   'const PRACTICE_SHEET_SIZE', 'function normalisePracticeSheet(',
 ];
 let code = `
@@ -43,7 +43,7 @@ const prefersReducedMotion = () => true;
 const courseLanguage = () => 'Hebrew';
 `;
 for (const n of names) code += grab(n) + '\n';
-code += 'module.exports = { inkWords, wordCount, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE };';
+code += 'module.exports = { inkWords, wordCount, writingDir, writeMs, renderBoard, boardController, sketchSvg, normalisePracticeSheet, PRACTICE_SHEET_SIZE };';
 const P = new Function('module', code + '\nreturn module.exports;')({});
 
 let passed = 0, failed = 0;
@@ -62,30 +62,47 @@ console.log('\n== writing word by word ==');
   ok('nothing in, nothing out', P.inkWords('') === '' && P.inkWords(null) === '');
 }
 
-console.log('\n== the board ==');
-const lines = [{ text: 'x² − 9', note: 'הפרש ריבועים' }, { text: '(x − 3)(x + 3)' }];
+console.log('\n== which way the pen writes ==');
 {
-  const html = P.renderBoard({ id: 'b', problem: 'פרקו x² − 9', lines, answer: '(x − 3)(x + 3)' });
-  ok('the problem is shown from the start', /class="board-problem">פרקו x² − 9</.test(html));
-  ok('every line starts hidden', (html.match(/data-board-line[^>]*hidden/g) || []).length === 2);
-  ok('a note comes with a drawn arrow', (html.match(/board-arrow/g) || []).length === 1);
-  ok('a line without a note gets no arrow', !/board-num[^]*2[^]*board-arrow/.test(html.split('data-board-line').pop()));
-  ok('the answer is last, hidden, and underlined', /data-board-answer[^>]*hidden/.test(html) && html.includes('board-underline'));
-  ok("a note waits for its line's words", html.includes('--note-delay:385ms'), html.match(/--note-delay:\d+ms/)?.[0]);
-  ok('no answer, no answer block', !P.renderBoard({ lines }).includes('data-board-answer'));
+  ok('a formula is written left to right', P.writingDir('(x − 3)(x + 3)') === 'ltr' && P.writingDir('4x − 12') === 'ltr');
+  ok('Hebrew is written right to left', P.writingDir('מוציאים את 3') === 'rtl');
+  ok('a Hebrew sentence that starts with a number is still Hebrew', P.writingDir('3 מחלק את שניהם') === 'rtl');
+  ok('a long line is written slower than a short one, within limits',
+     P.writeMs('x') >= 300 && P.writeMs('x'.repeat(20)) > P.writeMs('x') && P.writeMs('x'.repeat(500)) <= 1500);
 }
 
-console.log('\n== writing it one tap at a time ==');
+console.log('\n== the board ==');
+const lines = [{ text: 'x² − 9', note: 'הפרש ריבועים' }, { text: '(x − 3)(x + 3)', note: 'לפי הנוסחה' }];
 {
-  const parts = [0, 1, 2].map(() => ({ hidden: true }));
-  const root = { querySelectorAll: () => parts };
+  const html = P.renderBoard({ id: 'b', problem: 'פרקו x² − 9', lines, answer: '(x − 3)(x + 3)' });
+  ok('the exercise is written at the top', /class="board-problem">.*פרקו x² − 9/.test(html));
+  ok('every step starts hidden', (html.match(/data-board-line[^>]*hidden/g) || []).length === 2);
+  ok('the reason for each step is written above its arrow', (html.match(/bd-label/g) || []).length === 2 && html.indexOf('הפרש ריבועים') < html.indexOf('>x² − 9<'));
+  ok('the steps alternate sides, so the arrows cross the board',
+     html.indexOf('side-start') < html.indexOf('side-end'));
+  ok('an answer that is the last line again is not written twice',
+     (html.match(/data-board-line/g) || []).length === 2 && /is-final/.test(html));
+  const separate = P.renderBoard({ lines, answer: 'x = ±3' });
+  ok('a different answer is its own last step, labelled in the lesson language',
+     (separate.match(/data-board-line/g) || []).length === 3 && separate.includes('תשובה') && /is-final[^]*x = ±3/.test(separate));
+  ok('the reason is written after the arrow, and the expression after the reason',
+     /--label-at:500ms; --label-ms:\d+ms; --expr-at:(\d+)ms/.test(html) && Number(html.match(/--expr-at:(\d+)ms/)[1]) > 500);
+  ok('a formula and a Hebrew reason get their own writing direction',
+     /dir="rtl"><span class="pen-text">הפרש ריבועים/.test(html) && /dir="ltr"><span class="pen-text">x² − 9/.test(html));
+  ok('everything is escaped', !P.renderBoard({ lines: [{ text: '<b>x</b>' }] }).includes('<b>'));
+}
+
+console.log('\n== playing it one tap at a time ==');
+{
+  const parts = [0, 1, 2].map(() => ({ hidden: true, classList: { add() {} }, querySelector: () => null }));
+  const root = { querySelectorAll: () => parts, querySelector: () => null };
   let changes = 0;
   const ctl = P.boardController(root, { onChange: () => changes++ });
-  ok('nothing is written before the first tap', parts.every(p => p.hidden) && ctl.written() === 0);
+  ok('nothing is drawn before the first tap', parts.every(p => p.hidden) && ctl.written() === 0);
   ctl.step();
-  ok('one tap writes one line', !parts[0].hidden && parts[1].hidden && ctl.written() === 1 && changes === 1);
+  ok('one tap plays one step', !parts[0].hidden && parts[1].hidden && ctl.written() === 1 && changes === 1);
   ctl.all();
-  ok('"show all" writes the rest', parts.every(p => !p.hidden) && ctl.done());
+  ok('"show all" plays the rest', parts.every(p => !p.hidden) && ctl.done());
   ok('and a tap past the end does nothing', ctl.step() === false);
   ok('a missing board is an empty one, not a crash', P.boardController(null).done());
 }

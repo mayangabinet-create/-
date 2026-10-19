@@ -1203,6 +1203,75 @@ ${planSchemaAndLanguage(`{
             if (preview) preview.setAttribute('dir', dir);
         }
 
+        // ============= Formulas in a right-to-left lesson =============
+        // A formula is written left to right even inside a Hebrew sentence, and
+        // the browser's bidi algorithm does not know that: "3(x + 4)" in a
+        // right-to-left paragraph comes out as "(x + 4)3", because the leading
+        // number is laid out to the right of the parentheses. Options, cards,
+        // explanations and every figure's labels all had it. So in an RTL
+        // lesson, each run of text that looks like a formula is wrapped in
+        // <bdi dir="ltr">, which lays it out as one left-to-right unit wherever
+        // it sits. Done once, on whatever lands in the lesson screen (a
+        // MutationObserver), rather than in each of the dozens of places that
+        // write text there. SVG text is left alone (it has no <bdi>), and so is
+        // the board, which already gives each line its own direction.
+        //
+        // A run is a stretch of Latin letters, digits, brackets, operators and
+        // spaces that holds a bracket or an operator; a bare number or a lone
+        // English word needs no help. Trailing punctuation stays outside it, so
+        // the sentence's full stop lands at the sentence's end.
+        const FORMULA_RUN = /[0-9A-Za-z(\[√−\-][0-9A-Za-z()\[\]+\-−–=·×÷*\/^²³√≤≥<>%.,: ]*[0-9A-Za-z)\]²³%]/g;
+        const FORMULA_SIGN = /[()\[\]+\-−=·×÷*\/^√≤≥<>]/;
+
+        function formulaRuns(text) {
+            const runs = [];
+            for (const m of String(text || '').matchAll(FORMULA_RUN)) {
+                if (FORMULA_SIGN.test(m[0]) && /[0-9A-Za-z]/.test(m[0])) runs.push({ start: m.index, end: m.index + m[0].length });
+            }
+            return runs;
+        }
+
+        const FORMULA_SKIP = 'svg, bdi, .board, script, style, textarea, input';
+
+        function isolateFormulas(root) {
+            if (!root || !isRTL()) return;
+            const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+            const nodes = [];
+            for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+                if (n.parentElement && !n.parentElement.closest(FORMULA_SKIP) && formulaRuns(n.nodeValue).length) nodes.push(n);
+            }
+            nodes.forEach(node => {
+                const text = node.nodeValue;
+                const frag = document.createDocumentFragment();
+                let at = 0;
+                formulaRuns(text).forEach(({ start, end }) => {
+                    if (start > at) frag.appendChild(document.createTextNode(text.slice(at, start)));
+                    const bdi = document.createElement('bdi');
+                    bdi.setAttribute('dir', 'ltr');
+                    // No-break spaces, so "3(x + 4)" never splits across two
+                    // lines. (white-space: nowrap on the <bdi> was tried: in
+                    // Chromium it stopped the whole paragraph wrapping.)
+                    bdi.textContent = text.slice(start, end).replace(/ /g, '\u00A0');
+                    frag.appendChild(bdi);
+                    at = end;
+                });
+                if (at < text.length) frag.appendChild(document.createTextNode(text.slice(at)));
+                node.replaceWith(frag);
+            });
+        }
+
+        // Watches the lesson screen and the course preview for anything new.
+        // Wrapping adds <bdi>s, whose text is skipped, so this cannot feed itself.
+        function watchFormulas() {
+            if (typeof MutationObserver !== 'function') return;
+            ['lessonScreen', 'previewCard'].forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                isolateFormulas(el);
+                new MutationObserver(() => isolateFormulas(el)).observe(el, { childList: true, subtree: true, characterData: true });
+            });
+        }
+
         // The question types, in the same shape as VISUALS and for the same
         // reason: the catalogue the model is shown is generated from the list the
         // app can actually grade.
@@ -9296,11 +9365,20 @@ ${excerpt}
         // Each word in its own span, numbered from `start`, so the CSS can delay
         // it by its position. Plain inline spans, not inline-block: they take no
         // part in bidi, so a Hebrew line with a formula in it still reads right.
+        // A formula is one word here: split into its own words, "3(x + 4)"
+        // would be three pieces that isolateFormulas could only fix one by one,
+        // and in a right-to-left line the pieces would come out in reverse.
         function inkWords(text, start = 0) {
             let i = start;
-            return String(text || '').split(/(\s+)/).map(part =>
-                !part || /^\s+$/.test(part) ? part : `<span class="ink" style="--i:${i++}">${esc(part)}</span>`
-            ).join('');
+            const src = String(text || '');
+            const word = part => `<span class="ink" style="--i:${i++}">${esc(part)}</span>`;
+            const words = chunk => chunk.split(/(\s+)/).map(part => !part || /^\s+$/.test(part) ? part : word(part)).join('');
+            let out = '', at = 0;
+            formulaRuns(src).forEach(({ start: a, end: b }) => {
+                out += words(src.slice(at, a)) + word(src.slice(a, b));
+                at = b;
+            });
+            return out + words(src.slice(at));
         }
 
         function wordCount(text) {
@@ -10402,6 +10480,7 @@ Return JSON only:
 
         document.getElementById('worksheetModeToggle').addEventListener('click', () => setWorksheetMode(!worksheetMode));
         restoreLearnerProfile();
+        watchFormulas();
 
         // The title itself and the pencil beside it do the same thing — the pencil
         // exists so the affordance is visible without a caption explaining it.

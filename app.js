@@ -1468,7 +1468,7 @@ ${standalone ? `${lessonQuestionTypes()}
   "cards": [ { "idea": "Heading", "text": "1-2 sentences, ONE idea", "analogy": "Only if it truly clarifies, else null", "source": "Words copied exactly from the SOURCE MATERIAL that back this card, or null", "visual": null } ],
   "workedExample": {
     "problem": "A concrete problem", "answer": "The final answer", "visual": null,
-    "steps": [ { "action": "The next line of working on the board", "why": "Why" } ]
+    "steps": [ { "action": "Next line of working on the board", "why": "Why, briefly" } ]
   },
   "practice": {
     "problem": "A similar one they solve on paper", "hint": "Revealed on request",
@@ -9271,19 +9271,27 @@ ${excerpt}
         }
 
         // ============= The teaching board =============
-        // A solution is written in front of the learner, one line at a time,
-        // the way a teacher works at a board: each line appears word by word
-        // in a handwritten face, a drawn arrow leads to a note saying why, and
-        // the answer is underlined last. The learner sets the pace — one tap,
-        // one line — because the point is to follow the working, and a whole
-        // solution arriving at once is a solution skimmed.
+        // A solution is drawn in front of the learner the way a teacher works
+        // it at a board. The exercise is written large at the top. Each step
+        // of the working is a new expression, and the move from one to the
+        // next is a big hand-drawn arrow across the board with the reason
+        // written above it: first the arrow is drawn, then the reason is
+        // written, then the next expression. The expressions alternate sides,
+        // so the arrows sweep the width of the board. The final answer is
+        // underlined. One tap plays one step, because the point is to follow
+        // the working, and a whole solution arriving at once is a solution
+        // skimmed.
         //
-        // Every line is in the DOM from the start, hidden; showing one is what
-        // starts its CSS animation, so no timers are needed to draw it. Under
-        // prefers-reduced-motion the CSS shows everything at once and only the
-        // pacing remains.
-        const BOARD_WORD_MS = 55;
-        const BOARD_NOTE_GAP_MS = 220;
+        // Writing is a reveal in the direction the text is written (left to
+        // right for a formula, right to left for Hebrew), with a pen tip
+        // riding its edge. Every step is in the DOM from the start, hidden;
+        // the controller shows it, measures where its arrow has to go, and
+        // the CSS does the drawing. Under prefers-reduced-motion everything
+        // simply appears, step by step.
+        const BOARD_WORD_MS = 55;     // the word-by-word reveal cards and hooks use
+        const ARROW_MS = 650;         // drawing one arrow
+        const WRITE_MS_PER_CHAR = 38; // how fast the pen writes
+        const WRITE_MIN_MS = 350, WRITE_MAX_MS = 1500;
 
         // Each word in its own span, numbered from `start`, so the CSS can delay
         // it by its position. Plain inline spans, not inline-block: they take no
@@ -9299,53 +9307,159 @@ ${excerpt}
             return String(text || '').split(/\s+/).filter(Boolean).length;
         }
 
-        const BOARD_ARROW = `<svg class="board-arrow" viewBox="0 0 34 30" aria-hidden="true">
-            <path pathLength="1" d="M5 2 C 4 12, 10 21, 30 22"/><path pathLength="1" d="M23 16 L31 22 L23 28"/></svg>`;
-        const BOARD_UNDERLINE = `<svg class="board-underline" viewBox="0 0 200 12" preserveAspectRatio="none" aria-hidden="true">
-            <path pathLength="1" d="M2 8 C 40 3, 80 11, 120 6 S 178 4, 198 8"/></svg>`;
+        // Which way a piece of text is written: by its first strong letter, the
+        // way the browser lays it out under unicode-bidi: plaintext.
+        function writingDir(text) {
+            const m = String(text || '').match(/[A-Za-zÀ-ɏͰ-ϿЀ-ӿ]|[֐-׿؀-ۿ]/);
+            return m && /[֐-׿؀-ۿ]/.test(m[0]) ? 'rtl' : 'ltr';
+        }
+
+        function writeMs(text) {
+            return Math.max(WRITE_MIN_MS, Math.min(WRITE_MAX_MS, String(text || '').length * WRITE_MS_PER_CHAR));
+        }
+
+        // Text the pen writes: a box revealed in its own writing direction, with
+        // the pen tip as a sibling (a clip-path would cut off a child).
+        function penText(text, cls) {
+            const dir = writingDir(text);
+            return `<span class="pen-wrap ${cls}" dir="${dir}"><span class="pen-text">${esc(text)}</span><span class="pen-tip" aria-hidden="true"></span></span>`;
+        }
 
         // The one word the board writes itself, in the lesson's language.
-        const BOARD_ANSWER_LABEL = { Hebrew: 'תשובה:', Arabic: 'الجواب:', Russian: 'Ответ:', Spanish: 'Respuesta:', French: 'Réponse :' };
+        const BOARD_ANSWER_LABEL = { Hebrew: 'תשובה', Arabic: 'الجواب', Russian: 'Ответ', Spanish: 'Respuesta', French: 'Réponse' };
 
-        // { problem, lines: [{ text, note }], answer } → HTML. Nothing is shown
-        // but the problem until boardController writes it.
+        const sameWorking = (a, b) => String(a || '').replace(/\s+/g, '') === String(b || '').replace(/\s+/g, '');
+
+        // { problem, lines: [{ text, note }], answer } → HTML. Only the problem
+        // shows until boardController plays the steps. An answer that is just
+        // the last line again is not written twice: the last line is marked as
+        // the answer instead.
         function renderBoard({ problem = '', lines = [], answer = '', id = 'board' } = {}) {
-            const items = lines.map((line, n) => {
-                const delay = wordCount(line.text) * BOARD_WORD_MS + BOARD_NOTE_GAP_MS;
+            const nodes = lines.map(line => ({ text: line.text, note: line.note || '' }));
+            if (answer) {
+                if (nodes.length && sameWorking(nodes[nodes.length - 1].text, answer)) nodes[nodes.length - 1].final = true;
+                else nodes.push({ text: answer, note: BOARD_ANSWER_LABEL[courseLanguage()] || 'Answer', final: true });
+            }
+            const steps = nodes.map((node, n) => {
+                const labelMs = node.note ? writeMs(node.note) : 0;
+                const labelAt = ARROW_MS - 150;
+                const exprAt = labelAt + labelMs + (node.note ? 150 : 0);
+                const exprMs = writeMs(node.text);
                 return `
-                <li class="board-line" data-board-line style="--note-delay:${delay}ms" hidden>
-                    <span class="board-num" aria-hidden="true">${n + 1}</span>
-                    <div class="board-text">${inkWords(line.text)}</div>
-                    ${line.note ? `<div class="board-note">${BOARD_ARROW}<span class="board-note-text">${inkWords(line.note)}</span></div>` : ''}
-                </li>`;
+                <div class="bd-step${node.final ? ' is-final' : ''}" data-board-line hidden
+                     style="--label-at:${labelAt}ms; --label-ms:${labelMs}ms; --expr-at:${exprAt}ms; --expr-ms:${exprMs}ms; --mark-at:${exprAt + exprMs}ms">
+                    <div class="bd-gap">${node.note ? penText(node.note, 'bd-label') : ''}</div>
+                    <div class="bd-expr ${n % 2 ? 'side-end' : 'side-start'}">${penText(node.text, 'bd-text')}</div>
+                </div>`;
             }).join('');
-            const answerDelay = wordCount(answer) * BOARD_WORD_MS;
             return `
                 <div class="board" id="${escAttr(id)}" data-board>
-                    ${problem ? `<div class="board-problem">${esc(problem)}</div>` : ''}
-                    <ol class="board-lines">${items}</ol>
-                    ${answer ? `<div class="board-answer" data-board-answer style="--note-delay:${answerDelay}ms" hidden>
-                        <span class="board-answer-label">${inkWords(BOARD_ANSWER_LABEL[courseLanguage()] || 'Answer:')}</span> <span class="board-text">${inkWords(answer, 1)}</span>${BOARD_UNDERLINE}</div>` : ''}
+                    <svg class="bd-arrows" aria-hidden="true" focusable="false"><g filter="url(#sketchy)"></g></svg>
+                    ${problem ? `<div class="board-problem">${penText(problem, 'bd-text')}</div>` : ''}
+                    <div class="bd-flow">${steps}</div>
                 </div>`;
         }
 
-        // Writes a rendered board one line per call. `onChange` runs after each
-        // write so the caller can relabel its buttons.
+        // Where the arrow into `step` goes, in board coordinates: from under the
+        // thing written before it, down past the reason written in the gap,
+        // across the board, and down into its own expression.
+        function arrowPath(board, from, step) {
+            // Measured against the arrows' own SVG, which sits inside the
+            // board's border: measuring against the board would shift every
+            // arrow by the border's width.
+            const b = (board.querySelector('.bd-arrows') || board).getBoundingClientRect();
+            const src = from.getBoundingClientRect();
+            const dst = step.querySelector('.bd-expr .bd-text').getBoundingClientRect();
+            const x2 = dst.left + dst.width / 2 - b.left, y2 = dst.top - b.top - 4;
+            const srcMid = src.left + src.width / 2 - b.left;
+            // From the exercise at the top, start on the side away from the
+            // first step, so even the first arrow sweeps across the board.
+            const fromTop = from.closest && from.closest('.board-problem');
+            const x1 = fromTop ? (x2 >= srcMid ? src.left - b.left + 18 : src.right - b.left - 18) : srcMid;
+            const y1 = src.bottom - b.top + 4;
+
+            // The reason sits on the arrow's run: between its two drops when
+            // there is room, beside the drop when the arrow goes straight down.
+            const label = step.querySelector('.bd-label');
+            const span = x2 - x1;
+            let lane = (y1 + y2) / 2;
+            if (label) {
+                label.style.transform = '';
+                label.style.maxWidth = Math.abs(span) >= 120 ? `${Math.abs(span) - 28}px` : `${Math.max(120, b.width / 2 - 30)}px`;
+                const lr = label.getBoundingClientRect();
+                const at = lr.left + lr.width / 2 - b.left;
+                let mid = (x1 + x2) / 2;
+                if (Math.abs(span) < 120) mid = x1 + (x1 > b.width / 2 ? -1 : 1) * (lr.width / 2 + 18);
+                mid = Math.max(lr.width / 2 + 6, Math.min(b.width - lr.width / 2 - 6, mid));
+                label.style.transform = `translateX(${Math.round(mid - at)}px)`;
+                lane = lr.bottom - b.top + 7;
+            }
+
+            let d;
+            if (Math.abs(span) < 40) {
+                d = `M${x1},${y1} C${x1 + 10},${(y1 + y2) / 2} ${x2 - 10},${(y1 + y2) / 2} ${x2},${y2}`;
+            } else {
+                const r = Math.min(26, Math.abs(span) / 3, Math.max(8, lane - y1), Math.max(8, y2 - lane));
+                const sx = Math.sign(span);
+                d = `M${x1},${y1} L${x1},${lane - r} Q${x1},${lane} ${x1 + sx * r},${lane}`
+                  + ` L${x2 - sx * r},${lane} Q${x2},${lane} ${x2},${lane + r} L${x2},${y2}`;
+            }
+            const head = `M${x2 - 7},${y2 - 11} L${x2},${y2} L${x2 + 7},${y2 - 11}`;
+            return { d, head };
+        }
+
+        // Plays a rendered board one step per call. `onChange` runs after each,
+        // so the caller can relabel its buttons.
         function boardController(root, { onChange = null } = {}) {
-            const parts = root ? [...root.querySelectorAll('[data-board-line], [data-board-answer]')] : [];
+            const parts = root ? [...root.querySelectorAll('[data-board-line]')] : [];
+            const layer = root?.querySelector('.bd-arrows g');
             let next = 0;
-            const write = () => {
+            const drawn = [];   // [{ step, from, line, head }]
+
+            const place = item => {
+                const { d, head } = arrowPath(root, item.from, item.step);
+                item.line.setAttribute('d', d);
+                item.head.setAttribute('d', head);
+            };
+
+            const show = (el, instant) => {
+                el.hidden = false;
+                if (instant) el.classList.add('is-instant');
+                const prev = parts.indexOf(el) > 0 ? parts[parts.indexOf(el) - 1].querySelector('.bd-text')
+                    : root.querySelector('.board-problem .pen-wrap');
+                if (!layer || !prev || typeof root.getBoundingClientRect !== 'function') return;
+                const ns = 'http://www.w3.org/2000/svg';
+                const line = document.createElementNS(ns, 'path');
+                const head = document.createElementNS(ns, 'path');
+                line.setAttribute('class', 'bd-arrow');
+                head.setAttribute('class', 'bd-arrow-head');
+                [line, head].forEach(p => {
+                    p.setAttribute('pathLength', '1');
+                    if (instant) p.classList.add('is-instant');
+                    layer.appendChild(p);
+                });
+                const item = { step: el, from: prev, line, head };
+                place(item);
+                drawn.push(item);
+            };
+
+            const step = () => {
                 if (next >= parts.length) return false;
                 const el = parts[next++];
-                el.hidden = false;
-                // Keep the line being written in view without yanking the page.
+                show(el, prefersReducedMotion());
                 if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
                 if (onChange) onChange();
                 return true;
             };
+
+            // A phone turned on its side moves every expression; the arrows follow.
+            if (root && typeof ResizeObserver === 'function') {
+                new ResizeObserver(() => drawn.forEach(place)).observe(root);
+            }
+
             return {
-                step: write,
-                all: () => { while (next < parts.length) { parts[next++].hidden = false; } if (onChange) onChange(); },
+                step,
+                all: () => { while (next < parts.length) show(parts[next++], true); if (onChange) onChange(); },
                 done: () => next >= parts.length,
                 written: () => next,
                 total: () => parts.length,
@@ -9449,7 +9563,7 @@ They will solve it on paper, in a notebook, then check each answer here.
 ${learnerNote()}${example}
 Write ${PRACTICE_SHEET_SIZE} exercises of the kind the lesson taught and the SOURCE MATERIAL uses, from easy to exam level. Numbers that come out cleanly. Solve every exercise yourself before writing it, and check the answer against your own working.
 
-For each exercise: the problem; its full working as the short lines a teacher writes on a board, each with a note on why; and the final answer. "answerNumber" is the answer as a plain number when it is one number, otherwise null.
+For each exercise: the problem; its full working as the short lines a teacher writes on a board, each with a few words on why (they are written above the arrow that leads to the line); and the final answer. "answerNumber" is the answer as a plain number when it is one number, otherwise null.
 
 SOURCE MATERIAL:
 """
@@ -9916,9 +10030,9 @@ Return JSON only:
                 };
                 hint.onclick = () => {
                     board.step();
-                    // Two parts left means the next is the last line and then
-                    // the answer: from here a hint is the solution.
-                    if (board.total() - board.written() <= 1) finish();
+                    // What is left is the answer itself: a hint that writes
+                    // it is not a hint any more.
+                    if (board.total() - board.written() <= 1) hint.remove();
                 };
                 document.getElementById('paperShow').onclick = finish;
                 assess.querySelectorAll('[data-mark]').forEach(btn => {

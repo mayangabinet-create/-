@@ -2419,36 +2419,76 @@
             word-spacing: 0.12em;   /* Caveat's space is narrow next to a Hebrew word */
             box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
         }
-        .board-problem { font-size: 1.42rem; padding-bottom: var(--sp-2); margin-bottom: var(--sp-3); border-bottom: 2px dashed var(--board-grid); }
-        .board-lines { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--sp-3); }
-        .board-line { display: grid; grid-template-columns: 1.6em 1fr; column-gap: var(--sp-2); }
-        .board-num {
-            font-size: 0.85em; color: var(--board-mark); font-weight: 700;
-            width: 1.4em; height: 1.4em; display: grid; place-items: center;
-            border: 2px solid var(--board-mark); border-radius: 50%; margin-top: 0.15em;
+        .board { position: relative; }
+        /* One SVG over the whole board for the arrows; each arrow is measured
+           from where its two expressions actually landed (arrowPath in app.js). */
+        .bd-arrows {
+            position: absolute; inset: 0; width: 100%; height: 100%;
+            overflow: visible; pointer-events: none; color: var(--board-note);
         }
-        .board-text { unicode-bidi: plaintext; }
-        .board-note {
-            grid-column: 2; display: flex; align-items: flex-start; gap: 6px;
-            color: var(--board-note); font-size: 1.08rem; line-height: 1.35;
-            margin-top: 2px;
-        }
-        .board-note-text { unicode-bidi: plaintext; padding-top: 0.55em; }
-        .board-arrow { flex: none; width: 34px; height: 30px; overflow: visible; }
-        [dir="rtl"] .board-arrow { transform: scaleX(-1); }
-        .board-arrow path, .board-underline path, .board-circle path {
-            fill: none; stroke: currentColor; stroke-width: 2.2;
+        .bd-arrow, .bd-arrow-head {
+            fill: none; stroke: currentColor; stroke-width: 2.6;
             stroke-linecap: round; stroke-linejoin: round;
             stroke-dasharray: 1; stroke-dashoffset: 1;
-            animation: board-draw 480ms ease forwards;
-            animation-delay: var(--note-delay, 0ms);
+            animation: board-draw 650ms ease-in-out forwards;
         }
-        .board-answer { position: relative; display: inline-block; margin-top: var(--sp-4); padding: 2px 10px 8px; font-size: 1.5rem; }
-        .board-answer-label { font-size: 0.75em; color: var(--board-note); margin-inline-end: 8px; }
-        .board-underline { position: absolute; inset-inline: 0; bottom: 0; width: 100%; height: 12px; color: var(--board-mark); }
-        .board-underline path { stroke-width: 3; animation-delay: var(--note-delay, 0ms); }
+        .bd-arrow-head { animation-duration: 180ms; animation-delay: 560ms; }
+        .board-problem { text-align: center; font-size: 1.75rem; line-height: 1.3; padding: 2px 0 4px; }
+        .bd-flow { display: grid; }
+        .bd-gap {
+            /* Room for the arrow: down from the line above, the reason, the
+               arrow's run across under it, and down into the next line. */
+            min-height: 46px; padding: 14px 10px 30px; text-align: center;
+        }
+        .bd-label { color: var(--board-note); font-size: 1.14rem; line-height: 1.3; }
+        .bd-expr { display: flex; justify-content: flex-start; padding-inline: 6px; }
+        .bd-expr.side-end { justify-content: flex-end; }
+        .bd-text { font-size: 1.62rem; line-height: 1.3; }
+        .board-problem .bd-text { font-size: inherit; }
+
+        /* The pen. Text is revealed in the direction it is written, and a tip
+           rides the edge of what has been written so far. */
+        .pen-wrap { position: relative; display: inline-block; max-width: 100%; }
+        .pen-text {
+            display: inline-block;
+            -webkit-clip-path: inset(-20% 100% -20% -6%); clip-path: inset(-20% 100% -20% -6%);
+            animation: pen-write-ltr var(--ms, 700ms) linear var(--at, 0ms) forwards;
+        }
+        .pen-wrap[dir="rtl"] .pen-text {
+            -webkit-clip-path: inset(-20% -6% -20% 100%); clip-path: inset(-20% -6% -20% 100%);
+            animation-name: pen-write-rtl;
+        }
+        .pen-tip {
+            position: absolute; top: 10%; bottom: 10%; width: 3px; border-radius: 2px;
+            background: currentColor; opacity: 0;
+            animation: pen-tip-ltr var(--ms, 700ms) linear var(--at, 0ms) forwards;
+        }
+        .pen-wrap[dir="rtl"] .pen-tip { animation-name: pen-tip-rtl; }
+        .board-problem .pen-text, .board-problem .pen-tip { --at: 100ms; --ms: 900ms; }
+        .bd-label .pen-text, .bd-label .pen-tip { --at: var(--label-at); --ms: var(--label-ms); }
+        .bd-expr .pen-text, .bd-expr .pen-tip { --at: var(--expr-at); --ms: var(--expr-ms); }
+        @keyframes pen-write-ltr { to { -webkit-clip-path: inset(-20% -6% -20% -6%); clip-path: inset(-20% -6% -20% -6%); } }
+        @keyframes pen-write-rtl { to { -webkit-clip-path: inset(-20% -6% -20% -6%); clip-path: inset(-20% -6% -20% -6%); } }
+        @keyframes pen-tip-ltr { 0% { left: 0; opacity: 0.85; } 97% { left: 100%; opacity: 0.85; } 100% { left: 100%; opacity: 0; } }
+        @keyframes pen-tip-rtl { 0% { right: 0; opacity: 0.85; } 97% { right: 100%; opacity: 0.85; } 100% { right: 100%; opacity: 0; } }
+
+        /* The answer, underlined once it is written. */
+        .bd-step.is-final .bd-expr .bd-text::after {
+            content: ''; position: absolute; left: -6%; right: -6%; bottom: -5px; height: 4px;
+            border-radius: 3px; background: var(--board-mark);
+            transform: scaleX(0) rotate(-1deg); transform-origin: left center;
+            animation: board-mark 450ms ease-out var(--mark-at, 0ms) forwards;
+        }
+        .bd-step.is-final .bd-expr .bd-text[dir="rtl"]::after { transform-origin: right center; }
+        @keyframes board-mark { to { transform: scaleX(1) rotate(-1deg); } }
+
+        /* "Show all", and reduced motion: everything simply there. */
+        .is-instant, .is-instant .pen-text, .is-instant .bd-text::after { animation: none !important; }
+        .bd-arrow.is-instant, .bd-arrow-head.is-instant { stroke-dashoffset: 0; }
+        .is-instant .pen-text { -webkit-clip-path: none; clip-path: none; }
+        .is-instant .pen-tip { display: none; }
+        .bd-step.is-final.is-instant .bd-expr .bd-text::after { transform: scaleX(1) rotate(-1deg); }
         .ink { opacity: 0; animation: board-ink 280ms ease forwards; animation-delay: calc(var(--i, 0) * 55ms); }
-        .board-note .ink { animation-delay: calc(var(--note-delay, 0ms) + 260ms + var(--i, 0) * 55ms); }
         @keyframes board-ink { from { opacity: 0; filter: blur(2px); } to { opacity: 1; filter: none; } }
         @keyframes board-draw { to { stroke-dashoffset: 0; } }
         .board-controls { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-4); font-family: var(--font); }
@@ -2472,8 +2512,11 @@
             #printSheetHost .print-answers > ol > li { margin-bottom: 12pt; break-inside: avoid; }
         }
         @media (prefers-reduced-motion: reduce) {
-            .ink, .board-note .ink { animation: none; opacity: 1; }
-            .board-arrow path, .board-underline path, .board-circle path { animation: none; stroke-dashoffset: 0; }
+            .ink { animation: none; opacity: 1; }
+            .bd-arrow, .bd-arrow-head { animation: none; stroke-dashoffset: 0; }
+            .pen-text { animation: none; -webkit-clip-path: none; clip-path: none; }
+            .pen-tip { display: none; }
+            .bd-step.is-final .bd-expr .bd-text::after { animation: none; transform: scaleX(1) rotate(-1deg); }
         }
 
         .hook-card {
@@ -4042,7 +4085,7 @@
         <button type="button" id="bootFailureReload">Reload</button>
     </div>
 
-    <script src="app.js?v=094144ed1f"></script>
+    <script src="app.js?v=a50a447380"></script>
     <script>
         // app.js sets window.__appBooted on its last line. If it isn't set by the
         // time the page settles, something stopped the script partway through.

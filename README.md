@@ -1070,17 +1070,24 @@ with every lesson. The demo lesson has no button, because no account is behind i
 The app is for learning a topic well enough to sit down with a workbook and a pen,
 and then for practising with it beside you. Two things follow from that.
 
-**A solution is written, not displayed.** The worked example, the practice problem's
+**A solution is drawn, not displayed.** The worked example, the practice problem's
 working and every exercise on a practice sheet go on *the board* (`renderBoard`,
-`boardController`): graph paper in the light theme, a chalkboard in the dark one. Each
-tap writes one line, word by word, in a handwritten face; a drawn arrow then leads to a
-note in the teacher's red (or chalk yellow) saying why, and the answer is written last
-and underlined. Lines are in the DOM from the start and hidden, so showing one is what
-starts its CSS animation and no timers are involved; under `prefers-reduced-motion` the
-pacing stays and the animation goes. Card and hook text appear word by word the same
-way, and every SVG figure is drawn through one gentle displacement filter (`#sketchy`,
-applied as `<g filter>` inside the SVG by `sketchSvg()`, which Safari renders reliably)
-so ruled lines look drawn.
+`boardController`): graph paper in the light theme, a chalkboard in the dark one. The
+exercise is written large at the top. Each tap plays one step: a big hand-drawn arrow
+sweeps across the board from the previous expression, the reason is written above
+the arrow, and then the next expression is written, with a pen tip riding the edge of
+the writing (a `clip-path` reveal in the text's own direction, left to right for a
+formula and right to left for Hebrew). The expressions alternate sides so the arrows
+cross the board, and the answer is underlined last. Arrows are measured from where
+the two expressions actually landed (`arrowPath`) and re-measured when the board
+resizes. Every step is in the DOM from the start, hidden; showing one starts its CSS
+animation, so the sequencing is CSS delays, not timers. Under
+`prefers-reduced-motion` and after "Show all", everything simply appears. The board's
+classes are prefixed `bd-` because the `flow` figure already owns `.flow-arrow`, which
+once turned every board arrow grey. Card and hook text appear word by word, and every
+SVG figure is drawn through one gentle displacement filter (`#sketchy`, applied as
+`<g filter>` inside the SVG by `sketchSvg()`, which Safari renders reliably) so ruled
+lines look drawn.
 
 The handwriting is two faces, both SIL OFL with their licences in `fonts/`: **Gveret
 Levin** for Hebrew and **Caveat** for Latin, digits and symbols. Gveret Levin's own

@@ -651,6 +651,14 @@ console.log('\n== is this worth building a course from ==');
   ok('Hebrew study material passes', P.assessMaterial(hebrew) === null,
      JSON.stringify(P.assessMaterial(hebrew)?.code));
 
+  // A math study sheet: explanations in Hebrew, then exercises. A quarter of it
+  // is spaces between short terms, and counting those as "not letters" refused
+  // it as not prose — which offered worksheet mode as the only way to build it.
+  const sheet = fs.readFileSync(require('path').join(__dirname, '..', 'test-material', 'factoring-practice.html'), 'utf8')
+    .replace(/<head[\s\S]*?<\/head>/, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ');
+  ok('a Hebrew math study sheet passes', P.assessMaterial(sheet) === null,
+     JSON.stringify(P.assessMaterial(sheet)?.stats));
+
   // The override is keyed to the document, so waving one through does not wave
   // the next one through.
   ok('the fingerprint is stable', P.materialFingerprint(hebrew) === P.materialFingerprint(hebrew));

@@ -2746,6 +2746,11 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             const source = String(text || '').trim();
             const letters = (source.match(/\p{L}/gu) || []).length;
             const digits = (source.match(/\p{Nd}/gu) || []).length;
+            // Shares are of the visible characters. Whitespace in the
+            // denominator pushed a Hebrew study sheet on factoring (a quarter
+            // of it spaces between short terms like "3x² + 12x") to 0.548
+            // letters and refused it as not prose.
+            const visible = source.replace(/\s/gu, '').length;
             const words = source.split(/\s+/).filter(Boolean);
             const real = words.filter(w => /\p{L}{3,}/u.test(w));
             const sentences = (source.match(/[.!?׃।。！？]+(\s|$)/gu) || []).length;
@@ -2754,8 +2759,8 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                 chars: source.length,
                 words: words.length,
                 realWords: real.length,
-                letterShare: source.length ? letters / source.length : 0,
-                digitShare: source.length ? digits / source.length : 0,
+                letterShare: visible ? letters / visible : 0,
+                digitShare: visible ? digits / visible : 0,
                 sentences,
                 // No sentence enders at all is not "infinitely long sentences",
                 // it is "no sentences" — the mistake that let a whole code file
@@ -2953,9 +2958,16 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
                     `${verdict.detail}\n\nThis often means it is a worksheet of exercises rather than a `
                     + 'chapter to read. "This is a worksheet" mode teaches every exercise in order instead '
                     + 'of trying to summarise it into themes.',
-                    { confirmText: 'Build it as a worksheet', cancelText: 'Use a different document' });
-                if (ok) reportMisjudged(verdict);
-                return ok ? 'worksheet' : false;
+                    { confirmText: 'Build it as a worksheet', cancelText: 'No, it explains a topic' });
+                if (ok) {
+                    reportMisjudged(verdict);
+                    return 'worksheet';
+                }
+                // "No" used to mean "abandon the document", so a study sheet
+                // the check misread — explanations first, exercises at the
+                // end — could only be built as a list of its exercises, every
+                // part that taught them dropped. Declining the worksheet now
+                // falls through to the ordinary override below.
             }
 
             const { already, left } = overrideState(text);

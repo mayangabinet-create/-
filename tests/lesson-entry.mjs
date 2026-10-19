@@ -63,4 +63,25 @@ for (const cached of [false,true]) {
   assert.equal(events.includes('hide'),false,'course completion must not erase lesson loading');
   finish(lesson); await pending; assert.ok(events.includes('render')); assert.equal(events.at(-1),'hide');
 }
-console.log('PASS: cached, generated, prompt failure/retry, render failure, missing concept, concurrent course save');
+// Worksheet mode on a document that explains: asked once, and "Teach the
+// topics" plans it as a course instead of a list of its exercises.
+const studySheet = fs.readFileSync(new URL('../test-material/factoring-practice.extracted.txt', import.meta.url), 'utf8');
+for (const teach of [true, false]) {
+  const {ctx}=setup(); const asked=[]; const planned=[];
+  vm.runInContext(['materialShape','materialFingerprint'].map(fn).join('\n'),ctx);
+  Object.assign(ctx, { worksheetAskedFor:null, setWorksheetMode:()=>{}, assessWorksheetMaterial:()=>null,
+    uiConfirm:async t=>{asked.push(t); return teach;},
+    generateLessonPath:async(text,structure,worksheet)=>{planned.push(worksheet); return {concepts:[{name:'Topic'}]};} });
+  await ctx.processLearningMaterial(studySheet,'','Fixture',null,true);
+  assert.equal(asked.length,1,'asked exactly once');
+  assert.deepEqual(planned,[!teach], teach ? 'planned as a course' : 'kept as a worksheet');
+}
+{
+  const {ctx}=setup(); const asked=[];
+  vm.runInContext(['materialShape','materialFingerprint'].map(fn).join('\n'),ctx);
+  Object.assign(ctx, { worksheetAskedFor:null, setWorksheetMode:()=>{}, assessWorksheetMaterial:()=>null,
+    uiConfirm:async t=>{asked.push(t); return true;}, generateLessonPath:async()=>({concepts:[{name:'Topic'}]}) });
+  await ctx.processLearningMaterial('1. Solve 2x + 5 = 13\n2. Solve 3x - 7 = 8\n3. Factor x² - 9','','Fixture',null,true);
+  assert.equal(asked.length,0,'a page of exercises is not questioned');
+}
+console.log('PASS: cached, generated, prompt failure/retry, render failure, missing concept, concurrent course save, worksheet mode on a study sheet');

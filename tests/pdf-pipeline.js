@@ -70,7 +70,7 @@ const names = [
   'function retrieveFrom',
   'function retrieveExcerpt',
   'const MATERIAL_MIN_CHARS', 'const MATERIAL_MIN_WORDS',
-  'function materialStats',
+  'function materialStats', 'function materialShape',
   'function assessMaterial',
   'function materialFingerprint',
   'const DEBUG_PLAN_EMAIL', 'function canDebugPlan',
@@ -113,7 +113,7 @@ module.exports = { pageItemsToLines, stripRepeatedFurniture, linesToParagraphs,
   splitBlocks, chunkText, tokenize, retrievalTokens, retrieveExcerpt, sectionSource, looksLikeHeading,
   readBundle, bundleStructure, locateSections,
   canDebugPlan, setUser, DEBUG_PLAN_EMAIL,
-  assessMaterial, materialStats, materialFingerprint,
+  assessMaterial, materialStats, materialShape, materialFingerprint,
   headingLevel, documentSections, renderOutline, blockDensity,
   extractOutline, buildSourceDigest, takeBlocks, planReadChars, excerptBudget, setPlan };
 `;
@@ -658,6 +658,26 @@ console.log('\n== is this worth building a course from ==');
     .replace(/<head[\s\S]*?<\/head>/, '').replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/g, ' ');
   ok('a Hebrew math study sheet passes', P.assessMaterial(sheet) === null,
      JSON.stringify(P.assessMaterial(sheet)?.stats));
+
+  // The same sheet as the app's PDF reader really handed it over — numbers
+  // pushed to the ends of right-to-left lines, ".9" for "9." — which was
+  // refused, and then built as twelve lessons, one per exercise.
+  const extracted = fs.readFileSync(require('path').join(__dirname, '..', 'test-material', 'factoring-practice.extracted.txt'), 'utf8');
+  ok('the sheet as extracted from its PDF passes', P.assessMaterial(extracted) === null,
+     JSON.stringify(P.assessMaterial(extracted)?.stats));
+  ok('and it is recognised as explaining', P.materialShape(extracted).explains,
+     JSON.stringify(P.materialShape(extracted)));
+  const answersAt = extracted.indexOf('\nתרגילים\n');
+  ok('while its exercises and answers alone are not',
+     answersAt > 0 && !P.materialShape(extracted.slice(answersAt)).explains,
+     JSON.stringify(P.materialShape(extracted.slice(answersAt))));
+
+  // Paragraphs that teach do not let a code file or a bibliography through.
+  const bibliography = [...Array(30)].map((_, i) =>
+    `Smith, J. and Cohen, R. (20${10 + i}). A study of learning number ${i}. Journal of Education Research, ${i}(2), 33-45.`).join('\n');
+  ok('a code file does not explain', !P.materialShape(code).explains);
+  ok('a bibliography does not explain', !P.materialShape(bibliography).explains);
+  ok('Hebrew prose explains', P.materialShape(hebrew).explains);
 
   // The override is keyed to the document, so waving one through does not wave
   // the next one through.

@@ -68,7 +68,7 @@ function grab(decl) {
 
 const names = [
   'const MATERIAL_MIN_CHARS', 'const MATERIAL_MIN_WORDS',
-  'function materialStats', 'function assessMaterial',
+  'function materialStats', 'function materialShape', 'function assessMaterial',
   'const WORKSHEET_MIN_CHARS', 'function assessWorksheetMaterial',
   'const PLAN_DOMAIN_KIND_RULE', 'function planSchemaAndLanguage',
   'function buildTopicPlanPrompt', 'function buildWorksheetPlanPrompt',
@@ -148,7 +148,7 @@ const console = { error: () => {}, log: () => {} };
 for (const n of names) code += '\n' + grab(n) + '\n';
 code += `
 module.exports = {
-  assessMaterial, materialStats, assessWorksheetMaterial,
+  assessMaterial, materialStats, materialShape, assessWorksheetMaterial,
   planSchemaAndLanguage, buildTopicPlanPrompt, buildWorksheetPlanPrompt,
   INTERESTS, ONBOARDING_GOALS, ONBOARDING_VALUES, STARTER_COURSES, ONBOARDING_STEPS, VALUE_STEPS,
   starterPicks, interestSummary,
@@ -254,6 +254,30 @@ console.log('\n== worksheet mode ==');
      O.assessMaterial(mathSheet) !== null);
   ok('assessWorksheetMaterial lets the same worksheet through',
      O.assessWorksheetMaterial(mathSheet) === null);
+
+  // What decides between worksheet mode and a course is whether anything in
+  // the document explains, not how prose-like it looks. Word problems are long
+  // sentences, but they are numbered or end asking.
+  ok('a page of exercises does not explain', !O.materialShape(mathSheet).explains,
+     JSON.stringify(O.materialShape(mathSheet)));
+  const wordProblems = [
+    'A train leaves the station at 3pm travelling at 60 km/h towards the city. A second train leaves the city at 4pm travelling at 80 km/h towards the station. The distance between them is 300 km. When do the trains meet?',
+    '2. A shop sells pencils at 2 shekels each and notebooks at 7 shekels each. Dana bought 12 items and paid 54 shekels in total. Find how many notebooks she bought.',
+  ].join('\n');
+  ok('nor does a page of word problems', !O.materialShape(wordProblems).explains,
+     JSON.stringify(O.materialShape(wordProblems)));
+  const hebrewSheet = [
+    'פתרו את המשוואה 2x + 5 = 13', 'מצאו את שטח המשולש שצלעותיו 6 ו־8',
+    'בכיתה יש 30 תלמידים, ו־40% מהם בנות. כמה בנים יש בכיתה?',
+    'רוכב אופניים נוסע במהירות 15 קמ"ש במשך שעתיים וחצי. כמה קילומטרים עבר?',
+  ].map((l, i) => `${i + 1}. ${l}`).join('\n');
+  ok('nor a Hebrew one', !O.materialShape(hebrewSheet).explains);
+  ok('every starter course explains', O.STARTER_COURSES.every(s => O.materialShape(s.text).explains));
+
+  // The planners: a document that sets exercises is planned by what it
+  // explains, and its exercises are left to the learner in each lesson.
+  ok('the topic planner does not make a concept of each exercise',
+     /never make one concept per exercise/.test(O.buildTopicPlanPrompt('')));
 
   ok('an empty paste is still refused', O.assessWorksheetMaterial('').code === 'too-short');
   ok('a couple of words is still refused',

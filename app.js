@@ -997,7 +997,10 @@ TASK:
    happen to have the most passages quoted below. A part with a large share and
    no passage is a gap in the digest, not a gap in the document: name the concept
    its heading implies and let the lesson find the text later.
-4. For each concept give:
+4. Exercises, questions and an answer key in the material are practice for the
+   concepts, not concepts: take every concept from what the material explains,
+   and never make one concept per exercise.
+5. For each concept give:
    - name (1-4 words)
    - description (one sentence)
    - difficulty (1-5)
@@ -1563,10 +1566,10 @@ for variety; wherever the material is quantitative, make the learner work it
 out (numeric), since four options turn a calculation into a guess.
 "correct" is a 0-based index.
 
-If the SOURCE MATERIAL is exercises — a worksheet, a problem set, past exam
-questions — build the lesson on them: the worked example is one of them
-solved, practice and quiz use others of the same kind, and the cards teach
-only what those exercises need.
+Exercises in the SOURCE MATERIAL, and their answers, are the learner's to
+solve: practise on new ones like them, never print their answers, unless the
+concept above is one; then solve it as the worked example. The challenge uses
+only ideas taught so far.
 
 "explore" comes BEFORE the explanation and matters most: the learner does
 something, sees what happens, and is told why afterwards. Its "visual" must be
@@ -2656,6 +2659,7 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
         // Reset on every fresh visit to the upload screen (see showNewCourse) so
         // it never carries over from a previous course by accident.
         let worksheetMode = false;
+        let worksheetAskedFor = null;   // see processLearningMaterial
 
         function setWorksheetMode(on) {
             worksheetMode = on;
@@ -2770,6 +2774,47 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             };
         }
 
+        // Whether the material explains, as opposed to only setting exercises.
+        //
+        // Not the same question as "is it prose". A study sheet on factoring is
+        // full of "3x² + 12x" and reads to the character counts below like a
+        // list, but between its formulas it has paragraphs that teach, and a
+        // page of exercises has none. That is the measure: a paragraph of at
+        // least two sentences and twenty words that is neither a numbered item
+        // nor a question. A word problem is long but numbered, or ends asking;
+        // a bibliography entry has the periods but not the words.
+        //
+        // `explains` gates two things: the not-prose refusal, which a document
+        // that explains should never get, and worksheet mode, which on such a
+        // document would turn its exercises into the lessons and drop
+        // everything that taught them.
+        function materialShape(text) {
+            const MIN_WORDS = 80, MIN_SHARE = 0.25;
+            // "3.", "(b)", "א.", a bullet — or, from a right-to-left PDF, the
+            // number pushed to the end of its line: "5x − 15 .1".
+            const EXERCISE_ITEM = /^\s*(?:\(?\d{1,3}[.)]|\(?[א-ת][.)]|[a-z][.)]|[-•*–])\s|\s\.\d{1,3}\s*$/iu;
+            const realWords = s => s.split(/\s+/).filter(w => /\p{L}{2,}/u.test(w)).length;
+            let words = 0, teachingWords = 0, teachingParagraphs = 0;
+            for (const para of String(text || '').split(/\n+/u)) {
+                const p = para.trim();
+                if (!p) continue;
+                const n = realWords(p);
+                words += n;
+                const sentences = p.split(/[.!?׃]+(?=\s|$)/u).filter(s => realWords(s) >= 4).length;
+                if (sentences >= 2 && n >= 20 && !EXERCISE_ITEM.test(p) && !/\?\s*$/u.test(p)) {
+                    teachingWords += n;
+                    teachingParagraphs++;
+                }
+            }
+            const teachingShare = words ? teachingWords / words : 0;
+            return {
+                teachingParagraphs,
+                teachingWords,
+                teachingShare,
+                explains: teachingWords >= MIN_WORDS && teachingShare >= MIN_SHARE,
+            };
+        }
+
         // Returns null when the material is fine, or the reason it is not.
         // Each reason names what was seen, because "this file is not suitable"
         // is not something a person can act on.
@@ -2798,9 +2843,12 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             // Each clause carries its own "enough to judge by" floor. Without
             // them a two-line scrap is refused for not being prose, when what
             // is actually wrong with it is that there are two lines of it.
-            if ((st.sentences === 0 && st.realWords >= 60)
+            // Paragraphs that teach outweigh both shape checks: math and
+            // formula-heavy material explains between its symbols.
+            if (((st.sentences === 0 && st.realWords >= 60)
                 || (st.letterShare < 0.55 && st.chars >= 300)
-                || (st.sentences > 0 && st.wordsPerSentence < 5 && st.realWords >= MATERIAL_MIN_WORDS)) {
+                || (st.sentences > 0 && st.wordsPerSentence < 5 && st.realWords >= MATERIAL_MIN_WORDS))
+                && !materialShape(text).explains) {
                 return {
                     code: 'not-prose',
                     title: "This doesn't read like study material",
@@ -2951,7 +2999,10 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             // and not counted against it: this is a reclassification, not a
             // bypass, and a worksheet that is still unsuitable is caught by
             // assessWorksheetMaterial's own checks on the next pass.
-            const looksLikeExercises = !worksheet && (verdict.code === 'not-prose' || verdict.code === 'mostly-numbers');
+            // Only offered when nothing in it explains: refused is not the same
+            // as exercises, and a document that teaches is never one.
+            const looksLikeExercises = !worksheet && (verdict.code === 'not-prose' || verdict.code === 'mostly-numbers')
+                && !materialShape(text).explains;
             if (looksLikeExercises) {
                 const ok = await uiConfirm(
                     verdict.title,
@@ -3079,6 +3130,26 @@ ${String(excerpt || '').slice(0, VERIFY_EXCERPT_CHARS)}
             // see assessWorksheetMaterial — since a page of terse exercises
             // fails every shape-of-prose check assessMaterial runs.
             buildStage('check', 'Checking your material');
+
+            // "Worksheet" reads as any sheet for school, a study sheet
+            // included, and on one of those worksheet mode makes a lesson of
+            // each exercise and drops the parts that teach them. Asked once
+            // per document, so the resume after sign-up does not ask again.
+            if (worksheet && worksheetAskedFor !== materialFingerprint(text) && materialShape(text).explains) {
+                hideMessage();
+                worksheetAskedFor = materialFingerprint(text);
+                const teach = await uiConfirm(
+                    'This document also explains',
+                    'Worksheet mode makes a lesson of every exercise and leaves out everything around them. '
+                    + 'This one has paragraphs that teach. Build the lessons from what it teaches, '
+                    + 'with its exercises as practice?',
+                    { confirmText: 'Teach the topics', cancelText: 'Only the exercises' });
+                if (teach) {
+                    setWorksheetMode(false);
+                    return processLearningMaterial(text, title, chosenName, structure, false);
+                }
+            }
+
             const verdict = worksheet ? assessWorksheetMaterial(text) : assessMaterial(text);
             if (verdict) {
                 const decision = await confirmUnsuitable(verdict, text, worksheet);
